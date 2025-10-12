@@ -20,109 +20,218 @@
 
   <!-- Chatbot script configuration -->
   <script>
-    const BOT_CFG = {
-      CSV_URL: "https://raw.githubusercontent.com/mnegm1/koha-csv/main/opac-catalog.csv",
-      
-      MAX_RESULTS: 5,
-      MIN_QUERY_LEN: 2,
-      THEME: { accent: "#3EA3DC", dark: "#BF9849" },
-      LANG: (document.documentElement.dir === "rtl" ||
-             document.documentElement.lang?.startsWith("ar")) ? "ar" : "en"
-    };
-  </script>
+/* Robust CSV chatbot (bilingual) — for mnegm1/koha-csv */
+const BOT_CFG = {
+  CSV_URL: "https://raw.githubusercontent.com/mnegm1/koha-csv/main/opac-catalog.csv",
+  KOHA_OPAC_BASE: "https://library.ecssr.ae",    // fallback if url column empty
+  MAX_RESULTS: 5,
+  MIN_QUERY_LEN: 2,
+  THEME: { accent: "#3EA3DC", dark: "#BF9849" },
+  LANG: (document.documentElement.dir === "rtl" ||
+         document.documentElement.lang?.startsWith("ar")) ? "ar" : "en"
+};
 
-  <!-- Chatbot core code -->
-  <script>
-  /* lightweight CSV chatbot – ChatGPT (for Dr. Negm) */
-  (async function(){
-    const res = await fetch(BOT_CFG.CSV_URL);
-    const csv = await res.text();
-    const lines = csv.split(/\r?\n/).filter(Boolean);
-    const header = lines.shift().split(",").map(h=>h.trim().toLowerCase());
-    const data = lines.map(l=>{
-      const cols = l.split(",");
-      const o={}; header.forEach((h,i)=>o[h]=cols[i]||""); return o;
-    });
-    function normalize(t){return (t||"").toLowerCase();}
-    function search(q){
-      q = normalize(q);
-      return data.filter(r=>{
-        return normalize(r.title).includes(q)
-            || normalize(r.author).includes(q)
-            || normalize(r.publisher).includes(q)
-            || normalize(r.summary).includes(q)
-            || normalize(r.year).includes(q);
-      }).slice(0,BOT_CFG.MAX_RESULTS);
+// ---------- Helpers (Arabic normalization + tokenization) ----------
+const AR = {
+  stripDia: s => s.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/g, ""),
+  norm: s => s.replace(/\u0640/g,"") /* tatweel */
+              .replace(/\u0629/g,"\u0647") /* ة->ه (loose) */
+              .replace(/\u064A/g,"\u0649") /* ي->ى (loose) */
+};
+function norm(s){
+  if(!s) return "";
+  const t = String(s).toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"");
+  return /[\u0600-\u06FF]/.test(t) ? AR.stripDia(AR.norm(t)) : t;
+}
+function toks(s){
+  return norm(s).split(/[^0-9\u0600-\u06FFa-zA-Z]+/).filter(Boolean);
+}
+
+// ---------- Robust CSV parser (quotes, commas, CRLF, BOM) ----------
+function parseCSV(text){
+  // strip BOM
+  if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const rows = [];
+  let i=0, cell="", inQ=false, row=[];
+  while(i < text.length){
+    const c = text[i++];
+    if(c === '"'){
+      if(inQ && text[i] === '"'){ cell+='"'; i++; }
+      else inQ = !inQ;
+    } else if(c === ',' && !inQ){
+      row.push(cell); cell="";
+    } else if((c === '\n' || c === '\r') && !inQ){
+      if(c === '\r' && text[i] === '\n') i++;
+      // push last cell in line
+      row.push(cell); cell="";
+      // skip blank rows
+      if(row.length && row.some(v => v !== "")) rows.push(row);
+      row=[];
+    } else {
+      cell += c;
     }
+  }
+  if(cell.length || row.length){ row.push(cell); rows.push(row); }
 
-    // --- UI ---
-    const s=document.createElement('style');
-    s.textContent=`
-      .bot-fab{position:fixed;right:20px;bottom:20px;background:${BOT_CFG.THEME.accent};
-        color:#fff;border:none;border-radius:50%;width:56px;height:56px;cursor:pointer;
-        font-size:24px;box-shadow:0 6px 12px rgba(0,0,0,0.25);}
-      .bot-box{position:fixed;right:20px;bottom:90px;width:360px;max-height:70vh;
-        background:#fff;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,0.2);
-        display:none;flex-direction:column;overflow:hidden;}
-      .bot-head{background:${BOT_CFG.THEME.dark};color:#fff;padding:10px 14px;
-        font-weight:600;display:flex;justify-content:space-between;align-items:center;}
-      .bot-body{flex:1;padding:10px;overflow:auto;font-size:14px;}
-      .bot-row{background:#f8f9fa;border-radius:10px;padding:8px;margin:6px 0;}
-      .bot-input{display:flex;padding:10px;background:#F3EFED;border-top:1px solid #ddd;}
-      .bot-input input{flex:1;padding:8px;border-radius:8px;border:1px solid #ccc;}
-      .bot-input button{background:${BOT_CFG.THEME.accent};color:#fff;border:none;
-        padding:8px 12px;border-radius:8px;margin-left:6px;font-weight:600;}
-      [dir="rtl"] .bot-fab{left:20px;right:auto}
-      [dir="rtl"] .bot-box{left:20px;right:auto}
-    `;
-    document.head.appendChild(s);
+  if(!rows.length) return [];
+  const header = rows.shift().map(h => h.trim().toLowerCase());
+  return rows.map(r=>{
+    const o={};
+    header.forEach((h,idx)=> o[h] = (r[idx] ?? "").trim());
+    return o;
+  });
+}
 
-    const fab=document.createElement('button');
-    fab.className='bot-fab'; fab.textContent='💬';
-    const box=document.createElement('div');
-    box.className='bot-box';
-    box.innerHTML=`
-      <div class="bot-head">
-        <span>${BOT_CFG.LANG==="ar"?"مساعد الفهرس":"Catalog Assistant"}</span>
-        <button style="background:none;border:none;color:#fff;font-size:20px;">×</button>
-      </div>
-      <div class="bot-body" id="bot-body"></div>
-      <div class="bot-input">
-        <input id="bot-q" type="text" placeholder="${BOT_CFG.LANG==="ar"?"ابحث في الفهرس…":"Search the catalog…"}">
-        <button id="bot-go">${BOT_CFG.LANG==="ar"?"بحث":"Search"}</button>
-      </div>`;
-    document.body.appendChild(fab);
-    document.body.appendChild(box);
+// ---------- Build index + scoring ----------
+const WEIGHTS = { title: 4, author: 3, summary: 1.5, publisher: 1, year: 2 };
+const STOP = new Set(["the","and","of","in","on","for","a","an","to","with","by","عن","في","على","من","و","الى"]);
 
-    const body=box.querySelector('#bot-body');
-    const inp=box.querySelector('#bot-q');
-    const btn=box.querySelector('#bot-go');
-    const close=box.querySelector('.bot-head button');
-    fab.onclick=()=>box.style.display=box.style.display==='flex'?'none':'flex';
-    close.onclick=()=>box.style.display='none';
-
-    function show(q){
-      const results = search(q);
-      body.innerHTML='';
-      if(!results.length){
-        body.innerHTML=`<div class="bot-row">${BOT_CFG.LANG==="ar"?"لا توجد نتائج":"No results found"}.</div>`;
-        return;
-      }
-      for(const r of results){
-        const link=r.url||`${BOT_CFG.KOHA_OPAC_BASE}/cgi-bin/koha/opac-search.pl?q=ti%3A"${encodeURIComponent(r.title)}"`;
-        const div=document.createElement('div');
-        div.className='bot-row';
-        div.innerHTML=`<b><a href="${link}" target="_blank">${r.title}</a></b><br>
-          ${(r.author?"👤 "+r.author+"<br>":"")+(r.publisher?"🏢 "+r.publisher+" ":"")}
-          ${(r.year?"📅 "+r.year:"")}
-          <div style="margin-top:4px;">${r.summary||""}</div>`;
-        body.appendChild(div);
-      }
+function buildIndex(recs){
+  return recs.map((r, i)=>({
+    id:i, raw:r,
+    tokens:{
+      title: toks(r.title||""),
+      author: toks(r.author||""),
+      summary: toks(r.summary||""),
+      publisher: toks(r.publisher||"")
+    },
+    n:{
+      title: norm(r.title||""),
+      summary: norm(r.summary||"")
     }
+  }));
+}
+function score(qTokens, rec){
+  let s=0;
+  const yearTok = qTokens.find(t=>/^\d{4}$/.test(t));
+  if(yearTok && String(rec.raw.year||"") === yearTok) s+=6;
+  for(const f of ["title","author","summary","publisher"]){
+    const w=WEIGHTS[f], F=rec.tokens[f]; if(!F.length) continue;
+    let hits=0;
+    for(const qt of qTokens){
+      if(STOP.has(qt)) continue;
+      if(F.includes(qt)) { hits+=1; continue; }
+      if(qt.length>=3 && F.some(t=>t.startsWith(qt))) hits+=0.6;
+    }
+    if(f==="title" && hits>0) hits*=1.2;
+    s += hits*w;
+  }
+  const phrase=qTokens.join(" ");
+  if(phrase && rec.n.title.includes(phrase)) s+=2.5;
+  if(phrase && rec.n.summary.includes(phrase)) s+=1.0;
+  return s;
+}
+function search(index, q, limit){
+  q = (q||"").trim();
+  if(q.length < BOT_CFG.MIN_QUERY_LEN) return [];
+  const authorFilter = /author:\s*"(.*?)"/i.exec(q)?.[1] || /author:\s*([^\s]+)/i.exec(q)?.[1];
+  const yearFilter = /year:\s*(\d{4})/i.exec(q)?.[1];
+  const cleaned = q.replace(/author:\s*".*?"/ig,"")
+                   .replace(/author:\s*[^\s]+/ig,"")
+                   .replace(/year:\s*\d{4}/ig,"").trim();
+  const qT = toks(cleaned);
+  const out=[];
+  for(const rec of index){
+    if(authorFilter){
+      if(!norm(rec.raw.author||"").includes(norm(authorFilter))) continue;
+    }
+    if(yearFilter && String(rec.raw.year||"") !== String(yearFilter)) continue;
+    const sc = score(qT, rec);
+    if(sc>0) out.push({sc, rec});
+  }
+  out.sort((a,b)=>b.sc-a.sc);
+  return out.slice(0, limit ?? BOT_CFG.MAX_RESULTS);
+}
 
-    btn.onclick=()=>{show(inp.value)};
-    inp.onkeydown=(e)=>{if(e.key==='Enter')show(inp.value)};
-  })();
-  </script>
+// ---------- UI ----------
+function ui(state){
+  const css=`
+  .csv-fab{position:fixed;right:20px;bottom:20px;background:${BOT_CFG.THEME.accent};color:#fff;border:none;
+    border-radius:50%;width:56px;height:56px;cursor:pointer;font-size:24px;box-shadow:0 6px 12px rgba(0,0,0,.25)}
+  .csv-box{position:fixed;right:20px;bottom:90px;width:min(420px,92vw);max-height:70vh;background:#fff;border-radius:14px;
+    box-shadow:0 12px 28px rgba(0,0,0,.25);display:none;overflow:hidden;border:1px solid #e8eef3}
+  .csv-head{background:${BOT_CFG.THEME.dark};color:#fff;padding:10px 14px;font-weight:600;display:flex;justify-content:space-between}
+  .csv-body{padding:10px;overflow:auto;max-height:56vh}
+  .csv-row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:10px;margin:8px 0}
+  .csv-meta{opacity:.8;font-size:12px;margin-top:6px}
+  .csv-input{display:flex;gap:8px;padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
+  .csv-input input{flex:1;padding:10px;border:1px solid #cfd9e3;border-radius:10px}
+  .csv-input button{background:${BOT_CFG.THEME.accent};color:#fff;border:none;padding:10px 14px;border-radius:10px;font-weight:600}
+  [dir="rtl"] .csv-fab{left:20px;right:auto} [dir="rtl"] .csv-box{left:20px;right:auto}
+  `;
+  const st=document.createElement("style"); st.textContent=css; document.head.appendChild(st);
+
+  const fab=document.createElement("button"); fab.className="csv-fab"; fab.textContent="💬";
+  const box=document.createElement("div"); box.className="csv-box";
+  box.innerHTML=`
+    <div class="csv-head">
+      <div>${BOT_CFG.LANG==="ar"?"مساعد الفهرس":"Catalog Assistant"}</div>
+      <button style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer">×</button>
+    </div>
+    <div class="csv-body" id="csv-body"><div class="csv-row">
+      ${BOT_CFG.LANG==="ar"
+        ?"اكتب عنوانًا أو اسم مؤلف أو سنة أو كلمات من الملخص. فلاتر: author:\"الاسم\"  year:2021"
+        :"Type a title, author, year, or summary keywords. Filters: author:\"name\"  year:2021"}
+    </div></div>
+    <div class="csv-input">
+      <input id="csv-q" type="text" placeholder="${BOT_CFG.LANG==="ar"?"ابحث في الفهرس…":"Search the catalog…"}">
+      <button id="csv-go">${BOT_CFG.LANG==="ar"?"بحث":"Search"}</button>
+    </div>`;
+  document.body.appendChild(fab); document.body.appendChild(box);
+  const body=box.querySelector("#csv-body"), input=box.querySelector("#csv-q"),
+        btn=box.querySelector("#csv-go"), close=box.querySelector(".csv-head button");
+  fab.onclick=()=> box.style.display = (box.style.display==="block"?"none":"block");
+  close.onclick=()=> box.style.display = "none";
+
+  function fallURL(title){
+    return `${BOT_CFG.KOHA_OPAC_BASE}/cgi-bin/koha/opac-search.pl?q=${encodeURIComponent(`ti="${title}"`)}`;
+  }
+  function render(items){
+    body.innerHTML="";
+    if(!items.length){ body.innerHTML=`<div class="csv-row">${BOT_CFG.LANG==="ar"?"لا توجد نتائج.":"No results found."}</div>`; return; }
+    for(const {rec} of items){
+      const r=rec.raw;
+      const url = r.url && /^https?:\/\//i.test(r.url) ? r.url : fallURL(r.title||"");
+      const div=document.createElement("div"); div.className="csv-row";
+      div.innerHTML = `
+        <div><b><a href="${url}" target="_blank" rel="noopener">${(r.title||"").replace(/</g,"&lt;")}</a></b></div>
+        <div class="csv-meta">
+          ${r.author? (BOT_CFG.LANG==="ar"?`المؤلف: ${r.author}`:`Author: ${r.author}`):""}
+          ${r.year?` • ${r.year}`:""} ${r.publisher?` • ${r.publisher}`:""}
+        </div>
+        ${r.summary? `<div style="margin-top:6px">${r.summary.length>280? r.summary.slice(0,277)+"…" : r.summary}</div>` : ""}
+      `;
+      body.appendChild(div);
+    }
+  }
+  function run(){ const q=input.value.trim(); if(q.length<BOT_CFG.MIN_QUERY_LEN) return; render(search(state.index,q,BOT_CFG.MAX_RESULTS)); }
+  btn.onclick=run; input.onkeydown=(e)=>{ if(e.key==="Enter") run(); };
+
+  // expose quick stats for debugging
+  window.CSV_BOT_STATS = ()=> ({records: state.records?.length||0, example: state.records?.slice(0,3)||[]});
+}
+
+const state={};
+fetch(BOT_CFG.CSV_URL,{cache:"reload"})
+  .then(r=>{ if(!r.ok) throw new Error(r.status); return r.text(); })
+  .then(text=>{
+    const recs = parseCSV(text).map(r=>({
+      title: r.title||r["ti"]||r["booktitle"]||"",
+      author: r.author||r["authors"]||"",
+      publisher: r.publisher||r["pub"]||"",
+      year: r.year||r["date"]||"",
+      summary: r.summary||r["abstract"]||"",
+      url: r.url||""
+    }));
+    state.records = recs;
+    state.index = buildIndex(recs);
+    console.info("CSV chatbot loaded", recs.length, "records");
+    ui(state);
+  })
+  .catch(err=>{
+    console.error("CSV load error:", err);
+    alert("Failed to load CSV. Check BOT_CFG.CSV_URL or GitHub visibility.");
+  });
+</script>
 </body>
 </html>
