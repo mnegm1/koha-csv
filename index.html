@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Koha ODS Chatbot</title>
+
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;padding:2rem}
     .fab{position:fixed;right:18px;bottom:18px;background:#3EA3DC;color:#fff;border:none;border-radius:50%;
@@ -20,6 +21,8 @@
     .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px}
     .btn{flex:0 0 auto;background:#3EA3DC;color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
   </style>
+
+  <!-- SheetJS loader (tries local copy first, then CDNs) -->
   <script>
   (function loadSheetJS(){
     const sources = [
@@ -85,8 +88,8 @@
     fab.onclick = () => box.style.display = (box.style.display==="flex" ? "none" : "flex");
     box.style.display = "flex"; Q.focus();
 
-    /* ===== Arabic normalization — presentation unification + deep normalization ===== */
-    const AR_RANGES = "\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF";
+    /* ===== Arabic normalization — with presentation-form unification ===== */
+    const AR_RANGES = "\\u0600-\\u06FF\\u0750-\\u077F\\u08A0-\\u08FF\\uFB50-\\uFDFF\\uFE70-\\uFEFF";
     const AR_TEST   = new RegExp("[" + AR_RANGES + "]");
     const SPLIT_RE  = new RegExp("[^0-9A-Za-z" + AR_RANGES + "]+", "g");
 
@@ -127,47 +130,35 @@
     function norm(s){
       if (!s) return "";
       let t = String(s).toLowerCase()
-        .normalize("NFKC")
-        .replace(/[\u0300-\u036f]/g, "");
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, "");     // strip Latin diacritics
       t = normalizeArabicForms(t);
-      t = t
-        .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
-        .replace(/[\u200c-\u200f\u202a-\u202e]/g,"")
-        .replace(/[إأآٱ]/g,"ا")
-        .replace(/[ىی]/g,"ي")
-        .replace(/ک/g,"ك")
-        .replace(/[ة]/g,"ه")
-        .replace(/[^0-9A-Za-z\u0600-\u06FF]+/g, " ");
-      return t.trim();
+      t = t.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")  // tashkīl + tatweel
+           .replace(/[\u200c-\u200f\u202a-\u202e]/g,"")                          // zero-width/bidi
+           .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك");
+      return t;
     }
-    function toks(s){ return norm(s).split(/\s+/).filter(Boolean); }
+    function toks(s){ return norm(s).split(SPLIT_RE).filter(Boolean); }
     function isArabic(s){ return AR_TEST.test(String(s||"")); }
     Q.addEventListener("input", ()=>{ Q.dir = isArabic(Q.value) ? "rtl" : "ltr"; });
 
     /* ===== Ranking / search ===== */
     const WEIGHTS={title:4,author:3,summary:1.5,content:1.5,publisher:1,year:2};
-    const EN_STOP = ["the","and","of","in","on","for","a","an","to","with","by"];
-    const AR_STOP_RAW = ["عن","في","على","من","و","الى"];
-    const AR_STOP = AR_STOP_RAW.map(norm);
-    const STOP=new Set([...EN_STOP, ...AR_STOP]);
+    const STOP=new Set(["the","and","of","in","on","for","a","an","to","with","by","عن","في","على","من","و","الى"]);
 
     function buildIndex(rows){
-      return rows.map((r,i)=>{
-        return {
-          id:i, raw:r, tokens:{
-            title:    toks(r.title),
-            author:   toks(r.author),
-            summary:  toks(r.summary),
-            content:  toks(r.content||""),
-            publisher:toks(r.publisher)
-          },
-          n:{
-            title:    norm(r.title),
-            summary:  norm(r.summary),
-            content:  norm(r.content||"")
-          }
-        };
-      });
+      return rows.map((r,i)=>({
+        id:i,
+        raw:r,
+        tokens:{
+          title:toks(r.title),author:toks(r.author),summary:toks(r.summary),
+          content:toks(r.content||""),publisher:toks(r.publisher)
+        },
+        n:{
+          title:norm(r.title),summary:norm(r.summary),content:norm(r.content||""),
+          all: norm([r.title,r.author,r.summary,r.content,r.publisher,r.year].join(" "))
+        }
+      }));
     }
 
     function score(qT,rec){
@@ -203,11 +194,29 @@
       return s;
     }
 
+    // NEW: brute-force fallback if ranked search returns nothing
+    function fallbackScan(idx, q, limit){
+      const nq = norm(q);
+      if (!nq) return [];
+      const terms = nq.split(/\s+/).filter(Boolean);
+      const out = [];
+      for (const rec of idx){
+        const hay = rec.n.all;
+        // AND-match all terms as substrings
+        if (terms.every(t => hay.includes(t))){
+          out.push({sc:1, rec});
+          if (out.length >= (limit||BOT_CFG.MAX_RESULTS)) break;
+        }
+      }
+      return out;
+    }
+
     function search(idx,q,lim){
       q=(q||"").trim(); if(q.length<BOT_CFG.MIN_QUERY_LEN) return [];
       const aF=/author:\s*"(.*?)"/i.exec(q)?.[1] || /author:\s*([^\s]+)/i.exec(q)?.[1];
       const yF=/year:\s*(\d{4})/i.exec(q)?.[1];
-      const qT=toks(q.replace(/author:\s*".*?"/ig,"").replace(/author:\s*[^\s]+/ig,"").replace(/year:\s*\d{4}/ig,""));
+      const cleaned=q.replace(/author:\s*".*?"/ig,"").replace(/author:\s*[^\s]+/ig,"").replace(/year:\s*\d{4}/ig,"");
+      const qT=toks(cleaned);
       const out=[];
       for(const rec of idx){
         if(aF && !norm(rec.raw.author).includes(norm(aF))) continue;
@@ -215,6 +224,7 @@
         const sc=score(qT,rec); if(sc>0) out.push({sc,rec});
       }
       out.sort((a,b)=>b.sc-a.sc);
+      if (out.length===0){ return fallbackScan(idx, cleaned, lim); } // << robust Arabic fallback
       return out.slice(0, lim??BOT_CFG.MAX_RESULTS);
     }
 
@@ -248,7 +258,7 @@
       return list;
     }
 
-    /* ===== Load ODS, map columns (EN + AR), index ===== */
+    /* ===== Load ODS, map your columns (EN + AR), index ===== */
     let INDEX=[];
     fetch(BOT_CFG.DATA_URL,{cache:"reload"})
       .then(r => { if(!r.ok) throw new Error("HTTP "+r.status); return r.arrayBuffer(); })
@@ -257,23 +267,26 @@
         const ws = wb.Sheets["catalog"] || wb.Sheets[wb.SheetNames[0]];
         if(!ws) throw new Error("No sheets in ODS");
         const raw = XLSX.utils.sheet_to_json(ws,{defval:"",raw:false});
+
         const records = raw.map(row=>{
           const k = {};
           for (const [h,v] of Object.entries(row)) k[String(h).trim().toLowerCase()] = v;
-          // generous field mapping: EN + AR + common variants
-          const title   = k["full title"] ?? k["العنوان"] ?? k["عنوان"] ?? k.title ?? "";
-          const author  = k["author"] ?? k["المؤلف"] ?? k["المؤلفون"] ?? k.author ?? "";
-          const summary = k["abstract"] ?? k["الملخص"] ?? k["ملخص"] ?? k.summary ?? "";
-          const content = k["content"] ?? k["المحتوى"] ?? k.content ?? "";
-          const pubdat  = k["publications data"] ?? k["بيانات النشر"] ?? k.publisher ?? "";
-          const url     = k["book_url"] ?? k["book url"] ?? k["رابط_الكتاب"] ?? k.url ?? "";
-          // derive publisher + year
+
+          // Your columns + Arabic variants
+          const title  = k["full title"] ?? k["العنوان"] ?? k.title ?? "";
+          const author = k["author"] ?? k["المؤلف"] ?? k["المؤلفون"] ?? "";
+          const summary= k["abstract"] ?? k["الملخص"] ?? "";
+          const content= k["content"] ?? k["المحتوى"] ?? "";
+          const pubdat = k["publications data"] ?? k["بيانات النشر"] ?? "";
+          const url    = k["book_url"] ?? k["book url"] ?? k["رابط_الكتاب"] ?? k.url ?? "";
+
           const yearMatch = String(pubdat).match(/(\d{4})/);
-          const year      = yearMatch ? yearMatch[1] : "";
+          const year  = yearMatch ? yearMatch[1] : "";
           const publisher = String(pubdat || "")
             .replace(/\b\d{4}\b/g,"")
             .replace(/\s*[.,;|-]\s*$/,"")
             .trim();
+
           return { title, author, summary, content, publisher, year, url };
         });
 
@@ -284,6 +297,7 @@
       })
       .catch(err => { console.error(err); setStatus("Chatbot init failed: "+err.message, true); });
 
+    // search handlers
     GO.onclick = () => {
       const q = Q.value.trim(); if(!q) return;
       const res = search(INDEX, q, BOT_CFG.MAX_RESULTS);
@@ -291,8 +305,6 @@
       B.appendChild(render(res));
     };
     Q.onkeydown = (e) => { if(e.key==="Enter") GO.click(); };
-    box.querySelector("#x").onclick = () => { box.style.display = "none"; fab.style.display = "block"; };
-    fab.onclick = () => { box.style.display = "flex"; fab.style.display = "none"; Q.focus(); };
   })();
   </script>
 </body>
