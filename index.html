@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Koha ODS Chatbot</title>
 
-  <!-- Style -->
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;padding:2rem}
     .fab{position:fixed;right:18px;bottom:18px;background:#3EA3DC;color:#fff;border:none;border-radius:50%;
@@ -27,8 +26,8 @@
   <script>
   (function loadSheetJS(){
     const sources = [
-      "/koha-csv/xlsx.full.min.js",                          // local copy in your repo
-      "https://mnegm1.github.io/koha-csv/xlsx.full.min.js",  // absolute local
+      "/koha-csv/xlsx.full.min.js",
+      "https://mnegm1.github.io/koha-csv/xlsx.full.min.js",
       "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.20.3/xlsx.full.min.js",
       "https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js",
       "https://unpkg.com/xlsx@0.20.3/dist/xlsx.full.min.js"
@@ -50,7 +49,6 @@
   <h2>Koha ODS Chatbot</h2>
   <p>This page loads the ODS catalog and adds the chat bubble 💬 automatically.</p>
 
-  <!-- Chatbot (starts only after XLSX is ready) -->
   <script>
   (function startWhenReady(){
     if (window.__XLSX_LOAD_ERROR__) {
@@ -62,15 +60,15 @@
     }
     if (!window.__XLSX_READY__) return setTimeout(startWhenReady, 150);
 
-    /* ========= CONFIG ========= */
+    /* ===== CONFIG ===== */
     const BOT_CFG = {
-      DATA_URL: "https://raw.githubusercontent.com/mnegm1/koha-csv/main/opac-catalog.ods",  // your ODS
-      KOHA_OPAC_BASE: "https://library.ecssr.ae",                                            // fallback search base
+      DATA_URL: "https://raw.githubusercontent.com/mnegm1/koha-csv/main/opac-catalog.ods",
+      KOHA_OPAC_BASE: "https://library.ecssr.ae",
       MAX_RESULTS: 8,
       MIN_QUERY_LEN: 2
     };
 
-    /* ========= Build visible UI first ========= */
+    /* ===== UI ===== */
     const fab=document.createElement("button"); fab.className="fab"; fab.textContent="💬";
     const box=document.createElement("div"); box.className="box";
     box.innerHTML=`
@@ -91,10 +89,14 @@
     fab.onclick = () => box.style.display = (box.style.display==="flex" ? "none" : "flex");
     box.style.display = "flex"; Q.focus();
 
-    /* ========= Arabic-aware normalization ========= */
+    /* ===== Arabic-aware normalization & tokenization (expanded ranges) ===== */
+    // Include Arabic Presentation Forms & supplements
+    const AR_RANGES = "\\u0600-\\u06FF\\u0750-\\u077F\\u08A0-\\u08FF\\uFB50-\\uFDFF\\uFE70-\\uFEFF";
+    const AR_TEST   = new RegExp("[" + AR_RANGES + "]");
+    const SPLIT_RE  = new RegExp("[^0-9A-Za-z" + AR_RANGES + "]+", "g");
+
     const AR = {
-      stripDia: s => s.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/g, ""),     // harakat
-      // remove tatweel + zero-width + normalize variants: أإآٱ→ا, ى/ی→ي, ک→ك
+      stripDia: s => s.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/g, ""),
       norm: s => s
         .replace(/\u0640/g, "")                                   // tatweel
         .replace(/[\u200c\u200d\u200e\u200f\u202a-\u202e]/g, "")  // zero-width & bidi
@@ -106,18 +108,19 @@
       if (!s) return "";
       const t = String(s).toLowerCase()
         .normalize("NFKD")
-        .replace(/[\u0300-\u036f]/g, "");          // strip Latin diacritics
-      return /[\u0600-\u06FF]/.test(t) ? AR.stripDia(AR.norm(t)) : t;
+        .replace(/[\u0300-\u036f]/g, "");                         // strip Latin diacritics
+      return AR_TEST.test(t) ? AR.stripDia(AR.norm(t)) : t;
     }
     function toks(s){
-      return norm(s).split(/[^0-9\u0600-\u06FFa-zA-Z]+/).filter(Boolean);
+      return norm(s).split(SPLIT_RE).filter(Boolean);
     }
-    function isArabic(s){ return /[\u0600-\u06FF]/.test(String(s||"")); }
+    function isArabic(s){ return AR_TEST.test(String(s||"")); }
     Q.addEventListener("input", ()=>{ Q.dir = isArabic(Q.value) ? "rtl" : "ltr"; });
 
-    /* ========= Ranking / search ========= */
+    /* ===== Ranking / search ===== */
     const WEIGHTS={title:4,author:3,summary:1.5,content:1.5,publisher:1,year:2};
     const STOP=new Set(["the","and","of","in","on","for","a","an","to","with","by","عن","في","على","من","و","الى"]);
+
     function buildIndex(rows){
       return rows.map((r,i)=>({id:i,raw:r,tokens:{
         title:toks(r.title),author:toks(r.author),summary:toks(r.summary),
@@ -125,10 +128,12 @@
         n:{title:norm(r.title),summary:norm(r.summary),content:norm(r.content||"")}
       }));
     }
+
     function score(qT,rec){
       let s=0;
       const y=qT.find(t=>/^\d{4}$/.test(t));
       if(y && String(rec.raw.year||"")===y) s+=6;
+
       for(const f of ["title","author","summary","content","publisher"]){
         const w=WEIGHTS[f], F=rec.tokens[f]||[]; if(!F.length) continue;
         let h=0;
@@ -140,6 +145,7 @@
         if(f==="title" && h>0) h*=1.2;
         s += h*w;
       }
+
       const phrase=qT.join(" ");
       if(phrase && rec.n.title.includes(phrase)) s+=2.5;
       if(phrase && rec.n.summary.includes(phrase)) s+=1.0;
@@ -155,6 +161,7 @@
       }
       return s;
     }
+
     function search(idx,q,lim){
       q=(q||"").trim(); if(q.length<BOT_CFG.MIN_QUERY_LEN) return [];
       const aF=/author:\s*"(.*?)"/i.exec(q)?.[1] || /author:\s*([^\s]+)/i.exec(q)?.[1];
@@ -200,7 +207,7 @@
       return list;
     }
 
-    /* ========= Load ODS, map your columns (EN + AR), index ========= */
+    /* ===== Load ODS, map your columns (EN + AR), index ===== */
     let INDEX=[];
     fetch(BOT_CFG.DATA_URL,{cache:"reload"})
       .then(r => { if(!r.ok) throw new Error("HTTP "+r.status); return r.arrayBuffer(); })
@@ -235,7 +242,6 @@
 
         INDEX = buildIndex(records);
         setStatus(`Loaded ${records.length} records`);
-        // show sample to make the panel look alive
         const sample = render(records.slice(0,3).map((r,i)=>({rec:{raw:r},sc:1})));
         B.appendChild(sample);
       })
