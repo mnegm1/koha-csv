@@ -5,11 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Koha ODS Chatbot</title>
 
-  <!-- SheetJS for ODS parsing (with fallback) -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js"
-          onerror="var s=document.createElement('script');s.src='https://unpkg.com/xlsx@0.20.3/dist/xlsx.full.min.js';document.head.appendChild(s);">
-  </script>
-
+  <!-- 0) Style (minimal) -->
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;padding:2rem}
     .fab{position:fixed;right:18px;bottom:18px;background:#3EA3DC;color:#fff;border:none;border-radius:50%;
@@ -23,109 +19,127 @@
     .input{display:flex;gap:8px;padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
     .input input{flex:1;padding:10px;border-radius:10px;border:1px solid #cfd9e3}
     .input button{background:#3EA3DC;color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600}
-    .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px;margin-top:10px}
+    .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px}
   </style>
+
+  <!-- 1) Multi-source loader for SheetJS (tries local, then CDNs) -->
+  <script>
+  (function loadSheetJS(){
+    const sources = [
+      "/koha-csv/xlsx.full.min.js",                          // local (preferred)
+      "https://mnegm1.github.io/koha-csv/xlsx.full.min.js",  // absolute local
+      "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.20.3/xlsx.full.min.js",
+      "https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js",
+      "https://unpkg.com/xlsx@0.20.3/dist/xlsx.full.min.js"
+    ];
+    let i = 0;
+    function tryNext(){
+      if (i >= sources.length) { window.__XLSX_LOAD_ERROR__ = "All sources failed"; return; }
+      const s = document.createElement("script");
+      s.src = sources[i++]; s.async = true;
+      s.onload  = () => { window.__XLSX_READY__ = true; };
+      s.onerror = tryNext;
+      document.head.appendChild(s);
+    }
+    tryNext();
+  })();
+  </script>
 </head>
 <body>
   <h2>Koha ODS Chatbot</h2>
   <p>This page loads the ODS catalog and adds the chat bubble 💬 automatically.</p>
 
+  <!-- 2) Chatbot (starts only after XLSX is ready) -->
   <script>
-  // ---- CONFIG (edit only DATA_URL and KOHA_OPAC_BASE) ----
-  const BOT_CFG = {
-    DATA_URL: "https://raw.githubusercontent.com/mnegm1/koha-csv/main/opac-catalog.ods",
-    MAX_RESULTS: 5,
-    MIN_QUERY_LEN: 2,
-    ACCENT: "#3EA3DC",
-    DARK:   "#BF9849"
-  };
-
-  // ---- Build UI FIRST so you can see it immediately ----
-  const fab=document.createElement("button"); fab.className="fab"; fab.textContent="💬";
-  const box=document.createElement("div"); box.className="box";
-  box.innerHTML=`
-    <div class="head">
-      <div>Catalog Assistant</div>
-      <button id="x" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer">×</button>
-    </div>
-    <div class="body" id="body">
-      <div class="row" id="status">Loading catalog…</div>
-      <div class="row">Type title, author, year, or summary keywords. Filters: author:"name"  year:2021</div>
-    </div>
-    <div class="input">
-      <input id="q" type="text" placeholder="Search the catalog…">
-      <button id="go">Search</button>
-    </div>`;
-  document.body.appendChild(fab); document.body.appendChild(box);
-  const B = box.querySelector("#body"), Q = box.querySelector("#q"), GO = box.querySelector("#go");
-  document.querySelector(".head").style.backgroundColor = BOT_CFG.DARK;
-  document.querySelector(".fab").style.backgroundColor = BOT_CFG.ACCENT;
-
-  fab.onclick = () => box.style.display = (box.style.display==="flex" ? "none" : "flex");
-  box.style.display = "flex"; Q.focus(); // auto-open
-
-  // ---- Helpers (Arabic-aware) ----
-  const AR = { stripDia:s=>s.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/g,""),
-               norm:s=>s.replace(/\u0640/g,"").replace(/\u0629/g,"\u0647").replace(/\u064A/g,"\u0649") };
-  function norm(s){ if(!s) return ""; const t=String(s).toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"");
-    return /[\u0600-\u06FF]/.test(t) ? AR.stripDia(AR.norm(t)) : t; }
-  function toks(s){ return norm(s).split(/[^0-9\u0600-\u06FFa-zA-Z]+/).filter(Boolean); }
-
-  const WEIGHTS={title:4,author:3,summary:1.5,publisher:1,year:2};
-  const STOP=new Set(["the","and","of","in","on","for","a","an","to","with","by","عن","في","على","من","و","الى"]);
-  function buildIndex(rows){return rows.map((r,i)=>({id:i,raw:r,tokens:{
-    title:toks(r.title),author:toks(r.author),summary:toks(r.summary),publisher:toks(r.publisher)},
-    n:{title:norm(r.title),summary:norm(r.summary)}}));}
-  function score(qT,rec){let s=0;const y=qT.find(t=>/^\d{4}$/.test(t)); if(y && String(rec.raw.year||"")===y) s+=6;
-    for(const f of["title","author","summary","publisher"]){const w=WEIGHTS[f],F=rec.tokens[f]; if(!F.length) continue;
-      let h=0; for(const qt of qT){ if(STOP.has(qt)) continue;
-        if(F.includes(qt)) h+=1; else if(qt.length>=3 && F.some(t=>t.startsWith(qt))) h+=0.6; }
-      if(f==="title" && h>0) h*=1.2; s += h*w; }
-    const phrase=qT.join(" "); if(phrase && rec.n.title.includes(phrase)) s+=2.5;
-    if(phrase && rec.n.summary.includes(phrase)) s+=1.0; return s; }
-  function search(idx,q,lim){ q=(q||"").trim(); if(q.length<BOT_CFG.MIN_QUERY_LEN) return [];
-    const aF=/author:\s*"(.*?)"/i.exec(q)?.[1] || /author:\s*([^\s]+)/i.exec(q)?.[1];
-    const yF=/year:\s*(\d{4})/i.exec(q)?.[1];
-    const qT=toks(q.replace(/author:\s*".*?"/ig,"").replace(/author:\s*[^\s]+/ig,"").replace(/year:\s*\d{4}/ig,""));
-    const out=[]; for(const rec of idx){ if(aF && !norm(rec.raw.author).includes(norm(aF))) continue;
-      if(yF && String(rec.raw.year||"")!==String(yF)) continue; const sc=score(qT,rec); if(sc>0) out.push({sc,rec}); }
-    out.sort((a,b)=>b.sc-a.sc); return out.slice(0, lim ?? BOT_CFG.MAX_RESULTS); }
-  function fallbackURL(title){
-    return `${BOT_CFG.KOHA_OPAC_BASE}/cgi-bin/koha/opac-search.pl?q=${encodeURIComponent(`ti="${title}"`)}`;
-  }
-  function render(items){
-    const list = document.createElement("div");
-    if(!items.length){ list.innerHTML=`<div class="row">No results found.</div>`; return list; }
-    for(const {rec} of items){
-      const r=rec.raw;
-      const url = r.url && /^https?:\/\//i.test(r.url) ? r.url : fallbackURL(r.title||"");
-      const div=document.createElement("div"); div.className="row";
-      div.innerHTML = `
-        <div><b><a href="${url}" target="_blank" rel="noopener">${(r.title||"").replace(/</g,"&lt;")}</a></b></div>
-        <div class="meta">${r.author?`Author: ${r.author}`:""} ${r.year?` • ${r.year}`:""} ${r.publisher?` • ${r.publisher}`:""}</div>
-        ${r.summary? `<div style="margin-top:6px">${r.summary.length>280? r.summary.slice(0,277)+"…" : r.summary}</div>` : ""}
-      `;
-      list.appendChild(div);
+  (function startWhenReady(){
+    if (window.__XLSX_LOAD_ERROR__) {
+      // Show inline error and stop
+      const pre = document.createElement("div");
+      pre.className = "error";
+      pre.textContent = "Failed to load XLSX library.";
+      document.body.appendChild(pre);
+      return;
     }
-    return list;
-  }
+    if (!window.__XLSX_READY__) return setTimeout(startWhenReady, 150);
 
-  // ---- Load ODS after UI is visible ----
-  let INDEX = [];
-  function setStatus(msg, isErr=false){
-    const s = document.getElementById("status");
-    if(!s) return;
-    s.className = isErr ? "row error" : "row";
-    s.textContent = msg;
-  }
+    // ---- CONFIG (edit DATA_URL / KOHA_OPAC_BASE only) ----
+    const BOT_CFG = {
+      DATA_URL: "https://raw.githubusercontent.com/mnegm1/koha-csv/main/opac-catalog.ods",
+      MAX_RESULTS: 5, MIN_QUERY_LEN: 2
+    };
 
-  function waitForXLSX(tries=0){
-    if (window.XLSX) return boot();
-    if (tries>40) { setStatus("Failed to load XLSX library.", true); return; }
-    setTimeout(()=>waitForXLSX(tries+1), 150);
-  }
+    // ---- Build visible UI immediately ----
+    const fab=document.createElement("button"); fab.className="fab"; fab.textContent="💬";
+    const box=document.createElement("div"); box.className="box";
+    box.innerHTML=`
+      <div class="head">
+        <div>Catalog Assistant</div>
+        <button id="x" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer">×</button>
+      </div>
+      <div class="body" id="body">
+        <div class="row" id="status">Loading catalog…</div>
+        <div class="row">Type title, author, year, or summary keywords. Filters: author:"name"  year:2021</div>
+      </div>
+      <div class="input">
+        <input id="q" type="text" placeholder="Search the catalog…">
+        <button id="go">Search</button>
+      </div>`;
+    document.body.appendChild(fab); document.body.appendChild(box);
+    const B = box.querySelector("#body"), Q = box.querySelector("#q"), GO = box.querySelector("#go");
+    fab.onclick = () => box.style.display = (box.style.display==="flex" ? "none" : "flex");
+    box.style.display = "flex"; Q.focus();
 
-  function boot(){
+    // ---- Helpers (Arabic-aware) ----
+    const AR = { stripDia:s=>s.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/g,""),
+                 norm:s=>s.replace(/\u0640/g,"").replace(/\u0629/g,"\u0647").replace(/\u064A/g,"\u0649") };
+    function norm(s){ if(!s) return ""; const t=String(s).toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"");
+      return /[\u0600-\u06FF]/.test(t) ? AR.stripDia(AR.norm(t)) : t; }
+    function toks(s){ return norm(s).split(/[^0-9\u0600-\u06FFa-zA-Z]+/).filter(Boolean); }
+
+    const WEIGHTS={title:4,author:3,summary:1.5,publisher:1,year:2};
+    const STOP=new Set(["the","and","of","in","on","for","a","an","to","with","by","عن","في","على","من","و","الى"]);
+    function buildIndex(rows){return rows.map((r,i)=>({id:i,raw:r,tokens:{
+      title:toks(r.title),author:toks(r.author),summary:toks(r.summary),publisher:toks(r.publisher)},
+      n:{title:norm(r.title),summary:norm(r.summary)}}));}
+    function score(qT,rec){let s=0;const y=qT.find(t=>/^\d{4}$/.test(t)); if(y && String(rec.raw.year||"")===y) s+=6;
+      for(const f of["title","author","summary","publisher"]){const w=WEIGHTS[f],F=rec.tokens[f]; if(!F.length) continue;
+        let h=0; for(const qt of qT){ if(STOP.has(qt)) continue;
+          if(F.includes(qt)) h+=1; else if(qt.length>=3 && F.some(t=>t.startsWith(qt))) h+=0.6; }
+        if(f==="title" && h>0) h*=1.2; s += h*w; }
+      const phrase=qT.join(" "); if(phrase && rec.n.title.includes(phrase)) s+=2.5;
+      if(phrase && rec.n.summary.includes(phrase)) s+=1.0; return s; }
+    function search(idx,q,lim){ q=(q||"").trim(); if(q.length<BOT_CFG.MIN_QUERY_LEN) return [];
+      const aF=/author:\s*"(.*?)"/i.exec(q)?.[1] || /author:\s*([^\s]+)/i.exec(q)?.[1];
+      const yF=/year:\s*(\d{4})/i.exec(q)?.[1];
+      const qT=toks(q.replace(/author:\s*".*?"/ig,"").replace(/author:\s*[^\s]+/ig,"").replace(/year:\s*\d{4}/ig,""));
+      const out=[]; for(const rec of idx){ if(aF && !norm(rec.raw.author).includes(norm(aF))) continue;
+        if(yF && String(rec.raw.year||"")!==String(yF)) continue; const sc=score(qT,rec); if(sc>0) out.push({sc,rec}); }
+      out.sort((a,b)=>b.sc-a.sc); return out.slice(0, lim ?? BOT_CFG.MAX_RESULTS); }
+    function kohaURL(title){
+      return `${BOT_CFG.KOHA_OPAC_BASE}/cgi-bin/koha/opac-search.pl?q=${encodeURIComponent(`ti="${title}"`)}`;
+    }
+    function render(items){
+      const list=document.createElement("div");
+      if(!items.length){ list.innerHTML=`<div class="row">No results found.</div>`; return list; }
+      for(const {rec} of items){
+        const r=rec.raw;
+        const url = r.url && /^https?:\/\//i.test(r.url) ? r.url : kohaURL(r.title||"");
+        const div=document.createElement("div"); div.className="row";
+        div.innerHTML=`
+          <div><b><a href="${url}" target="_blank" rel="noopener">${(r.title||"").replace(/</g,"&lt;")}</a></b></div>
+          <div class="meta">${r.author?`Author: ${r.author}`:""} ${r.year?` • ${r.year}`:""} ${r.publisher?` • ${r.publisher}`:""}</div>
+          ${r.summary? `<div style="margin-top:6px">${r.summary.length>280? r.summary.slice(0,277)+"…" : r.summary}</div>` : ""}
+        `;
+        list.appendChild(div);
+      }
+      return list;
+    }
+
+    // ---- Load ODS and index it ----
+    let INDEX = [];
+    function setStatus(msg, err){ const el=document.getElementById("status"); if(!el) return;
+      el.className = err ? "row error" : "row"; el.textContent = msg; }
+
     fetch(BOT_CFG.DATA_URL,{cache:"reload"})
       .then(r => { if(!r.ok) throw new Error("HTTP "+r.status); return r.arrayBuffer(); })
       .then(buf => {
@@ -145,26 +159,18 @@
         });
         INDEX = buildIndex(rows);
         setStatus(`Loaded ${rows.length} records`);
-        console.log("Chatbot index size:", rows.length);
       })
-      .catch(err => {
-        console.error(err);
-        setStatus("Chatbot init failed: "+err.message, true);
-      });
-  }
+      .catch(err => { console.error(err); setStatus("Chatbot init failed: "+err.message, true); });
 
-  // search handlers
-  GO.onclick = () => {
-    const q = Q.value.trim(); if(!q) return;
-    const res = search(INDEX, q, BOT_CFG.MAX_RESULTS);
-    // remove old results (keep status, then append)
-    while (B.children.length > 1) B.removeChild(B.lastChild);
-    B.appendChild(render(res));
-  };
-  Q.onkeydown = (e) => { if(e.key==="Enter") GO.click(); };
-
-  // start loading SheetJS + data
-  waitForXLSX();
+    // ---- Search handlers ----
+    GO.onclick = () => {
+      const q = Q.value.trim(); if(!q) return;
+      const res = search(INDEX, q, BOT_CFG.MAX_RESULTS);
+      while (B.children.length > 1) B.removeChild(B.lastChild); // keep status row
+      B.appendChild(render(res));
+    };
+    Q.onkeydown = (e) => { if(e.key==="Enter") GO.click(); };
+  })();
   </script>
 </body>
 </html>
