@@ -5,158 +5,167 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Koha ODS Chatbot</title>
 
-  <!-- 1) ODS parser (SheetJS) + fallback -->
+  <!-- SheetJS for ODS parsing (with fallback) -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js"
           onerror="var s=document.createElement('script');s.src='https://unpkg.com/xlsx@0.20.3/dist/xlsx.full.min.js';document.head.appendChild(s);">
   </script>
 
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; background:#F3EFED; padding:2rem}
-    .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;padding:2rem}
+    .fab{position:fixed;right:18px;bottom:18px;background:#3EA3DC;color:#fff;border:none;border-radius:50%;
+         width:56px;height:56px;font-size:24px;cursor:pointer;box-shadow:0 8px 20px rgba(0,0,0,.25);z-index:9999}
+    .box{position:fixed;right:18px;bottom:86px;width:min(420px,92vw);max-height:70vh;background:#fff;border-radius:14px;
+         border:1px solid #e8eef3;box-shadow:0 16px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;z-index:9999}
+    .head{background:#BF9849;color:#fff;padding:10px 14px;font-weight:600;display:flex;justify-content:space-between}
+    .body{padding:10px;overflow:auto;max-height:56vh;font-size:14px}
+    .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:10px;margin:8px 0}
+    .meta{opacity:.8;font-size:12px;margin-top:6px}
+    .input{display:flex;gap:8px;padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
+    .input input{flex:1;padding:10px;border-radius:10px;border:1px solid #cfd9e3}
+    .input button{background:#3EA3DC;color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600}
+    .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px;margin-top:10px}
   </style>
 </head>
 <body>
   <h2>Koha ODS Chatbot</h2>
   <p>This page loads the ODS catalog and adds the chat bubble 💬 automatically.</p>
 
-  <!-- 2) Chatbot code -->
   <script>
-  (function startWhenReady(){
-    if (!window.XLSX) { return setTimeout(startWhenReady, 150); } // wait for SheetJS fallback
-    const BOT_CFG = {
-      DATA_URL: "https://raw.githubusercontent.com/mnegm1/koha-csv/main/opac-catalog.ods", // <-- your .ods
-      MAX_RESULTS: 5, MIN_QUERY_LEN: 2,
-      THEME: { accent:"#3EA3DC", dark:"#BF9849" },
-      LANG: (document.documentElement.dir==="rtl"||document.documentElement.lang?.startsWith("ar"))?"ar":"en"
-    };
+  // ---- CONFIG (edit only DATA_URL and KOHA_OPAC_BASE) ----
+  const BOT_CFG = {
+    DATA_URL: "https://raw.githubusercontent.com/mnegm1/koha-csv/main/opac-catalog.ods",
+    KOHA_OPAC_BASE: "https://library.ecssr.ae",
+    MAX_RESULTS: 5,
+    MIN_QUERY_LEN: 2,
+    ACCENT: "#3EA3DC",
+    DARK:   "#BF9849"
+  };
 
-    // --- helpers (Arabic-aware) ---
-    const AR={stripDia:s=>s.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/g,""),
-              norm:s=>s.replace(/\u0640/g,"").replace(/\u0629/g,"\u0647").replace(/\u064A/g,"\u0649")};
-    function norm(s){ if(!s) return ""; const t=String(s).toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"");
-      return /[\u0600-\u06FF]/.test(t)? AR.stripDia(AR.norm(t)) : t; }
-    function toks(s){ return norm(s).split(/[^0-9\u0600-\u06FFa-zA-Z]+/).filter(Boolean); }
+  // ---- Build UI FIRST so you can see it immediately ----
+  const fab=document.createElement("button"); fab.className="fab"; fab.textContent="💬";
+  const box=document.createElement("div"); box.className="box";
+  box.innerHTML=`
+    <div class="head">
+      <div>Catalog Assistant</div>
+      <button id="x" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer">×</button>
+    </div>
+    <div class="body" id="body">
+      <div class="row" id="status">Loading catalog…</div>
+      <div class="row">Type title, author, year, or summary keywords. Filters: author:"name"  year:2021</div>
+    </div>
+    <div class="input">
+      <input id="q" type="text" placeholder="Search the catalog…">
+      <button id="go">Search</button>
+    </div>`;
+  document.body.appendChild(fab); document.body.appendChild(box);
+  const B = box.querySelector("#body"), Q = box.querySelector("#q"), GO = box.querySelector("#go");
+  document.querySelector(".head").style.backgroundColor = BOT_CFG.DARK;
+  document.querySelector(".fab").style.backgroundColor = BOT_CFG.ACCENT;
 
-    async function loadODS(url){
-      const r = await fetch(url, {cache:"reload"});
-      if(!r.ok) throw new Error("ODS fetch failed: HTTP "+r.status);
-      const b = await r.arrayBuffer();
-      const wb = XLSX.read(b,{type:"array"});                 // SheetJS present here
-      const ws = wb.Sheets["catalog"] || wb.Sheets[wb.SheetNames[0]];
-      if(!ws) throw new Error("No sheets in ODS");
-      const rows = XLSX.utils.sheet_to_json(ws,{defval:"",raw:false});
-      return rows.map(r=>{
-        const k = Object.fromEntries(Object.entries(r).map(([h,v])=>[String(h).trim().toLowerCase(), v]));
-        return {
-          title:     k.title     ?? k.ti       ?? k.booktitle ?? "",
-          author:    k.author    ?? k.authors  ?? "",
-          publisher: k.publisher ?? k.pub      ?? "",
-          year:      k.year      ?? k.date     ?? "",
-          summary:   k.summary   ?? k.abstract ?? "",
-          url:       k.url       ?? ""
-        };
-      });
+  fab.onclick = () => box.style.display = (box.style.display==="flex" ? "none" : "flex");
+  box.style.display = "flex"; Q.focus(); // auto-open
+
+  // ---- Helpers (Arabic-aware) ----
+  const AR = { stripDia:s=>s.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/g,""),
+               norm:s=>s.replace(/\u0640/g,"").replace(/\u0629/g,"\u0647").replace(/\u064A/g,"\u0649") };
+  function norm(s){ if(!s) return ""; const t=String(s).toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"");
+    return /[\u0600-\u06FF]/.test(t) ? AR.stripDia(AR.norm(t)) : t; }
+  function toks(s){ return norm(s).split(/[^0-9\u0600-\u06FFa-zA-Z]+/).filter(Boolean); }
+
+  const WEIGHTS={title:4,author:3,summary:1.5,publisher:1,year:2};
+  const STOP=new Set(["the","and","of","in","on","for","a","an","to","with","by","عن","في","على","من","و","الى"]);
+  function buildIndex(rows){return rows.map((r,i)=>({id:i,raw:r,tokens:{
+    title:toks(r.title),author:toks(r.author),summary:toks(r.summary),publisher:toks(r.publisher)},
+    n:{title:norm(r.title),summary:norm(r.summary)}}));}
+  function score(qT,rec){let s=0;const y=qT.find(t=>/^\d{4}$/.test(t)); if(y && String(rec.raw.year||"")===y) s+=6;
+    for(const f of["title","author","summary","publisher"]){const w=WEIGHTS[f],F=rec.tokens[f]; if(!F.length) continue;
+      let h=0; for(const qt of qT){ if(STOP.has(qt)) continue;
+        if(F.includes(qt)) h+=1; else if(qt.length>=3 && F.some(t=>t.startsWith(qt))) h+=0.6; }
+      if(f==="title" && h>0) h*=1.2; s += h*w; }
+    const phrase=qT.join(" "); if(phrase && rec.n.title.includes(phrase)) s+=2.5;
+    if(phrase && rec.n.summary.includes(phrase)) s+=1.0; return s; }
+  function search(idx,q,lim){ q=(q||"").trim(); if(q.length<BOT_CFG.MIN_QUERY_LEN) return [];
+    const aF=/author:\s*"(.*?)"/i.exec(q)?.[1] || /author:\s*([^\s]+)/i.exec(q)?.[1];
+    const yF=/year:\s*(\d{4})/i.exec(q)?.[1];
+    const qT=toks(q.replace(/author:\s*".*?"/ig,"").replace(/author:\s*[^\s]+/ig,"").replace(/year:\s*\d{4}/ig,""));
+    const out=[]; for(const rec of idx){ if(aF && !norm(rec.raw.author).includes(norm(aF))) continue;
+      if(yF && String(rec.raw.year||"")!==String(yF)) continue; const sc=score(qT,rec); if(sc>0) out.push({sc,rec}); }
+    out.sort((a,b)=>b.sc-a.sc); return out.slice(0, lim ?? BOT_CFG.MAX_RESULTS); }
+  function fallbackURL(title){
+    return `${BOT_CFG.KOHA_OPAC_BASE}/cgi-bin/koha/opac-search.pl?q=${encodeURIComponent(`ti="${title}"`)}`;
+  }
+  function render(items){
+    const list = document.createElement("div");
+    if(!items.length){ list.innerHTML=`<div class="row">No results found.</div>`; return list; }
+    for(const {rec} of items){
+      const r=rec.raw;
+      const url = r.url && /^https?:\/\//i.test(r.url) ? r.url : fallbackURL(r.title||"");
+      const div=document.createElement("div"); div.className="row";
+      div.innerHTML = `
+        <div><b><a href="${url}" target="_blank" rel="noopener">${(r.title||"").replace(/</g,"&lt;")}</a></b></div>
+        <div class="meta">${r.author?`Author: ${r.author}`:""} ${r.year?` • ${r.year}`:""} ${r.publisher?` • ${r.publisher}`:""}</div>
+        ${r.summary? `<div style="margin-top:6px">${r.summary.length>280? r.summary.slice(0,277)+"…" : r.summary}</div>` : ""}
+      `;
+      list.appendChild(div);
     }
+    return list;
+  }
 
-    const WEIGHTS={title:4,author:3,summary:1.5,publisher:1,year:2};
-    const STOP=new Set(["the","and","of","in","on","for","a","an","to","with","by","عن","في","على","من","و","الى"]);
-    function buildIndex(rows){return rows.map((r,i)=>({id:i,raw:r,tokens:{
-      title:toks(r.title),author:toks(r.author),summary:toks(r.summary),publisher:toks(r.publisher)},
-      n:{title:norm(r.title),summary:norm(r.summary)}}));}
-    function score(qT,rec){let s=0;const y=qT.find(t=>/^\d{4}$/.test(t)); if(y && String(rec.raw.year||"")===y) s+=6;
-      for(const f of["title","author","summary","publisher"]){const w=WEIGHTS[f],F=rec.tokens[f]; if(!F.length) continue;
-        let h=0; for(const qt of qT){ if(STOP.has(qt)) continue;
-          if(F.includes(qt)) h+=1; else if(qt.length>=3 && F.some(t=>t.startsWith(qt))) h+=0.6; }
-        if(f==="title" && h>0) h*=1.2; s += h*w; }
-      const phrase=qT.join(" "); if(phrase && rec.n.title.includes(phrase)) s+=2.5;
-      if(phrase && rec.n.summary.includes(phrase)) s+=1.0; return s; }
-    function search(idx,q,lim){q=(q||"").trim(); if(q.length<BOT_CFG.MIN_QUERY_LEN) return [];
-      const aF=/author:\s*"(.*?)"/i.exec(q)?.[1] || /author:\s*([^\s]+)/i.exec(q)?.[1];
-      const yF=/year:\s*(\d{4})/i.exec(q)?.[1];
-      const qT=toks(q.replace(/author:\s*".*?"/ig,"").replace(/author:\s*[^\s]+/ig,"").replace(/year:\s*\d{4}/ig,""));
-      const out=[]; for(const rec of idx){ if(aF && !norm(rec.raw.author).includes(norm(aF))) continue;
-        if(yF && String(rec.raw.year||"")!==String(yF)) continue; const sc=score(qT,rec); if(sc>0) out.push({sc,rec}); }
-      out.sort((a,b)=>b.sc-a.sc); return out.slice(0, lim ?? BOT_CFG.MAX_RESULTS); }
+  // ---- Load ODS after UI is visible ----
+  let INDEX = [];
+  function setStatus(msg, isErr=false){
+    const s = document.getElementById("status");
+    if(!s) return;
+    s.className = isErr ? "row error" : "row";
+    s.textContent = msg;
+  }
 
-    function mountUI(state){
-      const css=`
-      .fab{position:fixed;right:18px;bottom:18px;background:${BOT_CFG.THEME.accent};color:#fff;border:none;border-radius:50%;
-        width:56px;height:56px;font-size:24px;cursor:pointer;box-shadow:0 8px 20px rgba(0,0,0,.25);z-index:9999}
-      .box{position:fixed;right:18px;bottom:86px;width:min(420px,92vw);max-height:70vh;background:#fff;border-radius:14px;
-        border:1px solid #e8eef3;box-shadow:0 16px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;z-index:9999}
-      .head{background:${BOT_CFG.THEME.dark};color:#fff;padding:10px 14px;font-weight:600;display:flex;justify-content:space-between}
-      .body{padding:10px;overflow:auto;max-height:56vh;font-size:14px}
-      .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:10px;margin:8px 0}
-      .meta{opacity:.8;font-size:12px;margin-top:6px}
-      .input{display:flex;gap:8px;padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
-      .input input{flex:1;padding:10px;border-radius:10px;border:1px solid #cfd9e3}
-      .input button{background:${BOT_CFG.THEME.accent};color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600}
-      .banner{position:fixed;left:0;right:0;top:0;background:#fffbe6;border-bottom:1px solid #eedc82;padding:8px 12px;font:14px/1.3 system-ui;z-index:9998}
-      `; const st=document.createElement("style"); st.textContent=css; document.head.appendChild(st);
+  function waitForXLSX(tries=0){
+    if (window.XLSX) return boot();
+    if (tries>40) { setStatus("Failed to load XLSX library.", true); return; }
+    setTimeout(()=>waitForXLSX(tries+1), 150);
+  }
 
-      const banner=document.createElement("div"); banner.className="banner";
-      banner.textContent=`Bot loaded: ${state.rows.length} records`; document.body.appendChild(banner);
-
-      const fab=document.createElement("button"); fab.className="fab"; fab.textContent="💬";
-      const box=document.createElement("div"); box.className="box";
-      box.innerHTML=`
-        <div class="head">
-          <div>${BOT_CFG.LANG==="ar"?"مساعد الفهرس":"Catalog Assistant"}</div>
-          <button style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer">×</button>
-        </div>
-        <div class="body" id="body"><div class="row">
-          ${BOT_CFG.LANG==="ar" ? 'اكتب عنوانًا أو مؤلفًا أو سنة أو كلمات من الملخص. فلاتر: author:"الاسم"  year:2021'
-                                 : 'Type a title, author, year, or summary keywords. Filters: author:"name"  year:2021'}
-        </div></div>
-        <div class="input">
-          <input id="q" type="text" placeholder="${BOT_CFG.LANG==="ar"?"ابحث في الفهرس…":"Search the catalog…"}">
-          <button id="go">${BOT_CFG.LANG==="ar"?"بحث":"Search"}</button>
-        </div>`;
-      document.body.appendChild(fab); document.body.appendChild(box);
-
-      const body=box.querySelector("#body"), q=box.querySelector("#q"),
-            go=box.querySelector("#go"), close=box.querySelector(".head button");
-      fab.onclick=()=> box.style.display = (box.style.display==="flex"?"none":"flex");
-      close.onclick=()=> box.style.display = "none";
-      box.style.display="flex"; q.focus(); // auto-open
-
-      function fallbackURL(title){
-        return `${BOT_CFG.KOHA_OPAC_BASE}/cgi-bin/koha/opac-search.pl?q=${encodeURIComponent(`ti="${title}"`)}`;
-      }
-      function render(items){
-        body.innerHTML="";
-        if(!items.length){ body.innerHTML=`<div class="row">${BOT_CFG.LANG==="ar"?"لا توجد نتائج.":"No results found."}</div>`; return; }
-        for(const {rec} of items){
-          const r=rec.raw;
-          const url = r.url && /^https?:\/\//i.test(r.url) ? r.url : fallbackURL(r.title||"");
-          const div=document.createElement("div"); div.className="row";
-          div.innerHTML = `
-            <div><b><a href="${url}" target="_blank" rel="noopener">${(r.title||"").replace(/</g,"&lt;")}</a></b></div>
-            <div class="meta">
-              ${r.author? (BOT_CFG.LANG==="ar"?`المؤلف: ${r.author}`:`Author: ${r.author}`):""}
-              ${r.year?` • ${r.year}`:""} ${r.publisher?` • ${r.publisher}`:""}
-            </div>
-            ${r.summary? `<div style="margin-top:6px">${r.summary.length>280? r.summary.slice(0,277)+"…" : r.summary}</div>` : ""}
-          `;
-          body.appendChild(div);
-        }
-      }
-      function run(){ const qv=q.value.trim(); if(qv.length<BOT_CFG.MIN_QUERY_LEN) return;
-        render(search(state.index,qv,BOT_CFG.MAX_RESULTS)); }
-      go.onclick=run; q.onkeydown=e=>{ if(e.key==="Enter") run(); };
-    }
-
-    const state={};
-    loadODS(BOT_CFG.DATA_URL)
-      .then(rows => { state.rows=rows; state.index=buildIndex(rows); mountUI(state); })
+  function boot(){
+    fetch(BOT_CFG.DATA_URL,{cache:"reload"})
+      .then(r => { if(!r.ok) throw new Error("HTTP "+r.status); return r.arrayBuffer(); })
+      .then(buf => {
+        const wb = XLSX.read(buf,{type:"array"});
+        const ws = wb.Sheets["catalog"] || wb.Sheets[wb.SheetNames[0]];
+        if(!ws) throw new Error("No sheets in ODS");
+        const rows = XLSX.utils.sheet_to_json(ws,{defval:"",raw:false}).map(r=>{
+          const k = Object.fromEntries(Object.entries(r).map(([h,v])=>[String(h).trim().toLowerCase(), v]));
+          return {
+            title:     k.title     ?? k.ti       ?? k.booktitle ?? "",
+            author:    k.author    ?? k.authors  ?? "",
+            publisher: k.publisher ?? k.pub      ?? "",
+            year:      k.year      ?? k.date     ?? "",
+            summary:   k.summary   ?? k.abstract ?? "",
+            url:       k.url       ?? ""
+          };
+        });
+        INDEX = buildIndex(rows);
+        setStatus(`Loaded ${rows.length} records`);
+        console.log("Chatbot index size:", rows.length);
+      })
       .catch(err => {
         console.error(err);
-        const errBox=document.createElement("pre");
-        errBox.className="error";
-        errBox.textContent="Chatbot init failed: "+err.message;
-        document.body.appendChild(errBox);
+        setStatus("Chatbot init failed: "+err.message, true);
       });
-  })();
+  }
+
+  // search handlers
+  GO.onclick = () => {
+    const q = Q.value.trim(); if(!q) return;
+    const res = search(INDEX, q, BOT_CFG.MAX_RESULTS);
+    // remove old results (keep status, then append)
+    while (B.children.length > 1) B.removeChild(B.lastChild);
+    B.appendChild(render(res));
+  };
+  Q.onkeydown = (e) => { if(e.key==="Enter") GO.click(); };
+
+  // start loading SheetJS + data
+  waitForXLSX();
   </script>
 </body>
 </html>
