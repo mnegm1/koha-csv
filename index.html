@@ -22,7 +22,7 @@
     .btn{flex:0 0 auto;background:#3EA3DC;color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
   </style>
 
-  <!-- SheetJS loader (tries local file first, then CDNs) -->
+  <!-- SheetJS loader (tries local copy first, then CDNs) -->
   <script>
   (function loadSheetJS(){
     const sources = [
@@ -88,31 +88,74 @@
     fab.onclick = () => box.style.display = (box.style.display==="flex" ? "none" : "flex");
     box.style.display = "flex"; Q.focus();
 
-    /* ===== Arabic-aware normalization & tokenization (expanded ranges) ===== */
-    // Include Arabic Presentation Forms & supplements
+    /* ===== Arabic normalization — with presentation-form unification ===== */
     const AR_RANGES = "\\u0600-\\u06FF\\u0750-\\u077F\\u08A0-\\u08FF\\uFB50-\\uFDFF\\uFE70-\\uFEFF";
     const AR_TEST   = new RegExp("[" + AR_RANGES + "]");
     const SPLIT_RE  = new RegExp("[^0-9A-Za-z" + AR_RANGES + "]+", "g");
 
-    const AR = {
-      stripDia: s => s.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/g, ""),
-      norm: s => s
-        .replace(/\u0640/g, "")                                   // tatweel
-        .replace(/[\u200c\u200d\u200e\u200f\u202a-\u202e]/g, "")  // zero-width & bidi
-        .replace(/[إأآٱ]/g, "ا")
-        .replace(/[ىی]/g, "ي")
-        .replace(/ک/g, "ك")
-    };
+    // convert Arabic Presentation Forms (isolated/initial/medial/final) to base letters
+    function normalizeArabicForms(str){
+      if(!str) return "";
+      const map = {
+        // alif forms
+        'ﺍ':'ا','ﺎ':'ا','ﺃ':'ا','ﺄ':'ا','ﺇ':'ا','ﺈ':'ا','ٱ':'ا',
+        // baa
+        'ﺏ':'ب','ﺐ':'ب','ﺑ':'ب','ﺒ':'ب',
+        // taa
+        'ﺕ':'ت','ﺖ':'ت','ﺗ':'ت','ﺘ':'ت',
+        // thaa
+        'ﺙ':'ث','ﺚ':'ث','ﺛ':'ث','ﺜ':'ث',
+        // jeem/haa/khaa
+        'ﺝ':'ج','ﺞ':'ج','ﺟ':'ج','ﺠ':'ج',
+        'ﺡ':'ح','ﺢ':'ح','ﺣ':'ح','ﺤ':'ح',
+        'ﺥ':'خ','ﺦ':'خ','ﺧ':'خ','ﺨ':'خ',
+        // daal/thaal
+        'ﺩ':'د','ﺪ':'د','ﺫ':'ذ','ﺬ':'ذ',
+        // raa/zaay
+        'ﺭ':'ر','ﺮ':'ر','ﺯ':'ز','ﺰ':'ز',
+        // seen/sheen
+        'ﺱ':'س','ﺲ':'س','ﺳ':'س','ﺴ':'س',
+        'ﺵ':'ش','ﺶ':'ش','ﺷ':'ش','ﺸ':'ش',
+        // saad/daad
+        'ﺹ':'ص','ﺺ':'ص','ﺻ':'ص','ﺼ':'ص',
+        'ﺽ':'ض','ﺾ':'ض','ﺿ':'ض','ﻀ':'ض',
+        // taa/zaa
+        'ﻁ':'ط','ﻂ':'ط','ﻃ':'ط','ﻄ':'ط',
+        'ﻅ':'ظ','ﻆ':'ظ','ﻇ':'ظ','ﻈ':'ظ',
+        // ain/ghain
+        'ﻉ':'ع','ﻊ':'ع','ﻋ':'ع','ﻌ':'ع',
+        'ﻍ':'غ','ﻎ':'غ','ﻏ':'غ','ﻐ':'غ',
+        // faa/qaf
+        'ﻑ':'ف','ﻒ':'ف','ﻓ':'ف','ﻔ':'ف',
+        'ﻕ':'ق','ﻖ':'ق','ﻗ':'ق','ﻘ':'ق',
+        // kaf/lam
+        'ﻙ':'ك','ﻚ':'ك','ﻛ':'ك','ﻜ':'ك',
+        'ﻝ':'ل','ﻞ':'ل','ﻟ':'ل','ﻠ':'ل',
+        // meem/noon
+        'ﻡ':'م','ﻢ':'م','ﻣ':'م','ﻤ':'م',
+        'ﻥ':'ن','ﻦ':'ن','ﻧ':'ن','ﻨ':'ن',
+        // ha/waw/ya/alayf-lam
+        'ﻩ':'ه','ﻪ':'ه','ﻫ':'ه','ﻬ':'ه',
+        'ﻭ':'و','ﻮ':'و',
+        'ﻱ':'ي','ﻲ':'ي','ﻳ':'ي','ﻴ':'ي','ﻰ':'ى',
+        'ﻻ':'لا','ﻼ':'لا'
+      };
+      return str.replace(/[\uFE70-\uFEFF\uFB50-\uFDFF]/g, ch => map[ch] || ch);
+    }
+
     function norm(s){
       if (!s) return "";
-      const t = String(s).toLowerCase()
+      let t = String(s).toLowerCase()
         .normalize("NFKD")
-        .replace(/[\u0300-\u036f]/g, "");                         // strip Latin diacritics
-      return AR_TEST.test(t) ? AR.stripDia(AR.norm(t)) : t;
+        .replace(/[\u0300-\u036f]/g, "");     // strip Latin diacritics
+      t = normalizeArabicForms(t);
+      // remove harakat/tatweel/zero-width & normalize variants
+      t = t.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
+           .replace(/[\u200c-\u200f\u202a-\u202e]/g,"")
+           .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك");
+      return t;
     }
-    function toks(s){
-      return norm(s).split(SPLIT_RE).filter(Boolean);
-    }
+    function toks(s){ return norm(s).split(SPLIT_RE).filter(Boolean); }
     function isArabic(s){ return AR_TEST.test(String(s||"")); }
     Q.addEventListener("input", ()=>{ Q.dir = isArabic(Q.value) ? "rtl" : "ltr"; });
 
@@ -220,7 +263,7 @@
           const k = {};
           for (const [h,v] of Object.entries(row)) k[String(h).trim().toLowerCase()] = v;
 
-          // Exact mapping to your sheet (supports Arabic header variants)
+          // Your columns + Arabic variants
           const title  = k["full title"] ?? k["العنوان"] ?? k.title ?? "";
           const author = k["author"] ?? k["المؤلف"] ?? k["المؤلفون"] ?? "";
           const summary= k["abstract"] ?? k["الملخص"] ?? "";
