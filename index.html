@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Koha Catalog Chatbot</title>
+  <style>
+    body{
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      margin:0; padding:2rem;
+      background:#F3EFED;
+    }
+    h2{color:#094B6E;}
+  </style>
+</head>
+<body>
+  <h2>Koha CSV Chatbot (English / العربية)</h2>
+  <p>Ask about a book title, author, publisher, year, or summary below.</p>
+  <hr>
+
+  <!-- Chatbot script configuration -->
+  <script>
+    const BOT_CFG = {
+      CSV_URL: "https://raw.githubusercontent.com/mnegm1/koha-csv/main/opac-catalog.csv",
+      KOHA_OPAC_BASE: "https://library.ecssr.ae",  // fallback to your Koha OPAC
+      MAX_RESULTS: 5,
+      MIN_QUERY_LEN: 2,
+      THEME: { accent: "#3EA3DC", dark: "#BF9849" },
+      LANG: (document.documentElement.dir === "rtl" ||
+             document.documentElement.lang?.startsWith("ar")) ? "ar" : "en"
+    };
+  </script>
+
+  <!-- Chatbot core code -->
+  <script>
+  /* lightweight CSV chatbot – ChatGPT (for Dr. Negm) */
+  (async function(){
+    const res = await fetch(BOT_CFG.CSV_URL);
+    const csv = await res.text();
+    const lines = csv.split(/\r?\n/).filter(Boolean);
+    const header = lines.shift().split(",").map(h=>h.trim().toLowerCase());
+    const data = lines.map(l=>{
+      const cols = l.split(",");
+      const o={}; header.forEach((h,i)=>o[h]=cols[i]||""); return o;
+    });
+    function normalize(t){return (t||"").toLowerCase();}
+    function search(q){
+      q = normalize(q);
+      return data.filter(r=>{
+        return normalize(r.title).includes(q)
+            || normalize(r.author).includes(q)
+            || normalize(r.publisher).includes(q)
+            || normalize(r.summary).includes(q)
+            || normalize(r.year).includes(q);
+      }).slice(0,BOT_CFG.MAX_RESULTS);
+    }
+
+    // --- UI ---
+    const s=document.createElement('style');
+    s.textContent=`
+      .bot-fab{position:fixed;right:20px;bottom:20px;background:${BOT_CFG.THEME.accent};
+        color:#fff;border:none;border-radius:50%;width:56px;height:56px;cursor:pointer;
+        font-size:24px;box-shadow:0 6px 12px rgba(0,0,0,0.25);}
+      .bot-box{position:fixed;right:20px;bottom:90px;width:360px;max-height:70vh;
+        background:#fff;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,0.2);
+        display:none;flex-direction:column;overflow:hidden;}
+      .bot-head{background:${BOT_CFG.THEME.dark};color:#fff;padding:10px 14px;
+        font-weight:600;display:flex;justify-content:space-between;align-items:center;}
+      .bot-body{flex:1;padding:10px;overflow:auto;font-size:14px;}
+      .bot-row{background:#f8f9fa;border-radius:10px;padding:8px;margin:6px 0;}
+      .bot-input{display:flex;padding:10px;background:#F3EFED;border-top:1px solid #ddd;}
+      .bot-input input{flex:1;padding:8px;border-radius:8px;border:1px solid #ccc;}
+      .bot-input button{background:${BOT_CFG.THEME.accent};color:#fff;border:none;
+        padding:8px 12px;border-radius:8px;margin-left:6px;font-weight:600;}
+      [dir="rtl"] .bot-fab{left:20px;right:auto}
+      [dir="rtl"] .bot-box{left:20px;right:auto}
+    `;
+    document.head.appendChild(s);
+
+    const fab=document.createElement('button');
+    fab.className='bot-fab'; fab.textContent='💬';
+    const box=document.createElement('div');
+    box.className='bot-box';
+    box.innerHTML=`
+      <div class="bot-head">
+        <span>${BOT_CFG.LANG==="ar"?"مساعد الفهرس":"Catalog Assistant"}</span>
+        <button style="background:none;border:none;color:#fff;font-size:20px;">×</button>
+      </div>
+      <div class="bot-body" id="bot-body"></div>
+      <div class="bot-input">
+        <input id="bot-q" type="text" placeholder="${BOT_CFG.LANG==="ar"?"ابحث في الفهرس…":"Search the catalog…"}">
+        <button id="bot-go">${BOT_CFG.LANG==="ar"?"بحث":"Search"}</button>
+      </div>`;
+    document.body.appendChild(fab);
+    document.body.appendChild(box);
+
+    const body=box.querySelector('#bot-body');
+    const inp=box.querySelector('#bot-q');
+    const btn=box.querySelector('#bot-go');
+    const close=box.querySelector('.bot-head button');
+    fab.onclick=()=>box.style.display=box.style.display==='flex'?'none':'flex';
+    close.onclick=()=>box.style.display='none';
+
+    function show(q){
+      const results = search(q);
+      body.innerHTML='';
+      if(!results.length){
+        body.innerHTML=`<div class="bot-row">${BOT_CFG.LANG==="ar"?"لا توجد نتائج":"No results found"}.</div>`;
+        return;
+      }
+      for(const r of results){
+        const link=r.url||`${BOT_CFG.KOHA_OPAC_BASE}/cgi-bin/koha/opac-search.pl?q=ti%3A"${encodeURIComponent(r.title)}"`;
+        const div=document.createElement('div');
+        div.className='bot-row';
+        div.innerHTML=`<b><a href="${link}" target="_blank">${r.title}</a></b><br>
+          ${(r.author?"👤 "+r.author+"<br>":"")+(r.publisher?"🏢 "+r.publisher+" ":"")}
+          ${(r.year?"📅 "+r.year:"")}
+          <div style="margin-top:4px;">${r.summary||""}</div>`;
+        body.appendChild(div);
+      }
+    }
+
+    btn.onclick=()=>{show(inp.value)};
+    inp.onkeydown=(e)=>{if(e.key==='Enter')show(inp.value)};
+  })();
+  </script>
+</body>
+</html>
