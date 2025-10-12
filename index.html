@@ -11,77 +11,152 @@
   <p>This page loads the ODS catalog and adds the chat bubble 💬 automatically.</p>
 
   <!-- chatbot script -->
-  <script>
-  const BOT_CFG = {
-    DATA_URL: "https://raw.githubusercontent.com/mnegm1/koha-csv/main/opac-catalog.ods",
-   
-    MAX_RESULTS: 5,
-    MIN_QUERY_LEN: 2,
-    THEME: { accent: "#3EA3DC", dark: "#BF9849" },
-    LANG: (document.documentElement.dir === "rtl" ||
-           document.documentElement.lang?.startsWith("ar")) ? "ar" : "en"
-  };
+ <script>
+const BOT_CFG = {
+  DATA_URL: "https://raw.githubusercontent.com/mnegm1/koha-csv/main/opac-catalog.ods",
+  MAX_RESULTS: 5,
+  MIN_QUERY_LEN: 2,
+  THEME: { accent: "#3EA3DC", dark: "#BF9849" },
+  LANG: (document.documentElement.dir === "rtl" ||
+         document.documentElement.lang?.startsWith("ar")) ? "ar" : "en"
+};
 
-  const AR = {
-    stripDia: s => s.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/g, ""),
-    norm: s => s.replace(/\u0640/g,"").replace(/\u0629/g,"\u0647").replace(/\u064A/g,"\u0649")
-  };
-  function norm(s){ if(!s) return ""; const t = String(s).toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"");
-    return /[\u0600-\u06FF]/.test(t)? AR.stripDia(AR.norm(t)) : t; }
-  function toks(s){ return norm(s).split(/[^0-9\u0600-\u06FFa-zA-Z]+/).filter(Boolean); }
+// ---- helpers (same as before) ----
+const AR = { stripDia:s=>s.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/g,""),
+             norm:s=>s.replace(/\u0640/g,"").replace(/\u0629/g,"\u0647").replace(/\u064A/g,"\u0649") };
+function norm(s){ if(!s) return ""; const t=String(s).toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"");
+  return /[\u0600-\u06FF]/.test(t) ? AR.stripDia(AR.norm(t)) : t; }
+function toks(s){ return norm(s).split(/[^0-9\u0600-\u06FFa-zA-Z]+/).filter(Boolean); }
 
-  async function loadODS(url){
-    const r = await fetch(url); if(!r.ok) throw new Error("ODS fetch failed");
-    const b = await r.arrayBuffer(); const wb = XLSX.read(b,{type:"array"});
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws,{defval:"",raw:false});
-    return rows.map(r=>{
-      const k = Object.fromEntries(Object.entries(r).map(([h,v])=>[String(h).trim().toLowerCase(),v]));
-      return {title:k.title??k.ti??"",author:k.author??k.authors??"",
-              publisher:k.publisher??k.pub??"",year:k.year??k.date??"",
-              summary:k.summary??k.abstract??"",url:k.url??""};
-    });
+async function loadODS(url){
+  const r = await fetch(url, {cache:"reload"});
+  if(!r.ok) throw new Error("ODS fetch failed: HTTP "+r.status);
+  const b = await r.arrayBuffer();
+  const wb = XLSX.read(b, {type:"array"});
+  const ws = wb.Sheets["catalog"] || wb.Sheets[wb.SheetNames[0]];
+  if(!ws) throw new Error("No sheets found in ODS");
+  const rows = XLSX.utils.sheet_to_json(ws, {defval:"", raw:false});
+  return rows.map(r=>{
+    const k = Object.fromEntries(Object.entries(r).map(([h,v])=>[String(h).trim().toLowerCase(), v]));
+    return {
+      title:     k.title     ?? k.ti       ?? k.booktitle ?? "",
+      author:    k.author    ?? k.authors  ?? "",
+      publisher: k.publisher ?? k.pub      ?? "",
+      year:      k.year      ?? k.date     ?? "",
+      summary:   k.summary   ?? k.abstract ?? "",
+      url:       k.url       ?? ""
+    };
+  });
+}
+
+const WEIGHTS={title:4,author:3,summary:1.5,publisher:1,year:2};
+const STOP=new Set(["the","and","of","in","on","for","a","an","to","with","by","عن","في","على","من","و","الى"]);
+function buildIndex(rows){return rows.map((r,i)=>({id:i,raw:r,tokens:{
+  title:toks(r.title),author:toks(r.author),summary:toks(r.summary),publisher:toks(r.publisher)},
+  n:{title:norm(r.title),summary:norm(r.summary)}}));}
+function score(qT,rec){let s=0;const y=qT.find(t=>/^\d{4}$/.test(t)); if(y && String(rec.raw.year||"")===y) s+=6;
+  for(const f of["title","author","summary","publisher"]){const w=WEIGHTS[f],F=rec.tokens[f]; if(!F.length) continue;
+    let h=0; for(const qt of qT){ if(STOP.has(qt)) continue;
+      if(F.includes(qt)) h+=1; else if(qt.length>=3 && F.some(t=>t.startsWith(qt))) h+=0.6; }
+    if(f==="title" && h>0) h*=1.2; s += h*w; }
+  const phrase=qT.join(" "); if(phrase && rec.n.title.includes(phrase)) s+=2.5;
+  if(phrase && rec.n.summary.includes(phrase)) s+=1.0; return s; }
+function search(idx,q,lim){q=(q||"").trim(); if(q.length<BOT_CFG.MIN_QUERY_LEN) return [];
+  const aF=/author:\s*"(.*?)"/i.exec(q)?.[1] || /author:\s*([^\s]+)/i.exec(q)?.[1];
+  const yF=/year:\s*(\d{4})/i.exec(q)?.[1];
+  const qT=toks(q.replace(/author:\s*".*?"/ig,"").replace(/author:\s*[^\s]+/ig,"").replace(/year:\s*\d{4}/ig,""));
+  const out=[]; for(const rec of idx){ if(aF && !norm(rec.raw.author).includes(norm(aF))) continue;
+    if(yF && String(rec.raw.year||"")!==String(yF)) continue; const sc=score(qT,rec); if(sc>0) out.push({sc,rec}); }
+  out.sort((a,b)=>b.sc-a.sc); return out.slice(0, lim ?? BOT_CFG.MAX_RESULTS); }
+
+// ---- UI with auto-open & visible status ----
+function mountUI(state){
+  const css=`
+  .fab{position:fixed;right:18px;bottom:18px;background:${BOT_CFG.THEME.accent};color:#fff;border:none;border-radius:50%;
+    width:56px;height:56px;font-size:24px;cursor:pointer;box-shadow:0 8px 20px rgba(0,0,0,.25);z-index:9999}
+  .box{position:fixed;right:18px;bottom:86px;width:min(420px,92vw);max-height:70vh;background:#fff;border-radius:14px;
+    border:1px solid #e8eef3;box-shadow:0 16px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;z-index:9999}
+  .head{background:${BOT_CFG.THEME.dark};color:#fff;padding:10px 14px;font-weight:600;display:flex;justify-content:space-between}
+  .body{padding:10px;overflow:auto;max-height:56vh;font-size:14px}
+  .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:10px;margin:8px 0}
+  .meta{opacity:.8;font-size:12px;margin-top:6px}
+  .input{display:flex;gap:8px;padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
+  .input input{flex:1;padding:10px;border-radius:10px;border:1px solid #cfd9e3}
+  .input button{background:${BOT_CFG.THEME.accent};color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600}
+  .banner{position:fixed;left:0;right:0;top:0;background:#fffbe6;border-bottom:1px solid #eedc82;padding:8px 12px;
+    font:14px/1.3 system-ui; z-index:9998}
+  `;
+  const st=document.createElement("style"); st.textContent=css; document.head.appendChild(st);
+
+  // status banner
+  const banner=document.createElement("div");
+  banner.className="banner";
+  banner.textContent=`Bot loaded: ${state.rows.length} records`;
+  document.body.appendChild(banner);
+
+  const fab=document.createElement("button"); fab.className="fab"; fab.textContent="💬";
+  const box=document.createElement("div"); box.className="box";
+  box.innerHTML=`
+    <div class="head">
+      <div>${BOT_CFG.LANG==="ar"?"مساعد الفهرس":"Catalog Assistant"}</div>
+      <button style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer">×</button>
+    </div>
+    <div class="body" id="body"><div class="row">
+      ${BOT_CFG.LANG==="ar" ? 'اكتب عنوانًا أو مؤلفًا أو سنة أو كلمات من الملخص. فلاتر: author:"الاسم"  year:2021'
+                             : 'Type a title, author, year, or summary keywords. Filters: author:"name"  year:2021'}
+    </div></div>
+    <div class="input">
+      <input id="q" type="text" placeholder="${BOT_CFG.LANG==="ar"?"ابحث في الفهرس…":"Search the catalog…"}">
+      <button id="go">${BOT_CFG.LANG==="ar"?"بحث":"Search"}</button>
+    </div>`;
+  document.body.appendChild(fab); document.body.appendChild(box);
+
+  const body=box.querySelector("#body"), q=box.querySelector("#q"),
+        go=box.querySelector("#go"), close=box.querySelector(".head button");
+  fab.onclick=()=> box.style.display = (box.style.display==="flex"?"none":"flex");
+  close.onclick=()=> box.style.display = "none";
+
+  // auto-open so you see it immediately
+  box.style.display = "flex"; q.focus();
+
+  function fallbackURL(title){
+    return `${BOT_CFG.KOHA_OPAC_BASE}/cgi-bin/koha/opac-search.pl?q=${encodeURIComponent(`ti="${title}"`)}`;
   }
-
-  const WEIGHTS={title:4,author:3,summary:1.5,publisher:1,year:2};
-  const STOP=new Set(["the","and","of","in","on","for","a","an","to","with","by","عن","في","على","من","و","الى"]);
-  function buildIndex(rows){return rows.map(r=>({raw:r,tokens:{title:toks(r.title),author:toks(r.author),summary:toks(r.summary),publisher:toks(r.publisher)},
-    n:{title:norm(r.title),summary:norm(r.summary)}}));}
-  function score(qT,rec){let s=0;for(const f of["title","author","summary","publisher"]){const w=WEIGHTS[f],F=rec.tokens[f];let h=0;
-    for(const qt of qT){if(STOP.has(qt))continue;if(F.includes(qt))h+=1;else if(qt.length>=3&&F.some(t=>t.startsWith(qt)))h+=0.6;}
-    if(f==="title"&&h>0)h*=1.2;s+=h*w;}return s;}
-  function search(idx,q,lim){const qT=toks(q);const out=[];for(const rec of idx){const sc=score(qT,rec);if(sc>0)out.push({sc,rec});}
-    out.sort((a,b)=>b.sc-a.sc);return out.slice(0,lim??BOT_CFG.MAX_RESULTS);}
-
-  function ui(state){
-    const css=`.fab{position:fixed;right:18px;bottom:18px;background:${BOT_CFG.THEME.accent};color:#fff;
-    border:none;border-radius:50%;width:56px;height:56px;font-size:24px;cursor:pointer;}
-    .box{position:fixed;right:18px;bottom:86px;width:min(420px,92vw);max-height:70vh;background:#fff;
-    border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.3);display:none;flex-direction:column;}
-    .head{background:${BOT_CFG.THEME.dark};color:#fff;padding:10px;font-weight:600;display:flex;justify-content:space-between;}
-    .body{padding:10px;overflow:auto;max-height:56vh;font-size:14px;}
-    .row{background:#f6f9fc;border-radius:10px;padding:8px;margin:6px 0;}
-    .input{display:flex;padding:10px;border-top:1px solid #eee;}
-    .input input{flex:1;padding:8px;border:1px solid #ccc;border-radius:8px;}
-    .input button{background:${BOT_CFG.THEME.accent};color:#fff;border:none;border-radius:8px;padding:8px 12px;margin-left:6px;}`;
-    const st=document.createElement("style");st.textContent=css;document.head.appendChild(st);
-    const fab=document.createElement("button");fab.className="fab";fab.textContent="💬";
-    const box=document.createElement("div");box.className="box";
-    box.innerHTML=`<div class="head"><span>Catalog Assistant</span><button style="background:none;border:none;color:#fff;">×</button></div>
-    <div class="body" id="body"></div>
-    <div class="input"><input id="q" type="text" placeholder="Search the catalog…"><button id="go">Search</button></div>`;
-    document.body.appendChild(fab);document.body.appendChild(box);
-    const body=box.querySelector("#body"),q=box.querySelector("#q"),go=box.querySelector("#go"),x=box.querySelector(".head button");
-    fab.onclick=()=>box.style.display=box.style.display==="flex"?"none":"flex";x.onclick=()=>box.style.display="none";
-    go.onclick=()=>run();q.onkeydown=e=>{if(e.key==="Enter")run();};
-    function run(){const t=q.value.trim();if(!t)return;const res=search(state.idx,t,BOT_CFG.MAX_RESULTS);
-      body.innerHTML="";if(!res.length){body.innerHTML="<div class=row>No results found.</div>";return;}
-      for(const {rec} of res){const r=rec.raw;const u=r.url||BOT_CFG.KOHA_OPAC_BASE+"/cgi-bin/koha/opac-search.pl?q="+encodeURIComponent(r.title);
-        body.insertAdjacentHTML("beforeend",`<div class=row><b><a href='${u}' target=_blank>${r.title}</a></b><br>${r.author||""} • ${r.year||""}</div>`);}
+  function render(items){
+    body.innerHTML="";
+    if(!items.length){ body.innerHTML=`<div class="row">${BOT_CFG.LANG==="ar"?"لا توجد نتائج.":"No results found."}</div>`; return; }
+    for(const {rec} of items){
+      const r=rec.raw;
+      const url = r.url && /^https?:\/\//i.test(r.url) ? r.url : fallbackURL(r.title||"");
+      const div=document.createElement("div"); div.className="row";
+      div.innerHTML = `
+        <div><b><a href="${url}" target="_blank" rel="noopener">${(r.title||"").replace(/</g,"&lt;")}</a></b></div>
+        <div class="meta">
+          ${r.author? (BOT_CFG.LANG==="ar"?`المؤلف: ${r.author}`:`Author: ${r.author}`):""}
+          ${r.year?` • ${r.year}`:""} ${r.publisher?` • ${r.publisher}`:""}
+        </div>
+        ${r.summary? `<div style="margin-top:6px">${r.summary.length>280? r.summary.slice(0,277)+"…" : r.summary}</div>` : ""}
+      `;
+      body.appendChild(div);
     }
   }
+  function run(){ const qv=q.value.trim(); if(qv.length<BOT_CFG.MIN_QUERY_LEN) return;
+    const res=search(state.index,qv,BOT_CFG.MAX_RESULTS); render(res); }
+  go.onclick=run; q.onkeydown=e=>{ if(e.key==="Enter") run(); };
+}
 
-  loadODS(BOT_CFG.DATA_URL).then(rows=>{const idx=buildIndex(rows);ui({idx});});
-  </script>
+// ---- boot + on-page error display ----
+const state={};
+loadODS(BOT_CFG.DATA_URL)
+  .then(rows => { state.rows=rows; state.index=buildIndex(rows); mountUI(state); })
+  .catch(err => {
+    console.error(err);
+    const errBox=document.createElement("pre");
+    errBox.textContent = "Chatbot init failed: " + err.message;
+    errBox.style.cssText="background:#fff0f0;border:1px solid #f5b5b5;padding:10px;color:#900";
+    document.body.appendChild(errBox);
+  });
+</script>
+
 </body>
 </html>
