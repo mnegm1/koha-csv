@@ -1,366 +1,314 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Koha ODS Chatbot</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Koha ODS Chatbot</title>
 
-  <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;padding:2rem}
-    .fab{position:fixed;right:18px;bottom:18px;background:#3EA3DC;color:#fff;border:none;border-radius:50%;
-         width:56px;height:56px;font-size:24px;cursor:pointer;box-shadow:0 8px 20px rgba(0,0,0,.25);z-index:9999}
-    .box{position:fixed;right:18px;bottom:86px;width:min(520px,92vw);max-height:70vh;background:#fff;border-radius:14px;
-         border:1px solid #e8eef3;box-shadow:0 16px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;z-index:9999}
-    .head{background:#BF9849;color:#fff;padding:10px 14px;font-weight:600;display:flex;justify-content:space-between}
-    .body{padding:10px;overflow:auto;max-height:56vh;font-size:14px}
-    .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0}
-    .meta{opacity:.85;font-size:12px;margin-top:6px}
-    .input{display:flex;gap:8px;padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
-    .input input{flex:1;padding:10px;border-radius:10px;border:1px solid #cfd9e3}
-    .input button{background:#3EA3DC;color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600}
-    .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px}
-    .btn{flex:0 0 auto;background:#3EA3DC;color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
-  </style>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;padding:2rem}
+    .fab{position:fixed;right:18px;bottom:18px;background:#3EA3DC;color:#fff;border:none;border-radius:50%;
+         width:56px;height:56px;font-size:24px;cursor:pointer;box-shadow:0 8px 20px rgba(0,0,0,.25);z-index:9999}
+    .box{position:fixed;right:18px;bottom:86px;width:min(520px,92vw);max-height:70vh;background:#fff;border-radius:14px;
+         border:1px solid #e8eef3;box-shadow:0 16px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;z-index:9999}
+    .head{background:#BF9849;color:#fff;padding:10px 14px;font-weight:600;display:flex;justify-content:space-between}
+    .body{padding:10px;overflow:auto;max-height:56vh;font-size:14px}
+    .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0}
+    .meta{opacity:.85;font-size:12px;margin-top:6px}
+    .input{display:flex;gap:8px;padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
+    .input input{flex:1;padding:10px;border-radius:10px;border:1px solid #cfd9e3}
+    .input button{background:#3EA3DC;color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600}
+    .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px}
+    .btn{flex:0 0 auto;background:#3EA3DC;color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
+  </style>
 
-    <script>
-  (function loadSheetJS(){
-    const sources = [
-      "/koha-csv/xlsx.full.min.js",
-      "https://mnegm1.github.io/koha-csv/xlsx.full.min.js",
-      "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.20.3/xlsx.full.min.js",
-      "https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js",
-      "https://unpkg.com/xlsx@0.20.3/dist/xlsx.full.min.js"
-    ];
-    let i = 0;
-    function tryNext(){
-      if (i >= sources.length) { window.__XLSX_LOAD_ERROR__ = "All sources failed"; return; }
-      const s = document.createElement("script");
-      s.src = sources[i++]; s.async = true;
-      s.onload  = () => { window.__XLSX_READY__ = true; };
-      s.onerror = tryNext;
-      document.head.appendChild(s);
-    }
-    tryNext();
-  })();
-  </script>
+  <!-- SheetJS loader (tries local copy first, then CDNs) -->
+  <script>
+  (function loadSheetJS(){
+    const sources = [
+      "/koha-csv/xlsx.full.min.js",
+      "https://mnegm1.github.io/koha-csv/xlsx.full.min.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.20.3/xlsx.full.min.js",
+      "https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js",
+      "https://unpkg.com/xlsx@0.20.3/dist/xlsx.full.min.js"
+    ];
+    let i = 0;
+    function tryNext(){
+      if (i >= sources.length) { window.__XLSX_LOAD_ERROR__ = "All sources failed"; return; }
+      const s = document.createElement("script");
+      s.src = sources[i++]; s.async = true;
+      s.onload  = () => { window.__XLSX_READY__ = true; };
+      s.onerror = tryNext;
+      document.head.appendChild(s);
+    }
+    tryNext();
+  })();
+  </script>
 </head>
 <body>
-  <h2>Koha ODS Chatbot</h2>
-  <p>This page loads the ODS catalog and adds the chat bubble 💬 automatically.</p>
+  <h2>Koha ODS Chatbot</h2>
+  <p>This page loads the ODS catalog and adds the chat bubble 💬 automatically.</p>
 
-  <script>
-  (function startWhenReady(){
-    if (window.__XLSX_LOAD_ERROR__) {
-      const pre = document.createElement("div");
-      pre.className = "error";
-      pre.textContent = "Failed to load XLSX library.";
-      document.body.appendChild(pre);
-      return;
-    }
-    if (!window.__XLSX_READY__) return setTimeout(startWhenReady, 150);
+  <script>
+  (function startWhenReady(){
+    if (window.__XLSX_LOAD_ERROR__) {
+      const pre = document.createElement("div");
+      pre.className = "error";
+      pre.textContent = "Failed to load XLSX library.";
+      document.body.appendChild(pre);
+      return;
+    }
+    if (!window.__XLSX_READY__) return setTimeout(startWhenReady, 150);
 
-    /* ===== CONFIG ===== */
-    const BOT_CFG = {
-      DATA_URL: "https://raw.githubusercontent.com/mnegm1/koha-csv/main/opac-catalog.ods",
-      MAX_RESULTS: 8,
-      MIN_QUERY_LEN: 2,
-      KOHA_OPAC_BASE: location.origin
-    };
+    /* ===== CONFIG ===== */
+    const BOT_CFG = {
+      DATA_URL: "https://raw.githubusercontent.com/mnegm1/koha-csv/main/opac-catalog.ods",
+      MAX_RESULTS: 8,
+      MIN_QUERY_LEN: 2,
+      KOHA_OPAC_BASE: location.origin
+    };
 
-    /* ===== UI ===== */
-    const fab=document.createElement("button"); fab.className="fab"; fab.textContent="💬";
-    const box=document.createElement("div"); box.className="box";
-    box.innerHTML=`
-      <div class="head">
-        <div>Catalog Assistant</div>
-        <button id="x" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer">×</button>
-      </div>
-      <div class="body" id="body">
-        <div class="row" id="status">Loading catalog…</div>
-        <div class="row">Type title, author, year، أو كلمات من الملخص/المحتوى. فلاتر: author:"name"  year:2021</div>
-      </div>
-      <div class="input">
-        <input id="q" type="text" placeholder="Search / ابحث" dir="auto">
-        <button id="go">Search</button>
-      </div>`;
-    document.body.appendChild(fab); document.body.appendChild(box);
-    const B = box.querySelector("#body"), Q = box.querySelector("#q"), GO = box.querySelector("#go");
-    const closeBtn = box.querySelector("#x");
-    fab.onclick = () => box.style.display = (box.style.display==="flex" ? "none" : "flex");
-    closeBtn.onclick = () => box.style.display = "none";
-    box.style.display = "flex"; Q.focus();
+    /* ===== UI ===== */
+    const fab=document.createElement("button"); fab.className="fab"; fab.textContent="💬";
+    const box=document.createElement("div"); box.className="box";
+    box.innerHTML=`
+      <div class="head">
+        <div>Catalog Assistant</div>
+        <button id="x" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer">×</button>
+      </div>
+      <div class="body" id="body">
+        <div class="row" id="status">Loading catalog…</div>
+        <div class="row">Type title, author, year، أو كلمات من الملخص/المحتوى. فلاتر: author:"name"  year:2021</div>
+      </div>
+      <div class="input">
+        <input id="q" type="text" placeholder="Search / ابحث" dir="auto">
+        <button id="go">Search</button>
+      </div>`;
+    document.body.appendChild(fab); document.body.appendChild(box);
+    const B = box.querySelector("#body"), Q = box.querySelector("#q"), GO = box.querySelector("#go");
+    const closeBtn = box.querySelector("#x");
+    fab.onclick = () => box.style.display = (box.style.display==="flex" ? "none" : "flex");
+    closeBtn.onclick = () => box.style.display = "none";
+    box.style.display = "flex"; Q.focus();
 
-    /* ===== Unicode-aware Arabic detection + tokenization ===== */
-    const U_LETTER_OR_NUMBER_RE = /[\p{L}\p{N}]+/gu;
-    const U_ARABIC_ANY_RE       = /\p{Script=Arabic}/u;
-    function isArabic(s){ return U_ARABIC_ANY_RE.test(String(s||"")); }
+    /* ===== Unicode-aware Arabic detection + tokenization ===== */
+    const U_LETTER_OR_NUMBER_RE = /[\p{L}\p{N}]+/gu;
+    const U_ARABIC_ANY_RE       = /\p{Script=Arabic}/u;
+    function isArabic(s){ return U_ARABIC_ANY_RE.test(String(s||"")); }
 
-    // Presentation-form mapping (kept)
-    function normalizeArabicForms(str){
-      if(!str) return "";
-      const map = {
-        'ﺍ':'ا','ﺎ':'ا','ﺃ':'ا','ﺄ':'ا','ﺇ':'ا','ﺈ':'ا','ٱ':'ا',
-        'ﺏ':'ب','ﺐ':'ب','ﺑ':'ب','ﺒ':'ب',
-        'ﺕ':'ت','ﺖ':'ت','ﺗ':'ت','ﺘ':'ت',
-        'ﺙ':'ث','ﺚ':'ث','ﺛ':'ث','ﺜ':'ث',
-        'ﺝ':'ج','ﺞ':'ج','ﺟ':'ج','ﺠ':'ج',
-        'ﺡ':'ح','ﺢ':'ح','ﺣ':'ح','ﺤ':'ح',
-        'ﺥ':'خ','ﺦ':'خ','ﺧ':'خ','ﺨ':'خ',
-        'ﺩ':'د','ﺪ':'د','ﺫ':'ذ','ﺬ':'ذ',
-        'ﺭ':'ر','ﺮ':'ر','ﺯ':'ز','ﺰ':'ز',
-        'ﺱ':'س','ﺲ':'س','ﺳ':'س','ﺴ':'س',
-        'ﺵ':'ش','ﺶ':'ش','ﺷ':'ش','ﺸ':'ش',
-        'ﺹ':'ص','ﺺ':'ص','ﺻ':'ص','ﺼ':'ص',
-        'ﺽ':'ض','ﺾ':'ض','ﺿ':'ض','ﻀ':'ض',
-        'ﻁ':'ط','ﻂ':'ط','ﻃ':'ط','ﻄ':'ط',
-        'ﻅ':'ظ','ﻆ':'ظ','ﻇ':'ظ','ﻈ':'ظ',
-        'ﻉ':'ع','ﻊ':'ع','ﻋ':'ع','ﻌ':'ع',
-        'ﻍ':'غ','ﻎ':'غ','ﻏ':'غ','ﻐ':'غ',
-        'ﻑ':'ف','ﻒ':'ف','ﻓ':'ف','ﻔ':'ف',
-        'ﻕ':'ق','ﻖ':'ق','ﻗ':'ق','ﻘ':'ق',
-        'ﻙ':'ك','ﻚ':'ك','ﻛ':'ك','ﻜ':'ك',
-        'ﻝ':'ل','ﻞ':'ل','ﻟ':'ل','ﻠ':'ل',
-        'ﻡ':'م','ﻢ':'م','ﻣ':'م','ﻤ':'م',
-        'ﻥ':'ن','ﻦ':'ن','ﻧ':'ن','ﻨ':'ن',
-        'ﻩ':'ه','ﻪ':'ه','ﻫ':'ه','ﻬ':'ه',
-        'ﻭ':'و','ﻮ':'و',
-        'ﻱ':'ي','ﻲ':'ي','ﻳ':'ي','ﻴ':'ي','ﻰ':'ى',
-        'ﻻ':'لا','ﻼ':'لا'
-      };
-      return str.replace(/[\uFE70-\uFEFF\uFB50-\uFDFF]/g, ch => map[ch] || ch);
-    }
+    // Presentation-form mapping
+    function normalizeArabicForms(str){
+      if(!str) return "";
+      const map = {
+        'ﺍ':'ا','ﺎ':'ا','ﺃ':'ا','ﺄ':'ا','ﺇ':'ا','ﺈ':'ا','ٱ':'ا',
+        'ﺏ':'ب','ﺐ':'ب','ﺑ':'ب','ﺒ':'ب',
+        'ﺕ':'ت','ﺖ':'ت','ﺗ':'ت','ﺘ':'ت',
+        'ﺙ':'ث','ﺚ':'ث','ﺛ':'ث','ﺜ':'ث',
+        'ﺝ':'ج','ﺞ':'ج','ﺟ':'ج','ﺠ':'ج',
+        'ﺡ':'ح','ﺢ':'ح','ﺣ':'ح','ﺤ':'ح',
+        'ﺥ':'خ','ﺦ':'خ','ﺧ':'خ','ﺨ':'خ',
+        'ﺩ':'د','ﺪ':'د','ﺫ':'ذ','ﺬ':'ذ',
+        'ﺭ':'ر','ﺮ':'ر','ﺯ':'ز','ﺰ':'ز',
+        'ﺱ':'س','ﺲ':'س','ﺳ':'س','ﺴ':'س',
+        'ﺵ':'ش','ﺶ':'ش','ﺷ':'ش','ﺸ':'ش',
+        'ﺹ':'ص','ﺺ':'ص','ﺻ':'ص','ﺼ':'ص',
+        'ﺽ':'ض','ﺾ':'ض','ﺿ':'ض','ﻀ':'ض',
+        'ﻁ':'ط','ﻂ':'ط','ﻃ':'ط','ﻄ':'ط',
+        'ﻅ':'ظ','ﻆ':'ظ','ﻇ':'ظ','ﻈ':'ظ',
+        'ﻉ':'ع','ﻊ':'ع','ﻋ':'ع','ﻌ':'ع',
+        'ﻍ':'غ','ﻎ':'غ','ﻏ':'غ','ﻐ':'غ',
+        'ﻑ':'ف','ﻒ':'ف','ﻓ':'ف','ﻔ':'ف',
+        'ﻕ':'ق','ﻖ':'ق','ﻗ':'ق','ﻘ':'ق',
+        'ﻙ':'ك','ﻚ':'ك','ﻛ':'ك','ﻜ':'ك',
+        'ﻝ':'ل','ﻞ':'ل','ﻟ':'ل','ﻠ':'ل',
+        'ﻡ':'م','ﻢ':'م','ﻣ':'م','ﻤ':'م',
+        'ﻥ':'ن','ﻦ':'ن','ﻧ':'ن','ﻨ':'ن',
+        'ﻩ':'ه','ﻪ':'ه','ﻫ':'ه','ﻬ':'ه',
+        'ﻭ':'و','ﻮ':'و',
+        'ﻱ':'ي','ﻲ':'ي','ﻳ':'ي','ﻴ':'ي','ﻰ':'ى',
+        'ﻻ':'لا','ﻼ':'لا'
+      };
+      return str.replace(/[\uFE70-\uFEFF\uFB50-\uFDFF]/g, ch => map[ch] || ch);
+    }
 
-    // Base normalizer (FIXED)
-    function norm(s){
-      if (!s) return "";
-      let t = String(s).toLowerCase()
-        .normalize("NFKD")
-        .replace(/[\u0300-\u036f]/g, "");
-      t = normalizeArabicForms(t);
-      t = t
-        .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"") // tashkīl + tatweel
-        .replace(/[\u200c-\u200f\u202a-\u202e]/g,"")                          // zero-width/bidi
-        // *** FIX APPLIED HERE: unifying more Arabic variants ***
-        .replace(/[إأآٱ]/g,"ا").replace(/[ىیئ]/g,"ي").replace(/[ؤ]/g,"و").replace(/ک/g,"ك"); 
-      return t;
-    }
+    // Base normalizer
+    function norm(s){
+      if (!s) return "";
+      let t = String(s).toLowerCase()
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, "");
+      t = normalizeArabicForms(t);
+      t = t
+        .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"") // tashkīl + tatweel
+        .replace(/[\u200c-\u200f\u202a-\u202e]/g,"")                          // zero-width/bidi
+        .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك");       // unify variants
+      return t;
+    }
 
-    // ULTRA normalizer: remove everything except letters+numbers and squash
-    function ultraNormalize(s){
-      const n = norm(s).normalize("NFKC");
-      return n.replace(/[^\p{L}\p{N}]+/gu,""); // drop spaces/punct entirely
-    }
+    // Ultra normalizer for stubborn cases
+    function ultraNormalize(s){
+      const n = norm(s).normalize("NFKC");
+      return n.replace(/[^\p{L}\p{N}]+/gu,"");
+    }
 
-    function toks(s){
-      const out = [];
-      const src = String(s ?? "");
-      const it = src.matchAll(U_LETTER_OR_NUMBER_RE);
-      for (const m of it) {
-        const t = norm(m[0]);
-        if (t) out.push(t);
-      }
-      return out;
-    }
+    function toks(s){
+      const out = [];
+      const src = String(s ?? "");
+      const it = src.matchAll(U_LETTER_OR_NUMBER_RE);
+      for (const m of it) {
+        const t = norm(m[0]);
+        if (t) out.push(t);
+      }
+      return out;
+    }
 
-    // Stopwords (normalized)
-    const RAW_STOP = new Set([
-      "the","and","of","in","on","for","a","an","to","with","by",
-      "عن","في","على","من","و","الى"
-    ]);
-    const STOP = new Set(Array.from(RAW_STOP, w => norm(w)));
+    // Stopwords (normalized)
+    const RAW_STOP = new Set([
+      "the","and","of","in","on","for","a","an","to","with","by",
+      "عن","في","على","من","و","الى"
+    ]);
+    const STOP = new Set(Array.from(RAW_STOP, w => norm(w)));
 
-    Q.addEventListener("input", ()=>{ Q.dir = isArabic(Q.value) ? "rtl" : "ltr"; });
+    Q.addEventListener("input", ()=>{ Q.dir = isArabic(Q.value) ? "rtl" : "ltr"; });
 
-    /* ===== Ranking / search ===== */
-    const WEIGHTS={title:4,author:3,summary:1.5,content:1.5,publisher:1,year:2};
+    /* ===== Ranking / search ===== */
+    const WEIGHTS={title:4,author:3,summary:1.5,content:1.5,publisher:1,year:2};
 
-    function buildIndex(rows){
-      return rows.map((r,i)=>({
-        id:i,
-        raw:r,
-        tokens:{
-          title:toks(r.title),author:toks(r.author),summary:toks(r.summary),
-          content:toks(r.content||""),publisher:toks(r.publisher||"")
-        },
-        n:{
-          title:norm(r.title),summary:norm(r.summary),content:norm(r.content||""),
-          all: norm([r.title,r.author,r.summary,r.content,r.publisher,r.year].join(" "))
-        },
-        ultra:{
-          all: ultraNormalize([r.title,r.author,r.summary,r.content,r.publisher,r.year].join(" "))
-        }
-      }));
-    }
+    function buildIndex(rows){
+      return rows.map((r,i)=>({
+        id:i,
+        raw:r,
+        tokens:{
+          title:toks(r.title),author:toks(r.author),summary:toks(r.summary),
+          content:toks(r.content||""),publisher:toks(r.publisher||"")
+        },
+        n:{
+          title:norm(r.title),summary:norm(r.summary),content:norm(r.content||""),
+          all: norm([r.title,r.author,r.summary,r.content,r.publisher,r.year].join(" "))
+        },
+        ultra:{
+          all: ultraNormalize([r.title,r.author,r.summary,r.content,r.publisher,r.year].join(" "))
+        }
+      }));
+    }
 
-    function score(qT,rec){
-      let s=0;
-      const y=qT.find(t=>/^\d{4}$/.test(t));
-      if(y && String(rec.raw.year||"")===y) s+=6;
+    function score(qT,rec){
+      let s=0;
+      const y=qT.find(t=>/^\d{4}$/.test(t));
+      if(y && String(rec.raw.year||"")===y) s+=6;
 
-      for(const f of ["title","author","summary","content","publisher"]){
-        const w=WEIGHTS[f], F=rec.tokens[f]||[]; if(!F.length) continue;
-        let h=0;
-        for(const qt of qT){
-          if(STOP.has(qt)) continue;
-          if(F.includes(qt)) h+=1;
-          else if(qt.length>=3 && F.some(t=>t.startsWith(qt))) h+=0.6;
-        }
-        if(f==="title" && h>0) h*=1.2;
-        s += h*w;
-      }
+      for(const f of ["title","author","summary","content","publisher"]){
+        const w=WEIGHTS[f], F=rec.tokens[f]||[]; if(!F.length) continue;
+        let h=0;
+        for(const qt of qT){
+          if(STOP.has(qt)) continue;
+          if(F.includes(qt)) h+=1;
+          else if(qt.length>=3 && F.some(t=>t.startsWith(qt))) h+=0.6;
+        }
+        if(f==="title" && h>0) h*=1.2;
+        s += h*w;
+      }
 
-      const phrase=qT.join(" ");
-      if(phrase && rec.n.title.includes(phrase)) s+=2.5;
-      if(phrase && rec.n.summary.includes(phrase)) s+=1.0;
-      if(phrase && rec.n.content.includes(phrase)) s+=1.0;
+      const phrase=qT.join(" ");
+      if(phrase && rec.n.title.includes(phrase)) s+=2.5;
+      if(phrase && rec.n.summary.includes(phrase)) s+=1.0;
+      if(phrase && rec.n.content.includes(phrase)) s+=1.0;
 
-      for (const qt of qT) {
-        if (qt.length >= 2) {
-          if (rec.n.title.includes(qt) || rec.n.summary.includes(qt) || (rec.n.content||"").includes(qt)) {
-            s += 0.8;
-          }
-        }
-      }
-      return s;
-    }
+      for (const qt of qT) {
+        if (qt.length >= 2) {
+          if (rec.n.title.includes(qt) || rec.n.summary.includes(qt) || (rec.n.content||"").includes(qt)) {
+            s += 0.8;
+          }
+        }
+      }
+      return s;
+    }
 
-    // Basic fallback (normalized AND-of-terms)
-    function fallbackScan(idx, q, limit){
-      const terms = toks(q);
-      if (!terms.length) return [];
-      const out = [];
-      for (const rec of idx){
-        const hay = rec.n.all;
-        if (terms.every(t => hay.includes(t))){
-          out.push({sc:1, rec});
-          if (out.length >= (limit||BOT_CFG.MAX_RESULTS)) break;
-        }
-      }
-      return out;
-    }
+    function fallbackScan(idx, q, limit){
+      const terms = toks(q);
+      if (!terms.length) return [];
+      const out = [];
+      for (const rec of idx){
+        const hay = rec.n.all;
+        if (terms.every(t => hay.includes(t))){
+          out.push({sc:1, rec});
+          if (out.length >= (limit||BOT_CFG.MAX_RESULTS)) break;
+        }
+      }
+      return out;
+    }
 
-    // *** ULTRA Arabic fallback ***
-    // Works even if cells contain stubborn presentation forms or odd punctuation.
-    function arabicUltraScan(idx, q, limit){
-      const nq = ultraNormalize(q);
-      if (!nq) return [];
-      const out = [];
-      for (const rec of idx){
-        if (rec.ultra.all.includes(nq)){
-          out.push({sc:0.9, rec});
-          if (out.length >= (limit||BOT_CFG.MAX_RESULTS)) break;
-        }
-      }
-      return out;
-    }
+    function arabicUltraScan(idx, q, limit){
+      const nq = ultraNormalize(q);
+      if (!nq) return [];
+      const out = [];
+      for (const rec of idx){
+        if (rec.ultra.all.includes(nq)){
+          out.push({sc:0.9, rec});
+          if (out.length >= (limit||BOT_CFG.MAX_RESULTS)) break;
+        }
+      }
+      return out;
+    }
 
-    function search(idx,q,lim){
-      q=(q||"").trim(); if(q.length<BOT_CFG.MIN_QUERY_LEN) return [];
-      const aF=/author:\s*"(.*?)"/i.exec(q)?.[1] || /author:\s*([^\s]+)/i.exec(q)?.[1];
-      const yF=/year:\s*(\d{4})/i.exec(q)?.[1];
-      const cleaned=q.replace(/author:\s*".*?"/ig,"").replace(/author:\s*[^\s]+/ig,"").replace(/year:\s*\d{4}/ig,"");
-      const qT=toks(cleaned);
-      const out=[];
-      for(const rec of idx){
-        if(aF && !norm(rec.raw.author).includes(norm(aF))) continue;
-        if(yF && String(rec.raw.year||"")!==String(yF)) continue;
-        const sc=score(qT,rec); if(sc>0) out.push({sc,rec});
-      }
-      out.sort((a,b)=>b.sc-a.sc);
-      if (out.length>0) return out.slice(0, lim??BOT_CFG.MAX_RESULTS);
+    function search(idx,q,lim){
+      q=(q||"").trim(); if(q.length<BOT_CFG.MIN_QUERY_LEN) return [];
+      const aF=/author:\s*"(.*?)"/i.exec(q)?.[1] || /author:\s*([^\s]+)/i.exec(q)?.[1];
+      const yF=/year:\s*(\d{4})/i.exec(q)?.[1];
+      const cleaned=q.replace(/author:\s*".*?"/ig,"").replace(/author:\s*[^\s]+/ig,"").replace(/year:\s*\d{4}/ig,"");
+      const qT=toks(cleaned);
+      const out=[];
+      for(const rec of idx){
+        if(aF && !norm(rec.raw.author).includes(norm(aF))) continue;
+        if(yF && String(rec.raw.year||"")!==String(yF)) continue;
+        const sc=score(qT,rec); if(sc>0) out.push({sc,rec});
+      }
+      out.sort((a,b)=>b.sc-a.sc);
+      if (out.length>0) return out.slice(0, lim??BOT_CFG.MAX_RESULTS);
 
-      // if nothing, try tolerant normalized AND scan
-      const fb = fallbackScan(idx, cleaned, lim);
-      if (fb.length>0) return fb;
+      const fb = fallbackScan(idx, cleaned, lim);
+      if (fb.length>0) return fb;
 
-      // if query contains Arabic, run ultra fallback
-      if (isArabic(q) || /[\u0600-\u06FF]/.test(q)) {
-        const ultra = arabicUltraScan(idx, q, lim);
-        if (ultra.length>0) return ultra;
-      }
-      return [];
-    }
+      if (isArabic(q) || /[\u0600-\u06FF]/.test(q)) {
+        const ultra = arabicUltraScan(idx, q, lim);
+        if (ultra.length>0) return ultra;
+      }
+      return [];
+    }
 
-    function setStatus(msg, err){ const el=document.getElementById("status");
-      if(!el) return; el.className = err ? "row error" : "row"; el.textContent = msg; }
+    function setStatus(msg, err){ const el=document.getElementById("status");
+      if(!el) return; el.className = err ? "row error" : "row"; el.textContent = msg; }
 
-    function kohaURL(title){
-      if (!BOT_CFG.KOHA_OPAC_BASE) return "#";
-      return `${BOT_CFG.KOHA_OPAC_BASE}/cgi-bin/koha/opac-search.pl?q=${encodeURIComponent(`ti="${title}"`)}`;
-    }
+    function kohaURL(title){
+      if (!BOT_CFG.KOHA_OPAC_BASE) return "#";
+      return `${BOT_CFG.KOHA_OPAC_BASE}/cgi-bin/koha/opac-search.pl?q=${encodeURIComponent(`ti="${title}"`)}`;
+    }
 
-    function render(items){
-      const list=document.createElement("div");
-      if(!items.length){ list.innerHTML=`<div class="row">No results found.</div>`; return list; }
-      for(const {rec} of items){
-        const r=rec.raw;
-        const url = r.url && /^https?:\/\//i.test(r.url) ? r.url : kohaURL(r.title||"");
-        const pub = [r.publisher, r.year].filter(Boolean).join(" • ");
-        const div=document.createElement("div"); div.className="row";
-        div.dir = isArabic(r.title||r.summary||r.content||r.author) ? "rtl" : "ltr";
-        div.innerHTML=`
-          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
-            <b style="font-size:15px;line-height:1.3">${(r.title||"").replace(/</g,"&lt;")}</b>
-            <a class="btn" href="${url}" target="_blank" rel="noopener">Open record</a>
-          </div>
-          ${r.author? `<div class="meta">${isArabic(r.author)?"المؤلف: ":"Author: "}${r.author}</div>` : ""}
-          ${pub? `<div class="meta">${pub}</div>` : ""}
-          ${r.summary? `<div style="margin-top:6px">${r.summary.length>360? r.summary.slice(0,357)+"…" : r.summary}</div>` : ""}
-          ${r.content? `<div style="margin-top:6px;opacity:.9">${r.content.length>360? r.content.slice(0,357)+"…" : r.content}</div>` : ""}
-        `;
-        list.appendChild(div);
-      }
-      return list;
-    }
+    function render(items){
+      const list=document.createElement("div");
+      if(!items.length){ list.innerHTML=`<div class="row">No results found.</div>`; return list; }
+      for(const {rec} of items){
+        const r=rec.raw;
+        const url = r.url && /^https?:\/\//i.test(r.url) ? r.url : kohaURL(r.title||"");
+        const pub = [r.publisher, r.year].filter(Boolean).join(" • ");
+        const div=document.createElement("div"); div.className="row";
+        div.dir = isArabic(r.title||r.summary||r.content||r.author) ? "rtl" : "ltr";
+        div.innerHTML=`
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+            <b style="font-size:15px;line-height:1.3">${(r.title||"").replace(/</g,"&lt;")}</b>
+            <a class="btn" href="${url}" target="_blank" rel="noopener">Open record</a>
+          </div>
+          ${r.author? `<div class="meta">${isArabic(r.author)?"المؤلف: ":"Author: "}${r.author}</div>` : ""}
+          ${pub? `<div class="meta">${pub}</div>` : ""}
+          ${r.summary? `<div style="margin-top:6px">${r.summary.length>360? r.summary.slice(0,357)+"…" : r.summary}</div>` : ""}
+          ${r.content? `<div style="margin-top:6px;opacity:.9">${r.content.length>360? r.content.slice(0,357)+"…" : r.content}</div>` : ""}
+        `;
+        list.appendChild(div);
+      }
+      return list;
+    }
 
-    /* ===== Load ODS, map your columns (EN + AR), index ===== */
-    let INDEX=[];
-    fetch(BOT_CFG.DATA_URL,{cache:"reload"})
-      .then(r => { if(!r.ok) throw new Error("HTTP "+r.status); return r.arrayBuffer(); })
-      .then(buf => {
-        const wb = XLSX.read(buf,{type:"array"});
-        const ws = wb.Sheets["catalog"] || wb.Sheets[wb.SheetNames[0]];
-        if(!ws) throw new Error("No sheets in ODS");
-        const raw = XLSX.utils.sheet_to_json(ws,{defval:"",raw:false});
-
-        const records = raw.map(row=>{
-          const k = {};
-          for (const [h,v] of Object.entries(row)) k[String(h).trim().toLowerCase()] = v;
-
-          // Your columns + Arabic variants
-          const title   = k["full title"] ?? k["العنوان"] ?? k.title ?? "";
-          const author  = k["author"] ?? k["المؤلف"] ?? k["المؤلفون"] ?? "";
-          const summary = k["abstract"] ?? k["الملخص"] ?? "";
-          const content = k["content"] ?? k["المحتوى"] ?? "";
-          const pubdat  = k["publications data"] ?? k["بيانات النشر"] ?? "";
-          const url     = k["book_url"] ?? k["book url"] ?? k["رابط_الكتاب"] ?? k.url ?? "";
-
-          const yearMatch = String(pubdat).match(/(\d{4})/);
-          const year  = yearMatch ? yearMatch[1] : "";
-          const publisher = String(pubdat || "")
-            .replace(/\b\d{4}\b/g,"")
-            .replace(/\s*[.,;|-]\s*$/,"")
-            .trim();
-
-          return { title, author, summary, content, publisher, year, url };
-        });
-
-        INDEX = buildIndex(records);
-        setStatus(`Loaded ${records.length} records`);
-        const sample = render(records.slice(0,3).map((r,i)=>({rec:{raw:r},sc:1})));
-        B.appendChild(sample);
-      })
-      .catch(err => { console.error(err); setStatus("Chatbot init failed: "+err.message, true); });
-
-    // search handlers
-    GO.onclick = () => {
-      const q = Q.value.trim(); if(!q) return;
-      const res = search(INDEX, q, BOT_CFG.MAX_RESULTS);
-      while (B.children.length > 1) B.removeChild(B.lastChild); // keep status/hint
-      B.appendChild(render(res));
-    };
-    Q.onkeydown = (e) => { if(e.key==="Enter") GO.click(); };
-  })();
-  </script>
-</body>
-</html>
+    /* ===== Load ODS, coerce RichText→string, map columns, index ===== */
+    let INDEX=[];
+    fetch(BOT_CFG.DATA_URL,{cache:"reload"})
+      .then(r => { if(!r.ok) throw new Error("HTTP "+r.sta
