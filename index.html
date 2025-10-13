@@ -3,51 +3,59 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Koha TSV Chatbot — Arabic solid</title>
+<title>Koha TSV Chatbot — Arabic</title>
 <style>
   :root{
-    /* Brand color = header color (was highlighted green in your screenshot) */
-    --brand: #BF9849;        /* header + buttons + fab */
+    --brand: #BF9849;          /* header + buttons */
     --brandText: #ffffff;
-    --btnText: #ffffff;
+
+    /* ==== customize these ==== */
+    --logo-url: url("https://upload.wikimedia.org/wikipedia/commons/0/0a/ECSSR_logo.svg"); /* <-- your logo URL */
+    --logo-size: 62%;          /* logo scale inside the bubble (e.g., 50%..80%) */
+    --fab-size: 52px;          /* bubble diameter */
+    --box-width: 420px;        /* chat box width */
+    --box-max-h: 62vh;         /* chat box max height */
   }
+
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;padding:2rem}
 
-  /* Floating action button with ECSSR logo */
+  /* Floating bubble with logo */
   .fab{
     position:fixed; right:18px; bottom:18px;
-    background: var(--brand) url("https://library.ecssr.ae/opac-tmpl/bootstrap/images/logo-ar.png") center/60% no-repeat;
-    /* Fallback to PNG if SVG not present */
-    background-image: url("/koha-csv/ecssr-logo.svg"), url("/koha-csv/ecssr-logo.png");
-    color:transparent; border:none; border-radius:50%;
-    width:56px; height:56px; cursor:pointer;
-    box-shadow:0 8px 20px rgba(0,0,0,.25); z-index:9999; display:block;
+    width:var(--fab-size); height:var(--fab-size);
+    background: var(--brand) var(--logo-url) center/var(--logo-size) no-repeat;
+    border:none; border-radius:50%; cursor:pointer;
+    box-shadow:0 8px 20px rgba(0,0,0,.25); z-index:9999;
   }
 
-  .box{position:fixed;right:18px;bottom:86px;width:min(520px,92vw);max-height:70vh;background:#fff;border-radius:14px;
-       border:1px solid #e8eef3;box-shadow:0 16px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;z-index:9999}
+  .box{
+    position:fixed; right:18px; bottom:calc(18px + var(--fab-size) + 12px);
+    width:min(var(--box-width), 92vw); max-height:var(--box-max-h);
+    background:#fff; border-radius:14px; border:1px solid #e8eef3;
+    box-shadow:0 16px 40px rgba(0,0,0,.25);
+    display:none; /* start CLOSED */
+    flex-direction:column; overflow:hidden; z-index:9999;
+  }
+
   .head{background:var(--brand);color:var(--brandText);padding:10px 14px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
-  .body{padding:10px;overflow:auto;max-height:56vh;font-size:14px}
+  .body{padding:10px;overflow:auto;max-height:calc(var(--box-max-h) - 96px);font-size:14px}
   .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0}
   .meta{opacity:.85;font-size:12px;margin-top:6px}
   .input{display:flex;gap:8px;padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
   .input input{flex:1;padding:10px;border-radius:10px;border:1px solid #cfd9e3}
-  /* Search button now uses brand color */
-  .input button{background:var(--brand);color:var(--btnText);border:none;border-radius:10px;padding:10px 14px;font-weight:600}
+  .input button{background:var(--brand);color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600}
   .input button:hover{filter:brightness(.95)}
   .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px}
-  /* “Open record” button now uses brand color */
   .btn{flex:0 0 auto;background:var(--brand);color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
   .btn:hover{filter:brightness(.95)}
-  .muted{opacity:.7}
 </style>
 </head>
 <body>
-  <h2>Koha TSV Chatbot</h2>
-  <p class="muted">Loads a Koha <code>.tab</code> (TSV) export and searches Arabic + English.</p>
+  <h2 style="margin-bottom:6px">Koha TSV Chatbot</h2>
+  <p style="opacity:.7;margin-top:0">Loads a Koha <code>.tab</code> (TSV) export and searches Arabic + English.</p>
 
 <script>
-/* ===== visible crash reporter (only on error) ===== */
+/* ===== error banner (only on error) ===== */
 window.addEventListener("error", e => showBannerError("JS error: " + (e.message||e)));
 window.addEventListener("unhandledrejection", e => showBannerError("Promise error: " + (e.reason?.message||e.reason)));
 function showBannerError(msg){
@@ -66,8 +74,7 @@ box.innerHTML = ''+
   '<div class="input"><input id="q" type="text" placeholder="Search / ابحث" dir="auto"><button id="go">Search</button></div>';
 document.body.appendChild(fab); document.body.appendChild(box);
 const B=box.querySelector("#body"), Q=box.querySelector("#q"), GO=box.querySelector("#go"), closeBtn=box.querySelector("#x");
-box.style.display="flex"; fab.style.display="block"; Q.focus();
-fab.onclick=()=>{ box.style.display = (box.style.display==="flex"?"none":"flex"); };
+fab.onclick=()=>{ box.style.display = (box.style.display==="flex"?"none":"flex"); if(box.style.display==="flex") setTimeout(()=>Q.focus(), 50); };
 closeBtn.onclick=()=>{ box.style.display="none"; };
 
 /* ===== helpers ===== */
