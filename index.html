@@ -9,7 +9,7 @@
     --brand: #BF9849;          /* header + buttons + ring */
     --brandText: #ffffff;
 
-    /* ==== customize these ==== */
+    /* ====== customize ====== */
     --logo-url: url("https://assets.almanhal.com/platform/shared/Product/ECSSR/middlelogo.png");
     --logo-size: 140%;          /* logo scale inside the bubble */
     --fab-size: 64px;           /* bubble diameter */
@@ -17,26 +17,27 @@
     --box-width: 420px;
     --box-max-h: 62vh;
 
-    /* Curved label controls */
+    /* Curved label controls (now dynamically placed on a circle) */
     --label-text: "AI Assist";
-    --label-color: #3EA3DC;     /* requested color */
-    --label-size: 18px;         /* arc text size */
+    --label-color: #3EA3DC;     /* your color */
+    --label-size: 18px;         /* label font size */
+    --arc-gap: 6px;             /* distance from gold ring to label */
+    --arc-offset-deg: 300;      /* where the text starts on the circle (0 = right, 90 = bottom, 180 = left, 270 = top) */
   }
 
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;padding:2rem}
 
-  /* Wrapper keeps label + fab aligned and clickable */
+  /* Wrap = label + bubble */
   .fab-wrap{
     position:fixed; right:18px; bottom:18px; z-index:9999;
-    width:var(--fab-size); height:calc(var(--fab-size) + 56px);
+    width:calc(var(--fab-size) + 80px);   /* extra room for label arc */
+    height:calc(var(--fab-size) + 80px);
+    pointer-events:none;                  /* only the button is clickable */
   }
 
-  /* Arc label (SVG) — closer to the logo, tighter arc */
+  /* The label SVG fills the wrapper, but doesn’t block clicks */
   .fab-label{
-    position:absolute; left:50%;
-    bottom:calc(var(--fab-size) + 2px); /* << closer to logo */
-    transform:translateX(-50%);
-    width:calc(var(--fab-size) + 70px); height:48px;
+    position:absolute; inset:0;
     pointer-events:none;
   }
   .fab-label text{
@@ -44,39 +45,39 @@
     font-weight:900;
     font-size:var(--label-size);
     letter-spacing:.6px;
-    /* crisp rendering without the white outline that caused the cut look */
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
 
-  /* Floating bubble with white background and logo */
+  /* The clickable bubble (kept at bottom-right of wrapper) */
   .fab{
-    position:absolute; left:0; bottom:0;
+    position:absolute;
+    right:0; bottom:0;               /* anchor to the wrapper’s bottom-right */
     width:var(--fab-size); height:var(--fab-size);
     background:#fff var(--logo-url) center/var(--logo-size) no-repeat;
-    border:4px solid var(--brand); border-radius:50%; cursor:pointer;
+    border:4px solid var(--brand); border-radius:50%;
     box-shadow:0 8px 20px rgba(0,0,0,.25);
-    transform:translateZ(0);
+    cursor:pointer;
+    pointer-events:auto;             /* button IS clickable */
   }
 
-  /* Attention animation */
+  /* Subtle attention animation on load */
   @keyframes bounceGlow {
     0%,100% { transform:translateY(0); box-shadow:0 8px 20px rgba(0,0,0,.25); }
-    30% { transform:translateY(-12px); box-shadow:0 12px 26px rgba(191,152,73,.35); }
+    30% { transform:translateY(-10px); box-shadow:0 12px 26px rgba(191,152,73,.35); }
     60% { transform:translateY(0); box-shadow:0 10px 22px rgba(191,152,73,.25); }
-    80% { transform:translateY(-6px); box-shadow:0 10px 26px rgba(191,152,73,.3); }
+    80% { transform:translateY(-5px); box-shadow:0 10px 26px rgba(191,152,73,.3); }
   }
-  .fab.attn { animation: bounceGlow 2.6s ease-in-out 1; }
+  .fab.attn { animation: bounceGlow 2.2s ease-in-out 1; }
 
+  /* Chat box */
   .box{
     position:fixed; right:18px; bottom:calc(18px + var(--fab-size) + 12px);
     width:min(var(--box-width), 92vw); max-height:var(--box-max-h);
     background:#fff; border-radius:14px; border:1px solid #e8eef3;
     box-shadow:0 16px 40px rgba(0,0,0,.25);
-    display:none; /* start CLOSED */
-    flex-direction:column; overflow:hidden; z-index:9999;
+    display:none; flex-direction:column; overflow:hidden; z-index:9999;
   }
-
   .head{background:var(--brand);color:var(--brandText);padding:10px 14px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
   .body{padding:10px;overflow:auto;max-height:calc(var(--box-max-h) - 96px);font-size:14px}
   .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0}
@@ -115,24 +116,70 @@ function showBannerError(msg){
 /* ===== UI ===== */
 const wrap = document.createElement("div"); wrap.className="fab-wrap";
 
-/* Curved label SVG — smaller radius & lower Y so it's closer to the circle */
+/* SVG label — built dynamically so it hugs the button precisely */
 const label = document.createElementNS("http://www.w3.org/2000/svg","svg");
 label.setAttribute("class","fab-label");
-/* Arc tuned to sit just above the button */
-label.setAttribute("viewBox","0 0 160 48");
-label.innerHTML = `
-  <defs>
-    <!-- Arc path: start x=20, y=44 ; radius 60 makes it tighter/closer -->
-    <path id="ka-arc" d="M 20,44 A 60,60 0 0 1 140,44" />
-  </defs>
-  <text text-anchor="middle">
-    <textPath href="#ka-arc" startOffset="50%">AI Assist</textPath>
-  </text>
-`;
 
-const fab = document.createElement("button"); fab.className="fab attn"; fab.setAttribute("aria-label","AI Assistant");
-wrap.appendChild(label); wrap.appendChild(fab);
+/* The button */
+const fab = document.createElement("button");
+fab.className="fab attn";
+fab.setAttribute("aria-label","AI Assistant");
+
+/* Put them in the wrapper and on the page */
+wrap.appendChild(label);
+wrap.appendChild(fab);
 document.body.appendChild(wrap);
+
+/* Draw the arc that sits just outside the gold ring */
+function drawArcLabel(){
+  // read sizes
+  const fabSize = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fab-size'));
+  const gap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--arc-gap')) || 6;
+  const ring = 4; // gold ring thickness
+  const r = (fabSize/2) + ring + gap;                // radius of the label circle
+  const pad = 20;                                    // room around the circle in the SVG
+  const cx = pad + r;                                // center x
+  const cy = pad + r;                                // center y
+  const box = (pad + r) * 2;                         // viewBox width/height
+
+  // full circle path around the button center
+  const d = `M ${cx - r},${cy}
+             a ${r},${r} 0 1,0 ${2*r},0
+             a ${r},${r} 0 1,0 ${-2*r},0`;
+
+  label.setAttribute("viewBox", `0 0 ${box} ${box}`);
+  label.innerHTML = `
+    <defs>
+      <path id="ka-circle" d="${d}"/>
+    </defs>
+    <text text-anchor="start" dominant-baseline="central">
+      <textPath id="ka-tp" href="#ka-circle"></textPath>
+    </text>
+  `;
+
+  const tp = label.querySelector('#ka-tp');
+
+  // text content + color/size
+  tp.textContent = (getComputedStyle(document.documentElement).getPropertyValue('--label-text') || 'AI Assist')
+                    .replace(/^["'\s]+|["'\s]+$/g,'');
+  const t = label.querySelector('text');
+  t.style.fill = getComputedStyle(document.documentElement).getPropertyValue('--label-color').trim() || '#3EA3DC';
+  t.style.fontSize = getComputedStyle(document.documentElement).getPropertyValue('--label-size').trim() || '18px';
+  t.style.fontWeight = '900';
+  t.style.letterSpacing = '.6px';
+
+  // place the text on the top-right quadrant like your sample
+  const startDeg = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--arc-offset-deg')) || 300;
+  // arc length along the circle where the text begins (in px)
+  const startOffset = (Math.PI * 2 * r) * (startDeg / 360);
+  tp.setAttribute('startOffset', String(startOffset));
+}
+
+drawArcLabel();
+addEventListener('resize', drawArcLabel);
+
+/* stop attention animation after a bit */
+setTimeout(()=> fab.classList.remove('attn'), 2400);
 
 /* Chat box */
 const box = document.createElement("div"); box.className="box";
@@ -145,14 +192,11 @@ document.body.appendChild(box);
 
 const B=box.querySelector("#body"), Q=box.querySelector("#q"), GO=box.querySelector("#go"), closeBtn=box.querySelector("#x");
 
-/* stop attention animation after a bit */
-setTimeout(()=> fab.classList.remove('attn'), 3000);
-
 /* open/close */
 fab.onclick=()=>{ box.style.display = (box.style.display==="flex"?"none":"flex"); if(box.style.display==="flex") setTimeout(()=>Q.focus(), 50); };
 closeBtn.onclick=()=>{ box.style.display="none"; };
 
-/* ===== Arabic helpers / search ===== */
+/* ===== Arabic helpers / search (unchanged) ===== */
 const AR_ANY=/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
 function isArabic(s){ return AR_ANY.test(String(s||"")); }
 function normalizeArabicForms(str){
