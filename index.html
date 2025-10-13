@@ -7,10 +7,10 @@
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;padding:2rem}
     .fab{position:fixed;right:18px;bottom:18px;background:#3EA3DC;color:#fff;border:none;border-radius:50%;
-         width:56px;height:56px;font-size:24px;cursor:pointer;box-shadow:0 8px 20px rgba(0,0,0,.25);z-index:9999}
+         width:56px;height:56px;font-size:24px;cursor:pointer;box-shadow:0 8px 20px rgba(0,0,0,.25);z-index:9999;display:block}
     .box{position:fixed;right:18px;bottom:86px;width:min(520px,92vw);max-height:70vh;background:#fff;border-radius:14px;
          border:1px solid #e8eef3;box-shadow:0 16px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;z-index:9999}
-    .head{background:#BF9849;color:#fff;padding:10px 14px;font-weight:600;display:flex;justify-content:space-between}
+    .head{background:#BF9849;color:#fff;padding:10px 14px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
     .body{padding:10px;overflow:auto;max-height:56vh;font-size:14px}
     .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0}
     .meta{opacity:.85;font-size:12px;margin-top:6px}
@@ -19,25 +19,29 @@
     .input button{background:#3EA3DC;color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600}
     .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px}
     .btn{flex:0 0 auto;background:#3EA3DC;color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
+    .muted{opacity:.7}
   </style>
 
-  <!-- SheetJS loader (tries local then CDNs) -->
+  <!-- SheetJS loader with fallbacks -->
   <script>
   (function loadSheetJS(){
-    var sources = [
+    const sources = [
       "/koha-csv/xlsx.full.min.js",
       "https://mnegm1.github.io/koha-csv/xlsx.full.min.js",
       "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.20.3/xlsx.full.min.js",
       "https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js",
       "https://unpkg.com/xlsx@0.20.3/dist/xlsx.full.min.js"
     ];
-    var i = 0;
+    let i = 0;
     function tryNext(){
-      if (i >= sources.length) { window.__XLSX_LOAD_ERROR__ = "All sources failed"; return; }
-      var s = document.createElement("script");
+      if (i >= sources.length) {
+        window.__XLSX_LOAD_ERROR__ = "All XLSX sources failed";
+        return;
+      }
+      const s = document.createElement("script");
       s.src = sources[i++]; s.async = true;
-      s.onload  = function(){ window.__XLSX_READY__ = true; };
-      s.onerror = tryNext;
+      s.onload  = () => { console.log("XLSX loaded:", s.src); window.__XLSX_READY__ = true; };
+      s.onerror = () => { console.warn("Failed XLSX src:", s.src); tryNext(); };
       document.head.appendChild(s);
     }
     tryNext();
@@ -46,34 +50,55 @@
 </head>
 <body>
   <h2>Koha ODS Chatbot</h2>
-  <p>This page loads the ODS catalog and adds the chat bubble 💬 automatically.</p>
+  <p class="muted">This page loads the ODS catalog and adds the chat bubble 💬 automatically.</p>
 
   <script>
+  // Visible crash reporter so the widget never "silently disappears"
+  window.addEventListener("error", (e) => {
+    console.error("Global error:", e.error || e.message || e);
+    showBannerError("Chatbot JS error: " + (e.message || e.error || e));
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    console.error("Unhandled rejection:", e.reason);
+    showBannerError("Chatbot promise error: " + (e.reason && e.reason.message ? e.reason.message : e.reason));
+  });
+
+  function showBannerError(msg){
+    let el = document.getElementById("top-error");
+    if(!el){
+      el = document.createElement("div");
+      el.id = "top-error";
+      el.className = "error";
+      document.body.prepend(el);
+    }
+    el.textContent = String(msg || "Unknown error");
+  }
+
   (function startWhenReady(){
+    // Wait for SheetJS
     if (window.__XLSX_LOAD_ERROR__) {
-      var pre = document.createElement("div");
-      pre.className = "error";
-      pre.textContent = "Failed to load XLSX library.";
-      document.body.appendChild(pre);
+      showBannerError("Failed to load XLSX library. (" + window.__XLSX_LOAD_ERROR__ + ")");
       return;
     }
-    if (!window.__XLSX_READY__) { setTimeout(startWhenReady, 150); return; }
+    if (!window.__XLSX_READY__) { setTimeout(startWhenReady, 120); return; }
 
     /* ===== CONFIG ===== */
-    var BOT_CFG = {
-      DATA_URL: "https://raw.githubusercontent.com/mnegm1/koha-csv/main/opac-catalog.ods",
+    const BOT_CFG = {
+      // Use jsDelivr for reliable raw ODS delivery (CORS-friendly)
+      DATA_URL: "https://cdn.jsdelivr.net/gh/mnegm1/koha-csv/opac-catalog.ods",
       MAX_RESULTS: 12,
       MIN_QUERY_LEN: 1,
       KOHA_OPAC_BASE: location.origin
     };
 
     /* ===== UI ===== */
-    var fab=document.createElement("button"); fab.className="fab"; fab.textContent="💬";
-    var box=document.createElement("div"); box.className="box";
-    box.innerHTML='' +
+    const fab = document.createElement("button");
+    fab.className = "fab"; fab.textContent = "💬";
+    const box = document.createElement("div"); box.className = "box";
+    box.innerHTML = '' +
       '<div class="head">' +
         '<div>Catalog Assistant</div>' +
-        '<button id="x" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer">×</button>' +
+        '<button id="x" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer" title="Close">×</button>' +
       '</div>' +
       '<div class="body" id="body">' +
         '<div class="row" id="status">Loading catalog…</div>' +
@@ -83,37 +108,58 @@
         '<input id="q" type="text" placeholder="Search / ابحث" dir="auto">' +
         '<button id="go">Search</button>' +
       '</div>';
-    document.body.appendChild(fab); document.body.appendChild(box);
-    var B = box.querySelector("#body"), Q = box.querySelector("#q"), GO = box.querySelector("#go");
-    var closeBtn = box.querySelector("#x");
-    fab.onclick = function(){ box.style.display = (box.style.display==="flex" ? "none" : "flex"); };
-    closeBtn.onclick = function(){ box.style.display = "none"; };
-    box.style.display = "flex"; Q.focus();
+    document.body.appendChild(fab);
+    document.body.appendChild(box);
+
+    const B = box.querySelector("#body"),
+          Q = box.querySelector("#q"),
+          GO = box.querySelector("#go"),
+          closeBtn = box.querySelector("#x");
+
+    // Always visible by default (no silent disappear)
+    box.style.display = "flex"; fab.style.display = "block"; Q.focus();
+    fab.onclick = () => { box.style.display = (box.style.display === "flex" ? "none" : "flex"); };
+    closeBtn.onclick = () => { box.style.display = "none"; };
 
     /* ===== Arabic helpers ===== */
-    var AR_ANY = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+    const AR_ANY = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
     function isArabic(s){ return AR_ANY.test(String(s||"")); }
 
+    // Map Arabic presentation forms to base letters
     function normalizeArabicForms(str){
       if(!str) return "";
-      var map = {
+      const map = {
         'ﺍ':'ا','ﺎ':'ا','ﺃ':'ا','ﺄ':'ا','ﺇ':'ا','ﺈ':'ا','ٱ':'ا',
-        'ﻷ':'لا','ﻹ':'لا','ﻵ':'لا','ﻻ':'لا','ﻼ':'لا',
-        'ﺏ':'ب','ﺐ':'ب','ﺑ':'ب','ﺒ':'ب','ﺕ':'ت','ﺖ':'ت','ﺗ':'ت','ﺘ':'ت',
-        'ﺙ':'ث','ﺚ':'ث','ﺛ':'ث','ﺜ':'ث','ﺝ':'ج','ﺞ':'ج','ﺟ':'ج','ﺠ':'ج',
-        'ﺡ':'ح','ﺢ':'ح','ﺣ':'ح','ﺤ':'ح','ﺥ':'خ','ﺦ':'خ','ﺧ':'خ','ﺨ':'خ',
-        'ﺩ':'د','ﺫ':'ذ','ﺭ':'ر','ﺯ':'ز','ﺱ':'س','ﺲ':'س','ﺳ':'س','ﺴ':'س',
-        'ﺵ':'ش','ﺶ':'ش','ﺷ':'ش','ﺸ':'ش','ﺹ':'ص','ﺺ':'ص','ﺻ':'ص','ﺼ':'ص',
-        'ﺽ':'ض','ﺾ':'ض','ﺿ':'ض','ﻀ':'ض','ﻁ':'ط','ﻂ':'ط','ﻃ':'ط','ﻄ':'ط',
-        'ﻅ':'ظ','ﻆ':'ظ','ﻇ':'ظ','ﻈ':'ظ','ﻉ':'ع','ﻊ':'ع','ﻋ':'ع','ﻌ':'ع',
-        'ﻍ':'غ','ﻎ':'غ','ﻏ':'غ','ﻐ':'غ','ﻑ':'ف','ﻒ':'ف','ﻓ':'ف','ﻔ':'ف',
-        'ﻕ':'ق','ﻖ':'ق','ﻗ':'ق','ﻘ':'ق','ﻙ':'ك','ﻚ':'ك','ﻛ':'ك','ﻜ':'ك',
-        'ﻝ':'ل','ﻞ':'ل','ﻟ':'ل','ﻠ':'ل','ﻡ':'م','ﻢ':'م','ﻣ':'م','ﻤ':'م',
-        'ﻥ':'ن','ﻦ':'ن','ﻧ':'ن','ﻨ':'ن','ﻩ':'ه','ﻪ':'ه','ﻫ':'ه','ﻬ':'ه',
-        'ﻭ':'و','ﻮ':'و','ﻱ':'ي','ﻲ':'ي','ﻳ':'ي','ﻴ':'ي','ﻰ':'ى'
+        'ﺏ':'ب','ﺐ':'ب','ﺑ':'ب','ﺒ':'ب',
+        'ﺕ':'ت','ﺖ':'ت','ﺗ':'ت','ﺘ':'ت',
+        'ﺙ':'ث','ﺚ':'ث','ﺛ':'ث','ﺜ':'ث',
+        'ﺝ':'ج','ﺞ':'ج','ﺟ':'ج','ﺠ':'ج',
+        'ﺡ':'ح','ﺢ':'ح','ﺣ':'ح','ﺤ':'ح',
+        'ﺥ':'خ','ﺦ':'خ','ﺧ':'خ','ﺨ':'خ',
+        'ﺩ':'د','ﺪ':'د','ﺫ':'ذ','ﺬ':'ذ',
+        'ﺭ':'ر','ﺮ':'ر','ﺯ':'ز','ﺰ':'ز',
+        'ﺱ':'س','ﺲ':'س','ﺳ':'س','ﺴ':'س',
+        'ﺵ':'ش','ﺶ':'ش','ﺷ':'ش','ﺸ':'ش',
+        'ﺹ':'ص','ﺺ':'ص','ﺻ':'ص','ﺼ':'ص',
+        'ﺽ':'ض','ﺾ':'ض','ﺿ':'ض','ﻀ':'ض',
+        'ﻁ':'ط','ﻂ':'ط','ﻃ':'ط','ﻄ':'ط',
+        'ﻅ':'ظ','ﻆ':'ظ','ﻇ':'ظ','ﻈ':'ظ',
+        'ﻉ':'ع','ﻊ':'ع','ﻋ':'ع','ﻌ':'ع',
+        'ﻍ':'غ','ﻎ':'غ','ﻏ':'غ','ﻐ':'غ',
+        'ﻑ':'ف','ﻒ':'ف','ﻓ':'ف','ﻔ':'ف',
+        'ﻕ':'ق','ﻖ':'ق','ﻗ':'ق','ﻘ':'ق',
+        'ﻙ':'ك','ﻚ':'ك','ﻛ':'ك','ﻜ':'ك',
+        'ﻝ':'ل','ﻞ':'ل','ﻟ':'ل','ﻠ':'ل',
+        'ﻡ':'م','ﻢ':'م','ﻣ':'م','ﻤ':'م',
+        'ﻥ':'ن','ﻦ':'ن','ﻧ':'ن','ﻨ':'ن',
+        'ﻩ':'ه','ﻪ':'ه','ﻫ':'ه','ﻬ':'ه',
+        'ﻭ':'و','ﻮ':'و',
+        'ﻱ':'ي','ﻲ':'ي','ﻳ':'ي','ﻴ':'ي','ﻰ':'ى',
+        'ﻻ':'لا','ﻼ':'لا'
       };
-      return str.replace(/[\uFE70-\uFEFF\uFB50-\uFDFF]/g, function(ch){ return map[ch] || ch; });
+      return str.replace(/[\uFE70-\uFEFF\uFB50-\uFDFF]/g, ch => map[ch] || ch);
     }
+
     function stripLatinDiacritics(s){ return s.replace(/[\u0300-\u036f]/g,""); }
     function foldDigits(s){
       return s
@@ -121,36 +167,34 @@
         .replace(/[\u06F0-\u06F9]/g, d => d.charCodeAt(0) - 0x06F0);
     }
 
-    // Strong normalizer (safe for both EN + AR)
+    // Strong normalizer — also strips zero-width/bidi marks & tatweel
     function norm(s){
       if (!s) return "";
-      var t = String(s);
-      try { t = t.normalize("NFKC"); } catch(e){}
-      t = t.toLowerCase();
+      let t = String(s).toLowerCase();
+      try { t = t.normalize("NFKD"); } catch(e){}
       t = stripLatinDiacritics(t);
       t = normalizeArabicForms(t);
       t = foldDigits(t);
       t = t
-        // tashkīl + tatweel
-        .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
-        // zero-width / bidi / NBSPs
-        .replace(/[\u061C\u2000-\u200F\u202A-\u202E\u2066-\u2069\u00A0\u202F]/g,"")
-        // unify base letters
-        .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك").replace(/ؤ|ئ/g,"و");
-      return t.trim();
+        .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"") // tashkīl + tatweel
+        .replace(/[\u061C\u2000-\u200F\u202A-\u202E\u2066-\u2069\u00A0\u202F]/g,"") // bidi/zero-width
+        .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك");
+      return t;
     }
 
-    var AR_LETTER_ONLY = /[ء-ي]/g;
+    // Arabic letters-only (after normalization). Fold ة→ه, ى→ي
+    const AR_LETTER_ONLY = /[ء-ي]/g;
     function arLettersOnly(s){
-      var n = norm(s).replace(/ة/g,"ه").replace(/ى/g,"ي");
-      var out = "", m;
+      const n = norm(s).replace(/ة/g,"ه").replace(/ى/g,"ي");
+      let out = "", m;
       while ((m = AR_LETTER_ONLY.exec(n)) !== null) out += m[0];
       return out;
     }
 
+    // Ordered subsequence helper
     function subseq(hay, needle){
       if (!needle) return false;
-      var i=0, j=0;
+      let i=0, j=0;
       while (i<hay.length && j<needle.length){
         if (hay.charCodeAt(i) === needle.charCodeAt(j)) j++;
         i++;
@@ -158,34 +202,35 @@
       return j === needle.length;
     }
 
+    // Very loose Arabic regex (letters with “anything” between)
     function reEscape(s){ return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
     function arAltClass(ch){
       if (ch === 'ه' || ch === 'ة') return '(?:ه|ة)';
       if (ch === 'ي' || ch === 'ى' || ch === 'ی') return '(?:ي|ى|ی)';
       if (ch === 'ك' || ch === 'ک') return '(?:ك|ک)';
-      if ('اأإآٱ'.includes(ch)) return '(?:ا|أ|إ|آ|ٱ)';
+      if (ch === 'ا' || ch === 'أ' || ch === 'إ' || ch === 'آ' || ch === 'ٱ') return '(?:ا|أ|إ|آ|ٱ)';
       return reEscape(ch);
     }
     function makeArabicLooseRegex(q){
-      var qn = normalizeArabicForms(String(q||''))
-                .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,'')
-                .replace(/[\u061C\u2000-\u200F\u202A-\u202E\u2066-\u2069\u00A0\u202F]/g,'')
-                .replace(/\s+/g,'')
-                .trim();
+      const qn = normalizeArabicForms(String(q||''))
+                    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,'')
+                    .replace(/[\u061C\u2000-\u200F\u202A-\u202E\u2066-\u2069\u00A0\u202F]/g,'')
+                    .replace(/\s+/g,'')
+                    .trim();
       if (!qn) return null;
-      var letters = qn.match(/[\u0621-\u064A\u066E\u066F\u0671-\u06D3\u06FA-\u06FF]/g) || qn.split('');
-      var parts = [];
-      for (var i=0;i<letters.length;i++) parts.push(arAltClass(letters[i]));
-      var pattern = parts.join('[\\s\\S]{0,60}?'); // allow up to 60 chars between letters
-      try { return new RegExp(pattern, 'iu'); } catch(e) { return null; }
+      const letters = qn.match(/[\u0621-\u064A\u066E\u066F\u0671-\u06D3\u06FA-\u06FF]/g) || qn.split('');
+      const parts = letters.map(ch => arAltClass(ch));
+      const pattern = parts.join('[\\s\\S]{0,40}?'); // allow anything between letters
+      try { return new RegExp(pattern, 'u'); } catch(e) { return null; }
     }
     function arabicRegexSweep(idx, q, limit){
-      var re = makeArabicLooseRegex(q);
+      const re = makeArabicLooseRegex(q);
       if (!re) return [];
-      var out = [];
-      for (var i=0;i<idx.length;i++){
-        var r = idx[i];
-        if (re.test(r.nAll) || re.test(r.rawAll)) {
+      const out = [];
+      for (let i=0;i<idx.length;i++){
+        const r = idx[i];
+        const hay = normalizeArabicForms(r.rawAll || '');
+        if (re.test(hay)){
           out.push({sc:0.6, raw:r.raw});
           if (out.length >= (limit||12)) break;
         }
@@ -193,9 +238,18 @@
       return out;
     }
 
-    function setStatus(msg, err){
-      var el=document.getElementById("status");
-      if(!el) return; el.className = err ? "row error" : "row"; el.textContent = msg;
+    function setStatus(msg, isErr){
+      console.log("STATUS:", msg);
+      let el = document.getElementById("status");
+      if(!el){
+        el = document.createElement("div");
+        el.id = "status";
+        el.className = "row";
+        B.prepend(el);
+      }
+      el.className = isErr ? "row error" : "row";
+      el.textContent = msg;
+      if (isErr) showBannerError(msg);
     }
 
     function kohaURL(title){
@@ -204,13 +258,13 @@
     }
 
     function render(items){
-      var list=document.createElement("div");
+      const list=document.createElement("div");
       if(!items.length){ list.innerHTML='<div class="row">No results found.</div>'; return list; }
-      for(var i=0;i<items.length;i++){
-        var r=items[i].raw;
-        var url = (r.url && /^https?:\/\//i.test(r.url)) ? r.url : kohaURL(r.title||"");
-        var pub = [r.publisher, r.year].filter(Boolean).join(" • ");
-        var div=document.createElement("div"); div.className="row";
+      for(let i=0;i<items.length;i++){
+        const r=items[i].raw;
+        const url = (r.url && /^https?:\/\//i.test(r.url)) ? r.url : kohaURL(r.title||"");
+        const pub = [r.publisher, r.year].filter(Boolean).join(" • ");
+        const div=document.createElement("div"); div.className="row";
         div.dir = isArabic((r.title||"")+(r.summary||"")+(r.content||"")+(r.author||"")) ? "rtl" : "ltr";
         div.innerHTML =
           '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">' +
@@ -226,66 +280,71 @@
       return list;
     }
 
-    /* ===== Load ODS, coerce RichText → clean strings ===== */
-    var INDEX=[];
+    /* ===== Load ODS, coerce RichText → clean strings (strip hidden marks) ===== */
+    let INDEX=[];
     fetch(BOT_CFG.DATA_URL,{cache:"reload"})
-      .then(function(r){ if(!r.ok) throw new Error("HTTP "+r.status); return r.arrayBuffer(); })
-      .then(function(buf){
-        var wb = XLSX.read(buf,{type:"array"});
-        var ws = wb.Sheets["catalog"] || wb.Sheets[wb.SheetNames[0]];
-        if(!ws) throw new Error("No sheets in ODS");
+      .then(r => { if(!r.ok) throw new Error("HTTP "+r.status); return r.arrayBuffer(); })
+      .then(buf => {
+        let wb;
+        try {
+          wb = XLSX.read(buf,{type:"array"});
+        } catch(e){
+          throw new Error("XLSX read failed: " + e.message);
+        }
+        const ws = wb.Sheets["catalog"] || wb.Sheets[wb.SheetNames[0]];
+        if(!ws) throw new Error("No sheets found in ODS");
 
-        var raw = XLSX.utils.sheet_to_json(ws,{defval:"", raw:true});
+        const raw = XLSX.utils.sheet_to_json(ws,{defval:"", raw:true});
+
+        // Strip control marks at LOAD TIME so Arabic search works
+        const CONTROL_RE = /[\u061C\u200B-\u200F\u202A-\u202E\u2066-\u2069\u00A0\u202F]/g;
 
         function cellStr(v){
           if (v == null) return "";
-          if (typeof v === "string") return v;
+          if (typeof v === "string") return v.replace(CONTROL_RE,"");
           if (typeof v === "number" || typeof v === "boolean") return String(v);
-          if (Array.isArray(v)) return v.map(cellStr).join(" ");
+          if (Array.isArray(v)) { return v.map(cellStr).join(" "); }
           if (typeof v === "object") {
-            if (v.richText && Array.isArray(v.richText)) return v.richText.map(rt => (rt && (rt.text||rt.t||""))).join("");
-            if (v.text != null) return String(v.text);
-            if (v.w    != null) return String(v.w);
-            if (v.v    != null) return String(v.v);
-            if (v.t    != null) return String(v.t);
+            if (v.richText && Array.isArray(v.richText)) {
+              return v.richText.map(rt => (rt?(rt.text||rt.t||""):"")).join("").replace(CONTROL_RE,"");
+            }
+            if (v.text != null) return String(v.text).replace(CONTROL_RE,"");
+            if (v.w    != null) return String(v.w).replace(CONTROL_RE,"");
+            if (v.v    != null) return String(v.v).replace(CONTROL_RE,"");
           }
-          try { return String(v); } catch(e){ return ""; }
-        }
-        function cleanSpaces(s){
-          return String(s).replace(/\u00A0|\u202F|\u2007/g,' ').replace(/\s+/g,' ').trim();
+          try { return String(v).replace(CONTROL_RE,""); } catch(e){ return ""; }
         }
 
-        var rows = raw.map(function(row){
-          var k = {};
-          for (var key in row) if (Object.prototype.hasOwnProperty.call(row,key)){
-            k[String(key).trim().toLowerCase()] = cleanSpaces(cellStr(row[key]));
+        const rows = raw.map(row => {
+          const k = {};
+          for (const key in row) if (Object.prototype.hasOwnProperty.call(row,key)){
+            k[String(key).trim().toLowerCase()] = cellStr(row[key]);
           }
           return k;
         });
 
-        var records = rows.map(function(k){
-          var title   = k["full title"] || k["العنوان"] || k.title || "";
-          var author  = k["author"] || k["المؤلف"] || k["المؤلفون"] || "";
-          var summary = k["abstract"] || k["الملخص"] || "";
-          var content = k["content"] || k["المحتوى"] || "";
-          var pubdat  = k["publications data"] || k["بيانات النشر"] || "";
-          var url     = k["book_url"] || k["book url"] || k["رابط_الكتاب"] || k.url || "";
+        const records = rows.map(k => {
+          const title   = k["full title"] || k["العنوان"] || k.title || "";
+          const author  = k["author"] || k["المؤلف"] || k["المؤلفون"] || "";
+          const summary = k["abstract"] || k["الملخص"] || "";
+          const content = k["content"] || k["المحتوى"] || "";
+          const pubdat  = k["publications data"] || k["بيانات النشر"] || "";
+          const url     = k["book_url"] || k["book url"] || k["رابط_الكتاب"] || k.url || "";
 
-          var ym = String(pubdat).match(/(\d{4})/);
-          var year  = ym ? ym[1] : "";
-          var publisher = String(pubdat||"").replace(/\b\d{4}\b/g,"").replace(/\s*[.,;|-]\s*$/,"").trim();
+          const ym = String(pubdat).match(/(\d{4})/);
+          const year  = ym ? ym[1] : "";
+          const publisher = String(pubdat||"").replace(/\b\d{4}\b/g,"").replace(/\s*[.,;|-]\s*$/,"").trim();
 
-          return { title:title, author:author, summary:summary, content:content, publisher:publisher, year:year, url:url };
+          return { title, author, summary, content, publisher, year, url };
         });
 
-        INDEX = records.map(function(r, i){
-          var rawAll = (r.title+" "+r.author+" "+r.summary+" "+r.content+" "+r.publisher+" "+r.year).trim();
-          var nAll   = norm(rawAll);
+        INDEX = records.map((r, i) => {
+          const rawAll = (r.title+" "+r.author+" "+r.summary+" "+r.content+" "+r.publisher+" "+r.year).trim();
           return {
             id:i,
             raw:r,
             rawAll: rawAll,
-            nAll:   nAll,
+            nAll:   norm(rawAll),
             aAll:   arLettersOnly(rawAll),
             nTitle: norm(r.title),
             nSummary: norm(r.summary),
@@ -296,70 +355,96 @@
           };
         });
 
-        var arabicCount = records.filter(function(r){
-          return AR_ANY.test((r.title||"")+(r.author||"")+(r.summary||"")+(r.content||""));
-        }).length;
-
+        const arabicCount = records.filter(r => AR_ANY.test((r.title||"")+(r.author||"")+(r.summary||"")+(r.content||""))).length;
         setStatus("Loaded "+records.length+" records (Arabic rows: "+arabicCount+")");
 
-        var sample = render(records.slice(0,3).map(function(r){ return {raw:r,sc:1}; }));
+        const sample = render(records.slice(0,3).map(r => ({raw:r,sc:1})));
         B.appendChild(sample);
       })
-      .catch(function(err){ console.error(err); setStatus("Chatbot init failed: "+err.message, true); });
+      .catch(err => {
+        console.error(err);
+        setStatus("Chatbot init failed: "+ (err && err.message ? err.message : err), true);
+      });
 
-    /* ===== Search pipeline ===== */
+    /* ===== Search: ranked → AR letters-only → regex sweep ===== */
     function parseFilters(q){
-      var aMatch = q.match(/author:\s*"([^"]+)"/i) || q.match(/author:\s*([^\s]+)/i);
-      var yMatch = q.match(/year:\s*(\d{4})/i);
-      var a = aMatch ? aMatch[1] : "";
-      var y = yMatch ? yMatch[1] : "";
-      var cleaned = q.replace(/author:\s*".*?"/ig,"").replace(/author:\s*[^\s]+/ig,"").replace(/year:\s*\d{4}/ig,"").trim();
+      const aMatch = q.match(/author:\s*"([^"]+)"/i) || q.match(/author:\s*([^\s]+)/i);
+      const yMatch = q.match(/year:\s*(\d{4})/i);
+      const a = aMatch ? aMatch[1] : "";
+      const y = yMatch ? yMatch[1] : "";
+      const cleaned = q.replace(/author:\s*".*?"/ig,"").replace(/author:\s*[^\s]+/ig,"").replace(/year:\s*\d{4}/ig,"").trim();
       return {author:a, year:y, cleaned:cleaned};
-    }
-
-    function icuTokens(s){
-      try{
-        var seg = new Intl.Segmenter('ar',{granularity:'word'});
-        var out=[]; for (const it of seg.segment(norm(s))) if (it.isWordLike) out.push(it.segment);
-        return out;
-      }catch(e){ return norm(s).split(/\s+/).filter(Boolean); }
     }
 
     function search(idx, q, limit){
       q = (q||"").trim();
       if (q.length < BOT_CFG.MIN_QUERY_LEN) return [];
-      var F = parseFilters(q);
+      const F = parseFilters(q);
 
-      var cleaned = F.cleaned;
-      var nq = norm(cleaned);
-      var terms = nq.split(/\s+/).filter(Boolean);
-      var aQuery = arLettersOnly(cleaned); // Arabic letters-only query
+      const terms = F.cleaned.split(/\s+/).filter(Boolean);
+      const nTerms = terms.map(norm);
+      const aQuery = arLettersOnly(F.cleaned);
 
-      // Stage 0: FILTERS pre-normalized
-      var out = [];
-      for (var i=0;i<idx.length;i++){
-        var rec = idx[i];
-        if (F.author && rec.nAll.indexOf(norm(F.author)) === -1) continue;
+      // Stage 1: ranked scoring (normalized text)
+      const out = [];
+      for (let i=0;i<idx.length;i++){
+        const rec = idx[i];
+        if (F.author && norm(rec.raw.author).indexOf(norm(F.author)) === -1) continue;
         if (F.year && String(rec.raw.year||"") !== String(F.year)) continue;
 
-        // Stage 1: ranked scoring over title/summary/content + WHOLE ROW (nAll)
-        var sc = 0, matched = false;
-        for (var t=0;t<terms.length;t++){
-          var qt = terms[t]; if (!qt) continue;
-          if (rec.nTitle.indexOf(qt)   !== -1) { sc += 5; matched = true; }
+        let sc = 0, matched = false;
+        for (let t=0;t<nTerms.length;t++){
+          const qt = nTerms[t]; if (!qt) continue;
+          if (rec.nTitle.indexOf(qt) !== -1)   { sc += 5; matched = true; }
           if (rec.nSummary.indexOf(qt) !== -1) { sc += 2; matched = true; }
           if (rec.nContent.indexOf(qt) !== -1) { sc += 2; matched = true; }
-          if (rec.nAll.indexOf(qt)     !== -1) { sc += 1; matched = true; } // NEW: whole row fallback
         }
-        // Exact year bonus
-        var yTerm = nq.match(/\b(\d{4})\b/);
+        const yTerm = q.match(/\b(\d{4})\b/);
         if (yTerm && String(rec.raw.year) === yTerm[1]) { sc += 6; matched = true; }
-
-        if (matched) out.push({sc:sc, raw:rec.raw});
+        if (matched) out.push({sc, raw:rec.raw});
       }
-      out.sort(function(a,b){ return b.sc - a.sc; });
+      out.sort((a,b) => b.sc - a.sc);
       if (out.length) return out.slice(0, limit||BOT_CFG.MAX_RESULTS);
 
-      // Stage 2: ICU Arabic token containment on nAll
-      if (isArabic(cleaned)){
-       
+      // Stage 2: Arabic letters-only (contiguous or subsequence)
+      if (aQuery){
+        const hits = [];
+        for (let j=0;j<idx.length;j++){
+          const r = idx[j];
+          if (F.author && norm(r.raw.author).indexOf(norm(F.author)) === -1) continue;
+          if (F.year && String(r.raw.year||"") !== String(F.year)) continue;
+
+          const aAll = r.aAll; if (!aAll) continue;
+          if (aAll.indexOf(aQuery) !== -1 ||
+              subseq(aAll, aQuery) ||
+              subseq(aAll, aQuery.replace(/ه/g,"ة")) ||
+              subseq(aAll, aQuery.replace(/ي/g,"ى"))) {
+            hits.push({sc:0.7, raw:r.raw});
+          }
+        }
+        if (hits.length) return hits.slice(0, limit||BOT_CFG.MAX_RESULTS);
+      }
+
+      // Stage 3: regex sweep tolerant to any junk between Arabic letters
+      const regexHits = arabicRegexSweep(idx, F.cleaned, limit);
+      if (regexHits.length) return regexHits;
+
+      return [];
+    }
+
+    GO.onclick = function(){
+      try{
+        const q = Q.value.trim(); if(!q) return;
+        const res = search(INDEX, q, BOT_CFG.MAX_RESULTS);
+        while (B.children.length > 1) B.removeChild(B.lastChild);
+        B.appendChild(render(res));
+      }catch(e){
+        console.error(e);
+        setStatus("Search failed: "+e.message, true);
+      }
+    };
+    Q.onkeydown = function(e){ if(e.key==="Enter") GO.click(); };
+  })();
+  </script>
+</body>
+</html>
