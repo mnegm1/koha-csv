@@ -3,11 +3,13 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Koha ODS Chatbot — Arabic letters-only match</title>
+  <title>Koha ODS Chatbot — Arabic solid</title>
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;padding:2rem}
-    .fab{position:fixed;right:18px;bottom:18px;background:#3EA3DC;color:#fff;border:none;border-radius:50%;width:56px;height:56px;font-size:24px;cursor:pointer;box-shadow:0 8px 20px rgba(0,0,0,.25);z-index:9999}
-    .box{position:fixed;right:18px;bottom:86px;width:min(520px,92vw);max-height:70vh;background:#fff;border-radius:14px;border:1px solid #e8eef3;box-shadow:0 16px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;z-index:9999}
+    .fab{position:fixed;right:18px;bottom:18px;background:#3EA3DC;color:#fff;border:none;border-radius:50%;
+         width:56px;height:56px;font-size:24px;cursor:pointer;box-shadow:0 8px 20px rgba(0,0,0,.25);z-index:9999}
+    .box{position:fixed;right:18px;bottom:86px;width:min(520px,92vw);max-height:70vh;background:#fff;border-radius:14px;
+         border:1px solid #e8eef3;box-shadow:0 16px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;z-index:9999}
     .head{background:#BF9849;color:#fff;padding:10px 14px;font-weight:600;display:flex;justify-content:space-between}
     .body{padding:10px;overflow:auto;max-height:56vh;font-size:14px}
     .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0}
@@ -19,7 +21,7 @@
     .btn{flex:0 0 auto;background:#3EA3DC;color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
   </style>
 
-  <!-- SheetJS loader -->
+  <!-- SheetJS loader (tries local then CDNs) -->
   <script>
   (function loadSheetJS(){
     var sources = [
@@ -75,7 +77,7 @@
       '</div>' +
       '<div class="body" id="body">' +
         '<div class="row" id="status">Loading catalog…</div>' +
-        '<div class="row">Type title, author, year — أو اكتب كلمات عربية من العنوان/الملخص/المحتوى.</div>' +
+        '<div class="row">Type title, author, year — أو اكتب كلمات عربية من العنوان/الملخص/المحتوى. فلاتر: author:"name"  year:2021</div>' +
       '</div>' +
       '<div class="input">' +
         '<input id="q" type="text" placeholder="Search / ابحث" dir="auto">' +
@@ -88,10 +90,11 @@
     closeBtn.onclick = function(){ box.style.display = "none"; };
     box.style.display = "flex"; Q.focus();
 
-    /* ===== Arabic utilities ===== */
+    /* ===== Arabic helpers ===== */
     var AR_ANY = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
     function isArabic(s){ return AR_ANY.test(String(s||"")); }
 
+    // Presentation-form folding
     function normalizeArabicForms(str){
       if(!str) return "";
       var map = {
@@ -134,6 +137,7 @@
         .replace(/[\u06F0-\u06F9]/g, function(d){ return d.charCodeAt(0) - 0x06F0; });
     }
 
+    // Strong normalizer
     function norm(s){
       if (!s) return "";
       var t = String(s).toLowerCase();
@@ -142,24 +146,25 @@
       t = normalizeArabicForms(t);
       t = foldDigits(t);
       t = t
-        .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"") // tashkīl + tatweel
-        .replace(/[\u061C\u2000-\u200F\u202A-\u202E\u2066-\u2069\u00A0\u202F]/g,"") // ZWJ/bidi/isolates/NBSP
+        // tashkīl + tatweel
+        .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
+        // zero-width / bidi / isolates / NBSPs
+        .replace(/[\u061C\u2000-\u200F\u202A-\u202E\u2066-\u2069\u00A0\u202F]/g,"")
+        // unify base letters
         .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك");
       return t;
     }
 
-    // Keep *only* Arabic letters U+0621..U+064A after normalization; fold ة→ه and ى→ي
-    var AR_LETTER_ONLY = /[ء-ي]/g; // simple and fast
+    // Arabic letters-only (after normalization). Fold ة→ه, ى→ي
+    var AR_LETTER_ONLY = /[ء-ي]/g;
     function arLettersOnly(s){
-      var n = norm(s)
-        .replace(/ة/g,"ه")  // normalize ta marbuta
-        .replace(/ى/g,"ي"); // final alef maqsura
+      var n = norm(s).replace(/ة/g,"ه").replace(/ى/g,"ي");
       var out = "", m;
       while ((m = AR_LETTER_ONLY.exec(n)) !== null) out += m[0];
       return out;
     }
 
-    // Ordered subsequence matcher (letters can have junk between)
+    // Ordered subsequence (letters can have junk between)
     function subseq(hay, needle){
       if (!needle) return false;
       var i=0, j=0;
@@ -168,6 +173,43 @@
         i++;
       }
       return j === needle.length;
+    }
+
+    /* ===== LAST-CHANCE REGEX SWEEP (ordered letters with "anything" between) ===== */
+    function reEscape(s){ return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+    function arAltClass(ch){
+      if (ch === 'ه' || ch === 'ة') return '(?:ه|ة)';
+      if (ch === 'ي' || ch === 'ى' || ch === 'ی') return '(?:ي|ى|ی)';
+      if (ch === 'ك' || ch === 'ک') return '(?:ك|ک)';
+      if (ch === 'ا' || ch === 'أ' || ch === 'إ' || ch === 'آ' || ch === 'ٱ') return '(?:ا|أ|إ|آ|ٱ)';
+      return reEscape(ch);
+    }
+    function makeArabicLooseRegex(q){
+      var qn = normalizeArabicForms(String(q||''))
+                .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,'')
+                .replace(/[\u061C\u2000-\u200F\u202A-\u202E\u2066-\u2069\u00A0\u202F]/g,'')
+                .replace(/\s+/g,'')
+                .trim();
+      if (!qn) return null;
+      var letters = qn.match(/[\u0621-\u064A\u066E\u066F\u0671-\u06D3\u06FA-\u06FF]/g) || qn.split('');
+      var parts = [];
+      for (var i=0;i<letters.length;i++) parts.push(arAltClass(letters[i]));
+      var pattern = parts.join('[\\s\\S]{0,40}?'); // allow anything between letters
+      try { return new RegExp(pattern, 'u'); } catch(e) { return null; }
+    }
+    function arabicRegexSweep(idx, q, limit){
+      var re = makeArabicLooseRegex(q);
+      if (!re) return [];
+      var out = [];
+      for (var i=0;i<idx.length;i++){
+        var r = idx[i];
+        var hay = normalizeArabicForms(r.rawAll || '');
+        if (re.test(hay)){
+          out.push({sc:0.6, raw:r.raw});
+          if (out.length >= (limit||12)) break;
+        }
+      }
+      return out;
     }
 
     function setStatus(msg, err){
@@ -203,7 +245,7 @@
       return list;
     }
 
-    /* ===== Load ODS, coerce RichText → plain strings ===== */
+    /* ===== Load ODS, coerce RichText → strings ===== */
     var INDEX=[];
     fetch(BOT_CFG.DATA_URL,{cache:"reload"})
       .then(function(r){ if(!r.ok) throw new Error("HTTP "+r.status); return r.arrayBuffer(); })
@@ -251,7 +293,6 @@
           return { title:title, author:author, summary:summary, content:content, publisher:publisher, year:year, url:url };
         });
 
-        // Build index fields
         INDEX = records.map(function(r, i){
           var rawAll = (r.title+" "+r.author+" "+r.summary+" "+r.content+" "+r.publisher+" "+r.year).trim();
           return {
@@ -259,7 +300,7 @@
             raw:r,
             rawAll: rawAll,
             nAll:   norm(rawAll),
-            aAll:   arLettersOnly(rawAll), // <<< Arabic letters-only string
+            aAll:   arLettersOnly(rawAll), // Arabic letters-only string
             nTitle: norm(r.title),
             nSummary: norm(r.summary),
             nContent: norm(r.content),
@@ -280,7 +321,7 @@
       })
       .catch(function(err){ console.error(err); setStatus("Chatbot init failed: "+err.message, true); });
 
-    /* ===== Search: ranked EN + letters-only AR fallback ===== */
+    /* ===== Search: ranked → letters-only AR → regex sweep ===== */
     function parseFilters(q){
       var aMatch = q.match(/author:\s*"([^"]+)"/i) || q.match(/author:\s*([^\s]+)/i);
       var yMatch = q.match(/year:\s*(\d{4})/i);
@@ -297,9 +338,9 @@
 
       var terms = F.cleaned.split(/\s+/).filter(function(t){return t;});
       var nTerms = terms.map(norm);
-      var aQuery = arLettersOnly(F.cleaned); // <<< Arabic letters-only query
+      var aQuery = arLettersOnly(F.cleaned); // Arabic letters-only query
 
-      // Stage 1: ranked (good for English / simple Arabic)
+      // Stage 1: ranked scoring
       var out = [];
       for (var i=0;i<idx.length;i++){
         var rec = idx[i];
@@ -320,7 +361,7 @@
       out.sort(function(a,b){ return b.sc - a.sc; });
       if (out.length) return out.slice(0, limit||BOT_CFG.MAX_RESULTS);
 
-      // Stage 2: AR letters-only — contiguous OR subsequence
+      // Stage 2: Arabic letters-only (contiguous or subsequence)
       if (aQuery){
         var hits = [];
         for (var j=0;j<idx.length;j++){
@@ -328,31 +369,22 @@
           if (F.author && norm(r.raw.author).indexOf(norm(F.author)) === -1) continue;
           if (F.year && String(r.raw.year||"") !== String(F.year)) continue;
 
-          var aAll = r.aAll;
-          if (!aAll) continue;
-
+          var aAll = r.aAll; if (!aAll) continue;
           if (aAll.indexOf(aQuery) !== -1 ||
               subseq(aAll, aQuery) ||
-              subseq(aAll, aQuery.replace(/ه/g,"ة")) ||    // tolerate ه/ة ambiguity
-              subseq(aAll, aQuery.replace(/ي/g,"ى"))) {    // tolerate ي/ى ambiguity
+              subseq(aAll, aQuery.replace(/ه/g,"ة")) ||
+              subseq(aAll, aQuery.replace(/ي/g,"ى"))) {
             hits.push({sc:0.7, raw:r.raw});
           }
         }
         if (hits.length) return hits.slice(0, limit||BOT_CFG.MAX_RESULTS);
       }
 
-      // Stage 3: normalized AND across all text (last resort)
-      var andHits = [];
-      for (var k=0;k<idx.length;k++){
-        var rr = idx[k];
-        if (F.author && norm(rr.raw.author).indexOf(norm(F.author)) === -1) continue;
-        if (F.year && String(rr.raw.year||"") !== String(F.year)) continue;
+      // Stage 3: **regex sweep** tolerant to any junk between Arabic letters
+      var regexHits = arabicRegexSweep(idx, F.cleaned, limit);
+      if (regexHits.length) return regexHits;
 
-        var ok = true;
-        for (var p=0;p<nTerms.length;p++){ if (nTerms[p] && rr.nAll.indexOf(nTerms[p]) === -1) { ok=false; break; } }
-        if (ok) andHits.push({sc:0.5, raw:rr.raw});
-      }
-      return andHits.slice(0, limit||BOT_CFG.MAX_RESULTS);
+      return [];
     }
 
     function kohaURL(title){
