@@ -81,6 +81,14 @@
   .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px}
   .btn{flex:0 0 auto;background:var(--brand);color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
   .btn:hover{filter:brightness(.95)}
+
+  /* Show more button */
+  .more-row{display:flex;justify-content:center;margin:8px 0 2px}
+  .more-row button{
+    background:var(--brand); color:#fff; border:none; border-radius:10px;
+    padding:8px 14px; font-weight:600; cursor:pointer;
+  }
+  .more-row button:disabled{opacity:.5; cursor:default}
 </style>
 </head>
 <body>
@@ -109,7 +117,7 @@ label.innerHTML = `
     <path id="ka-arc" d="M 10,34 A 50,50 0 0 1 110,34" />
   </defs>
   <text text-anchor="middle">
-    <textPath href="#ka-arc" startOffset="50%">${getComputedStyle(document.documentElement).getPropertyValue('--label-text').replace(/(^["']|["']$)/g,'') || 'AI Assist'}</textPath>
+    <textPath href="#ka-arc" startOffset="50%">AI Assist</textPath>
   </text>
 `;
 
@@ -135,7 +143,7 @@ setTimeout(()=> fab.classList.remove('attn'), 3000);
 fab.onclick=()=>{ box.style.display = (box.style.display==="flex"?"none":"flex"); if(box.style.display==="flex") setTimeout(()=>Q.focus(), 50); };
 closeBtn.onclick=()=>{ box.style.display="none"; };
 
-/* ===== Arabic helpers / search (unchanged from your final) ===== */
+/* ===== Arabic helpers / search ===== */
 const AR_ANY=/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
 function isArabic(s){ return AR_ANY.test(String(s||"")); }
 function normalizeArabicForms(str){
@@ -160,8 +168,16 @@ const AR_LETTER_ONLY=/[ء-ي]/g;
 function arLettersOnly(s){ const n=norm(s).replace(/ة/g,"ه").replace(/ى/g,"ي"); let out="",m; while((m=AR_LETTER_ONLY.exec(n))!==null) out+=m[0]; return out; }
 function subseq(hay,needle){ if(!needle) return false; let i=0,j=0; while(i<hay.length&&j<needle.length){ if(hay.charCodeAt(i)===needle.charCodeAt(j)) j++; i++; } return j===needle.length; }
 
-const BOT_CFG = { DATA_URL:"/koha-csv/opac-catalog.tab", MAX_RESULTS:12, MIN_QUERY_LEN:1, KOHA_OPAC_BASE:location.origin };
+/* ===== Config ===== */
+const BOT_CFG = {
+  DATA_URL:"/koha-csv/opac-catalog.tab",
+  MAX_RESULTS: 999999,    // not used for slicing anymore (kept for compatibility)
+  PAGE_SIZE: 12,          // how many items per click
+  MIN_QUERY_LEN: 1,
+  KOHA_OPAC_BASE: location.origin
+};
 
+/* ===== TSV + mapping ===== */
 function parseTSV(text){
   const lines = text.replace(/\r\n?/g,"\n").split("\n").filter(l=>l.length>0);
   if(!lines.length) return [];
@@ -181,12 +197,14 @@ function mapRecord(k){
   const summary = k["abstract"]||k["الملخص"]||"";
   const content = k["content"]||k["المحتوى"]||"";
   const pubdat  = k["publications data"]||k["بيانات النشر"]||"";
-  const url     = k["book_url"]||k["url"]||"";
+  const url     = k["book_url"]||k["book url"]||k["رابط_الكتاب"]||k["url"]||"";
   const ym = String(pubdat).match(/(\d{4})/);
   const year = ym? ym[1] : "";
   const publisher = String(pubdat||"").replace(/\b\d{4}\b/g,"").trim();
   return {title,author,summary,content,publisher,year,url};
 }
+
+/* ===== render ===== */
 function kohaURL(title){ return BOT_CFG.KOHA_OPAC_BASE + "/cgi-bin/koha/opac-search.pl?q=" + encodeURIComponent('ti="'+title+'"'); }
 function render(items){
   const list=document.createElement("div");
@@ -209,12 +227,15 @@ function render(items){
   }
   return list;
 }
+
+/* ===== Search (returns FULL list; no slicing) ===== */
 function search(idx,q,limit){
   q=(q||"").trim(); if(q.length < BOT_CFG.MIN_QUERY_LEN) return [];
   const terms=q.split(/\s+/).filter(Boolean);
   const nTerms=terms.map(norm);
   const aQuery=arLettersOnly(q);
 
+  // Stage 1: ranked
   const out=[];
   for(const rec of idx){
     let sc=0, matched=false;
@@ -227,18 +248,23 @@ function search(idx,q,limit){
     if(matched) out.push({sc, raw:rec.raw});
   }
   out.sort((a,b)=>b.sc-a.sc);
-  if(out.length) return out.slice(0,limit||BOT_CFG.MAX_RESULTS);
+  if (out.length) return out;  // <-- FULL list
 
+  // Stage 2: Arabic letters-only
   if(aQuery){
     const hits=[];
     for(const r of idx){
       const aAll=r.aAll; if(!aAll) continue;
       if(aAll.indexOf(aQuery)!==-1 || subseq(aAll,aQuery)){ hits.push({sc:0.7, raw:r.raw}); }
     }
-    if(hits.length) return hits.slice(0,limit||BOT_CFG.MAX_RESULTS);
+    if(hits.length) return hits; // FULL
   }
+
+  // Stage 3: (optional) regex fallback – omitted here for speed
   return [];
 }
+
+/* ===== Build index ===== */
 let INDEX=[]; let LOAD_PROMISE=null;
 function ensureLoaded(){
   if (LOAD_PROMISE) return LOAD_PROMISE;
@@ -258,15 +284,61 @@ function ensureLoaded(){
     .catch(err=>{ console.error(err); showBannerError(err?.message||String(err)); });
   return LOAD_PROMISE;
 }
-function doSearchNow(){
-  const q = document.getElementById("q").value.trim(); if(!q) return;
-  const res = search(INDEX, q, BOT_CFG.MAX_RESULTS);
-  const B = document.getElementById("body");
+
+/* ===== Paging state & helpers ===== */
+let LAST = { items: [], shown: 0 };
+
+function clearResultsArea(){
   while (B.firstChild) B.removeChild(B.firstChild);
-  B.appendChild(render(res));
 }
-document.getElementById("go").onclick = ()=> ensureLoaded().then(doSearchNow);
-document.addEventListener("keydown",e=>{ if(e.key==="Enter" && document.activeElement.id==="q") ensureLoaded().then(doSearchNow); });
+
+function appendItems(items){
+  B.appendChild(render(items));
+}
+
+function appendShowMoreIfNeeded(){
+  const old = document.getElementById("ka-more");
+  if (old) old.remove();
+
+  if (LAST.shown >= LAST.items.length) return;
+
+  const row = document.createElement("div");
+  row.id = "ka-more";
+  row.className = "more-row";
+  const btn = document.createElement("button");
+  const remaining = LAST.items.length - LAST.shown;
+  btn.textContent = remaining > BOT_CFG.PAGE_SIZE ? "Show more" : "Show all";
+  btn.onclick = () => {
+    const next = Math.min(LAST.shown + BOT_CFG.PAGE_SIZE, LAST.items.length);
+    appendItems(LAST.items.slice(LAST.shown, next));
+    LAST.shown = next;
+    appendShowMoreIfNeeded();
+  };
+  row.appendChild(btn);
+  B.appendChild(row);
+}
+
+function startNewResultSet(fullList){
+  LAST.items = fullList || [];
+  LAST.shown = Math.min(BOT_CFG.PAGE_SIZE, LAST.items.length);
+  clearResultsArea();
+  if (LAST.items.length === 0){
+    B.appendChild(render([]));
+  } else {
+    appendItems(LAST.items.slice(0, LAST.shown));
+    appendShowMoreIfNeeded();
+  }
+}
+
+/* ===== Triggers ===== */
+document.getElementById("go").onclick = () =>
+  ensureLoaded().then(() => {
+    const q = Q.value.trim(); if (!q) return;
+    const full = search(INDEX, q, BOT_CFG.MAX_RESULTS); // returns full list now
+    startNewResultSet(full);
+  });
+
+Q.onkeydown = e => { if (e.key === "Enter") document.getElementById("go").click(); };
 </script>
 </body>
 </html>
