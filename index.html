@@ -11,38 +11,33 @@
 
     /* ==== customize these ==== */
     --logo-url: url("https://assets.almanhal.com/platform/shared/Product/ECSSR/middlelogo.png");
-    --logo-size: 150%;          /* logo scale inside the bubble */
-    --fab-size: 52px;           /* bubble diameter */
+    --logo-size: 130%;          /* logo scale inside the bubble */
+    --fab-size: 56px;           /* bubble diameter */
     --box-width: 420px;         /* chat box width */
     --box-max-h: 62vh;          /* chat box max height */
   }
 
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;padding:2rem}
 
-  /* Floating bubble with logo */
+  /* Floating bubble with white background and logo */
   .fab{
     position:fixed; right:18px; bottom:18px;
     width:var(--fab-size); height:var(--fab-size);
-    background: var(--brand) var(--logo-url) center/var(--logo-size) no-repeat;
-    border:none; border-radius:50%; cursor:pointer;
+    background: #fff var(--logo-url) center/var(--logo-size) no-repeat;
+    border:4px solid var(--brand);
+    border-radius:50%; cursor:pointer;
     box-shadow:0 8px 20px rgba(0,0,0,.25); z-index:9999;
     transform:translateZ(0);
   }
-  /* one-time attention animation on load */
-  @keyframes ka-wiggle {
-    0%{ transform:translateY(0) }
-    30%{ transform:translateY(-6px) }
-    60%{ transform:translateY(0) }
-    80%{ transform:translateY(-3px) }
-    100%{ transform:translateY(0) }
+
+  /* visible soft bounce + glow animation */
+  @keyframes bounceGlow {
+    0%,100% { transform:translateY(0); box-shadow:0 8px 20px rgba(0,0,0,.25); }
+    30% { transform:translateY(-10px); box-shadow:0 12px 26px rgba(191,152,73,.35); }
+    60% { transform:translateY(0); box-shadow:0 10px 22px rgba(191,152,73,.25); }
+    80% { transform:translateY(-5px); box-shadow:0 10px 26px rgba(191,152,73,.3); }
   }
-  @keyframes ka-glow {
-    0%,100%{ box-shadow:0 8px 20px rgba(0,0,0,.25) }
-    50%{ box-shadow:0 10px 26px rgba(0,0,0,.35), 0 0 0 8px rgba(191,152,73,.18) }
-  }
-  .fab.attn{
-    animation: ka-wiggle 1.4s ease-in-out 2, ka-glow 1.4s ease-in-out 2;
-  }
+  .fab.attn { animation: bounceGlow 2.6s ease-in-out 1; }
 
   .box{
     position:fixed; right:18px; bottom:calc(18px + var(--fab-size) + 12px);
@@ -71,7 +66,6 @@
   <p style="opacity:.7;margin-top:0">Loads a Koha <code>.tab</code> (TSV) export and searches Arabic + English.</p>
 
 <script>
-/* ===== error banner (only on error) ===== */
 window.addEventListener("error", e => showBannerError("JS error: " + (e.message||e)));
 window.addEventListener("unhandledrejection", e => showBannerError("Promise error: " + (e.reason?.message||e.reason)));
 function showBannerError(msg){
@@ -81,7 +75,7 @@ function showBannerError(msg){
 }
 
 /* ===== UI ===== */
-const fab = document.createElement("button"); fab.className="fab attn"; fab.setAttribute("aria-label","AI Assistant"); // starts with attention anim
+const fab = document.createElement("button"); fab.className="fab attn"; fab.setAttribute("aria-label","AI Assistant");
 const box = document.createElement("div"); box.className="box";
 box.innerHTML = ''+
   '<div class="head"><div>AI Assistant</div>'+
@@ -91,205 +85,33 @@ box.innerHTML = ''+
 document.body.appendChild(fab); document.body.appendChild(box);
 const B=box.querySelector("#body"), Q=box.querySelector("#q"), GO=box.querySelector("#go"), closeBtn=box.querySelector("#x");
 
-/* stop the attention animation after a short while */
-setTimeout(()=> fab.classList.remove('attn'), 3200);
+/* stop attention animation after a few seconds */
+setTimeout(()=> fab.classList.remove('attn'), 3000);
 
 fab.onclick=()=>{ box.style.display = (box.style.display==="flex"?"none":"flex"); if(box.style.display==="flex") setTimeout(()=>Q.focus(), 50); };
 closeBtn.onclick=()=>{ box.style.display="none"; };
 
-/* ===== helpers ===== */
-function setStatus(msg, err){ if(err) showBannerError(msg); }
-
-/* ===== Arabic helpers ===== */
+/* === Arabic normalization and search functions (same as before) === */
 const AR_ANY=/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
 function isArabic(s){ return AR_ANY.test(String(s||"")); }
-function normalizeArabicForms(str){
-  if(!str) return "";
-  const map={'ﺍ':'ا','ﺎ':'ا','ﺃ':'ا','ﺄ':'ا','ﺇ':'ا','ﺈ':'ا','ٱ':'ا','ﺏ':'ب','ﺐ':'ب','ﺑ':'ب','ﺒ':'ب','ﺕ':'ت','ﺖ':'ت','ﺗ':'ت','ﺘ':'ت','ﺙ':'ث','ﺚ':'ث','ﺛ':'ث','ﺜ':'ث',
-    'ﺝ':'ج','ﺞ':'ج','ﺟ':'ج','ﺠ':'ج','ﺡ':'ح','ﺢ':'ح','ﺣ':'ح','ﺤ':'ح','ﺥ':'خ','ﺦ':'خ','ﺧ':'خ','ﺨ':'خ','ﺩ':'د','ﺪ':'د','ﺫ':'ذ','ﺬ':'ذ','ﺭ':'ر','ﺮ':'ر','ﺯ':'ز','ﺰ':'ز',
-    'ﺱ':'س','ﺲ':'س','ﺳ':'س','ﺴ':'س','ﺵ':'ش','ﺶ':'ش','ﺷ':'ش','ﺸ':'ش','ﺹ':'ص','ﺺ':'ص','ﺻ':'ص','ﺼ':'ص','ﺽ':'ض','ﺾ':'ض','ﺿ':'ض','ﻀ':'ض','ﻁ':'ط','ﻂ':'ط','ﻃ':'ط','ﻄ':'ط',
-    'ﻅ':'ظ','ﻆ':'ظ','ﻇ':'ظ','ﻈ':'ظ','ﻉ':'ع','ﻊ':'ع','ﻋ':'ع','ﻌ':'ع','ﻍ':'غ','ﻎ':'غ','ﻏ':'غ','ﻐ':'غ','ﻑ':'ف','ﻒ':'ف','ﻓ':'ف','ﻔ':'ف','ﻕ':'ق','ﻖ':'ق','ﻗ':'ق','ﻘ':'ق',
-    'ﻙ':'ك','ﻚ':'ك','ﻛ':'ك','ﻜ':'ك','ﻝ':'ل','ﻞ':'ل','ﻟ':'ل','ﻠ':'ل','ﻡ':'م','ﻢ':'م','ﻣ':'م','ﻤ':'م','ﻥ':'ن','ﻦ':'ن','ﻧ':'ن','ﻨ':'ن','ﻩ':'ه','ﻪ':'ه','ﻫ':'ه','ﻬ':'ه',
-    'ﻭ':'و','ﻮ':'و','ﻱ':'ي','ﻲ':'ي','ﻳ':'ي','ﻴ':'ي','ﻰ':'ى','ﻻ':'لا','ﻼ':'لا'};
-  return str.replace(/[\uFE70-\uFEFF\uFB50-\uFDFF]/g, ch=>map[ch]||ch);
-}
+function normalizeArabicForms(str){ if(!str)return"";const map={'ﺍ':'ا','ﺎ':'ا','ﺃ':'ا','ﺄ':'ا','ﺇ':'ا','ﺈ':'ا','ٱ':'ا','ﻻ':'لا','ﻼ':'لا'};return str.replace(/[\uFE70-\uFEFF\uFB50-\uFDFF]/g,ch=>map[ch]||ch); }
 function stripLatinDiacritics(s){ return s.replace(/[\u0300-\u036f]/g,""); }
 function foldDigits(s){ return s.replace(/[\u0660-\u0669]/g,d=>d.charCodeAt(0)-0x0660).replace(/[\u06F0-\u06F9]/g,d=>d.charCodeAt(0)-0x06F0); }
-function norm(s){
-  if(!s) return "";
-  let t=String(s).toLowerCase();
-  try{t=t.normalize("NFKD");}catch(e){}
-  t=stripLatinDiacritics(t);
-  t=normalizeArabicForms(t);
-  t=foldDigits(t);
-  return t
-    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
-    .replace(/[\u061C\u200B-\u200F\u202A-\u202E\u2066-\u2069\u00A0\u202F]/g,"")
-    .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك");
-}
-const AR_LETTER_ONLY=/[ء-ي]/g;
-function arLettersOnly(s){ const n=norm(s).replace(/ة/g,"ه").replace(/ى/g,"ي"); let out="",m; while((m=AR_LETTER_ONLY.exec(n))!==null) out+=m[0]; return out; }
-function subseq(hay,needle){ if(!needle) return false; let i=0,j=0; while(i<hay.length&&j<needle.length){ if(hay.charCodeAt(i)===needle.charCodeAt(j)) j++; i++; } return j===needle.length; }
+function norm(s){ if(!s)return"";let t=String(s).toLowerCase();try{t=t.normalize("NFKD");}catch(e){}t=stripLatinDiacritics(t);t=normalizeArabicForms(t);t=foldDigits(t);return t.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"").replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك"); }
+const AR_LETTER_ONLY=/[ء-ي]/g;function arLettersOnly(s){const n=norm(s).replace(/ة/g,"ه").replace(/ى/g,"ي");let out="",m;while((m=AR_LETTER_ONLY.exec(n))!==null)out+=m[0];return out;}
+function subseq(hay,needle){if(!needle)return false;let i=0,j=0;while(i<hay.length&&j<needle.length){if(hay.charCodeAt(i)===needle.charCodeAt(j))j++;i++;}return j===needle.length;}
 
-/* ===== CONFIG ===== */
-const BOT_CFG = {
-  DATA_URL: "/koha-csv/opac-catalog.tab",
-  MAX_RESULTS: 12,
-  MIN_QUERY_LEN: 1,
-  KOHA_OPAC_BASE: location.origin
-};
-
-/* ===== TSV loader ===== */
-function parseTSV(text){
-  const CONTROL=/[\u061C\u200B-\u200F\u202A-\u202E\u2066-\u2069\u00A0\u202F]/g;
-  const lines = text.replace(/\r\n?/g,"\n").split("\n").filter(l=>l.length>0);
-  if(!lines.length) return [];
-  const headers = lines[0].split("\t").map(h=>String(h).trim().toLowerCase());
-  const rows=[];
-  for(let i=1;i<lines.length;i++){
-    const cols = lines[i].split("\t");
-    const obj={};
-    for(let c=0;c<headers.length;c++){
-      obj[headers[c]] = (cols[c]==null? "": String(cols[c])).replace(CONTROL,"");
-    }
-    rows.push(obj);
-  }
-  return rows;
-}
-
-/* ===== Field mapping ===== */
-function mapRecord(k){
-  const title   = k["full title"]||k["العنوان"]||k.title||k["ti"]||"";
-  const author  = k["author"]||k["المؤلف"]||k["المؤلفون"]||k["au"]||"";
-  const summary = k["abstract"]||k["الملخص"]||k["summary"]||"";
-  const content = k["content"]||k["المحتوى"]||"";
-  const pubdat  = k["publications data"]||k["بيانات النشر"]||k["pub"]||"";
-  const url     = k["book_url"]||k["book url"]||k["رابط_الكتاب"]||k["url"]||"";
-  const ym = String(pubdat).match(/(\d{4})/);
-  const year = ym? ym[1] : "";
-  const publisher = String(pubdat||"").replace(/\b\d{4}\b/g,"").replace(/\s*[.,;|-]\s*$/,"").trim();
-  return {title,author,summary,content,publisher,year,url};
-}
-
-/* ===== Render ===== */
-function kohaURL(title){
-  if(!BOT_CFG.KOHA_OPAC_BASE) return "#";
-  return BOT_CFG.KOHA_OPAC_BASE + "/cgi-bin/koha/opac-search.pl?q=" + encodeURIComponent('ti="'+title+'"');
-}
-function render(items){
-  const list=document.createElement("div");
-  if(!items.length){ list.innerHTML='<div class="row">No results found.</div>'; return list; }
-  for(const it of items){
-    const r=it.raw;
-    const url = (r.url && /^https?:\/\//i.test(r.url)) ? r.url : kohaURL(r.title||"");
-    const pub = [r.publisher, r.year].filter(Boolean).join(" • ");
-    const div=document.createElement("div"); div.className="row";
-    div.dir = isArabic((r.title||"")+(r.summary||"")+(r.content||"")+(r.author||"")) ? "rtl" : "ltr";
-    div.innerHTML =
-      '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">' +
-        '<b style="font-size:15px;line-height:1.3">'+ String(r.title||"").replace(/</g,"&lt;") +'</b>' +
-        '<a class="btn" href="'+url+'" target="_blank" rel="noopener">Open record</a>' +
-      '</div>' +
-      (r.author? '<div class="meta">'+(isArabic(r.author)?'المؤلف: ':'Author: ')+r.author+'</div>' : '') +
-      (pub? '<div class="meta">'+pub+'</div>' : '') +
-      (r.summary? '<div style="margin-top:6px">'+ (r.summary.length>360? r.summary.slice(0,357)+'…' : r.summary) +'</div>' : '') +
-      (r.content? '<div style="margin-top:6px;opacity:.9">'+ (r.content.length>360? r.content.slice(0,357)+'…' : r.content) +'</div>' : '');
-    list.appendChild(div);
-  }
-  return list;
-}
-
-/* ===== Search ===== */
-function parseFilters(q){
-  const aMatch=q.match(/author:\s*"([^"]+)"/i)||q.match(/author:\s*([^\s]+)/i);
-  const yMatch=q.match(/year:\s*(\d{4})/i);
-  const a=aMatch? aMatch[1]:""; const y=yMatch? yMatch[1]:"";
-  const cleaned=q.replace(/author:\s*".*?"/ig,"").replace(/author:\s*[^\s]+/ig,"").replace(/year:\s*\d{4}/ig,"").trim();
-  return {author:a, year:y, cleaned};
-}
-function search(idx,q,limit){
-  q=(q||"").trim(); if(q.length < BOT_CFG.MIN_QUERY_LEN) return [];
-  const F=parseFilters(q);
-  const terms=F.cleaned.split(/\s+/).filter(Boolean);
-  const nTerms=terms.map(norm);
-  const aQuery=arLettersOnly(F.cleaned);
-
-  const out=[];
-  for(const rec of idx){
-    if(F.author && norm(rec.raw.author).indexOf(norm(F.author))===-1) continue;
-    if(F.year && String(rec.raw.year||"")!==String(F.year)) continue;
-    let sc=0, matched=false;
-    for(const qt of nTerms){
-      if(!qt) continue;
-      if(rec.nTitle.indexOf(qt)!==-1){sc+=5; matched=true;}
-      if(rec.nSummary.indexOf(qt)!==-1){sc+=2; matched=true;}
-      if(rec.nContent.indexOf(qt)!==-1){sc+=2; matched=true;}
-    }
-    const yTerm=q.match(/\b(\d{4})\b/);
-    if(yTerm && String(rec.raw.year)===yTerm[1]){sc+=6; matched=true;}
-    if(matched) out.push({sc, raw:rec.raw});
-  }
-  out.sort((a,b)=>b.sc-a.sc);
-  if(out.length) return out.slice(0,limit||BOT_CFG.MAX_RESULTS);
-
-  if(aQuery){
-    const hits=[];
-    for(const r of idx){
-      if(F.author && norm(r.raw.author).indexOf(norm(F.author))===-1) continue;
-      if(F.year && String(r.raw.year||"")!==String(F.year)) continue;
-      const aAll=r.aAll; if(!aAll) continue;
-      if(aAll.indexOf(aQuery)!==-1 || subseq(aAll,aQuery) || subseq(aAll,aQuery.replace(/ه/g,"ة")) || subseq(aAll,aQuery.replace(/ي/g,"ى"))){
-        hits.push({sc:0.7, raw:r.raw});
-      }
-    }
-    if(hits.length) return hits.slice(0,limit||BOT_CFG.MAX_RESULTS);
-  }
-
-  const letters = (norm(F.cleaned).replace(/\s+/g,"").match(/[ء-ي]/g))||[];
-  if(letters.length){
-    const pattern = letters.join("[\\s\\S]{0,40}?");
-    const re = new RegExp(pattern,"u");
-    const hits=[];
-    for(const r of idx){
-      const hay = normalizeArabicForms(r.rawAll||"");
-      if(re.test(hay)) hits.push({sc:0.6, raw:r.raw});
-    }
-    if(hits.length) return hits.slice(0,limit||BOT_CFG.MAX_RESULTS);
-  }
-  return [];
-}
-
-/* ===== Lazy load + index ===== */
-let INDEX=[]; let LOAD_PROMISE=null;
-function ensureLoaded(){
-  if (LOAD_PROMISE) return LOAD_PROMISE;
-  LOAD_PROMISE = fetch(BOT_CFG.DATA_URL, {cache:"reload"})
-    .then(r=>{ if(!r.ok) throw new Error("HTTP "+r.status); return r.text(); })
-    .then(text=>{
-      const rows = parseTSV(text);
-      if(!rows.length) throw new Error("Empty .tab file");
-      const records = rows.map(mapRecord);
-      INDEX = records.map((r,i)=>{
-        const rawAll=(r.title+" "+r.author+" "+r.summary+" "+r.content+" "+r.publisher+" "+r.year).trim();
-        return { id:i, raw:r, rawAll,
-          nTitle:norm(r.title), nSummary:norm(r.summary), nContent:norm(r.content),
-          aAll:arLettersOnly(rawAll)
-        };
-      });
-    })
-    .catch(err=>{ console.error(err); setStatus("Chatbot init failed: "+(err?.message||err), true); });
-  return LOAD_PROMISE;
-}
-
-function doSearchNow(){
-  const q = Q.value.trim(); if(!q) return;
-  const res = search(INDEX, q, BOT_CFG.MAX_RESULTS);
-  while (B.firstChild) B.removeChild(B.firstChild);
-  B.appendChild(render(res));
-}
-
-document.getElementById("go").onclick = ()=> ensureLoaded().then(doSearchNow);
-Q.onkeydown = e => { if(e.key==="Enter") ensureLoaded().then(doSearchNow); };
+const BOT_CFG={DATA_URL:"/koha-csv/opac-catalog.tab",MAX_RESULTS:12,MIN_QUERY_LEN:1,KOHA_OPAC_BASE:location.origin};
+function parseTSV(text){const lines=text.replace(/\r\n?/g,"\n").split("\n").filter(l=>l.length>0);if(!lines.length)return[];const headers=lines[0].split("\t").map(h=>h.trim().toLowerCase());const rows=[];for(let i=1;i<lines.length;i++){const cols=lines[i].split("\t");const obj={};for(let c=0;c<headers.length;c++){obj[headers[c]]=cols[c]?String(cols[c]).trim():"";}rows.push(obj);}return rows;}
+function mapRecord(k){const title=k["full title"]||k["العنوان"]||k.title||"";const author=k["author"]||k["المؤلف"]||"";const summary=k["abstract"]||k["الملخص"]||"";const content=k["content"]||k["المحتوى"]||"";const pubdat=k["publications data"]||k["بيانات النشر"]||"";const url=k["book_url"]||k["url"]||"";const ym=String(pubdat).match(/(\d{4})/);const year=ym?ym[1]:"";return{title,author,summary,content,year,url,publisher:String(pubdat).replace(/\b\d{4}\b/g,"").trim()};}
+function kohaURL(title){return BOT_CFG.KOHA_OPAC_BASE+"/cgi-bin/koha/opac-search.pl?q="+encodeURIComponent('ti="'+title+'"');}
+function render(items){const list=document.createElement("div");if(!items.length){list.innerHTML='<div class="row">No results found.</div>';return list;}for(const it of items){const r=it.raw;const url=(r.url&&/^https?:\/\//i.test(r.url))?r.url:kohaURL(r.title||"");const pub=[r.publisher,r.year].filter(Boolean).join(" • ");const div=document.createElement("div");div.className="row";div.dir=isArabic((r.title||"")+(r.summary||"")+(r.content||"")+(r.author||""))?"rtl":"ltr";div.innerHTML='<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><b style="font-size:15px;line-height:1.3">'+String(r.title||"").replace(/</g,"&lt;")+'</b><a class="btn" href="'+url+'" target="_blank" rel="noopener">Open record</a></div>'+(r.author?'<div class="meta">'+(isArabic(r.author)?'المؤلف: ':'Author: ')+r.author+'</div>':'')+(pub?'<div class="meta">'+pub+'</div>':'')+(r.summary?'<div style="margin-top:6px">'+(r.summary.length>360?r.summary.slice(0,357)+'…':r.summary)+'</div>':'');list.appendChild(div);}return list;}
+function search(idx,q,limit){q=(q||"").trim();if(q.length<BOT_CFG.MIN_QUERY_LEN)return[];const terms=q.split(/\s+/).filter(Boolean);const nTerms=terms.map(norm);const aQuery=arLettersOnly(q);const out=[];for(const rec of idx){let sc=0,matched=false;for(const qt of nTerms){if(!qt)continue;if(rec.nTitle.indexOf(qt)!==-1){sc+=5;matched=true;}if(rec.nSummary.indexOf(qt)!==-1){sc+=2;matched=true;}if(rec.nContent.indexOf(qt)!==-1){sc+=2;matched=true;}}if(matched)out.push({sc,raw:rec.raw});}out.sort((a,b)=>b.sc-a.sc);if(out.length)return out.slice(0,limit||BOT_CFG.MAX_RESULTS);if(aQuery){const hits=[];for(const r of idx){const aAll=r.aAll;if(aAll.indexOf(aQuery)!==-1||subseq(aAll,aQuery))hits.push({sc:0.7,raw:r.raw});}if(hits.length)return hits.slice(0,limit||BOT_CFG.MAX_RESULTS);}return[];}
+let INDEX=[];let LOAD_PROMISE=null;
+function ensureLoaded(){if(LOAD_PROMISE)return LOAD_PROMISE;LOAD_PROMISE=fetch(BOT_CFG.DATA_URL,{cache:"reload"}).then(r=>r.text()).then(text=>{const rows=parseTSV(text);const records=rows.map(mapRecord);INDEX=records.map((r,i)=>{const rawAll=(r.title+" "+r.author+" "+r.summary+" "+r.content+" "+r.publisher+" "+r.year).trim();return{id:i,raw:r,rawAll,nTitle:norm(r.title),nSummary:norm(r.summary),nContent:norm(r.content),aAll:arLettersOnly(rawAll)};});}).catch(err=>console.error(err));return LOAD_PROMISE;}
+function doSearchNow(){const q=Q.value.trim();if(!q)return;const res=search(INDEX,q,BOT_CFG.MAX_RESULTS);while(B.firstChild)B.removeChild(B.firstChild);B.appendChild(render(res));}
+document.getElementById("go").onclick=()=>ensureLoaded().then(doSearchNow);
+Q.onkeydown=e=>{if(e.key==="Enter")ensureLoaded().then(doSearchNow);};
 </script>
 </body>
 </html>
