@@ -12,15 +12,15 @@
     /* ==== customize these ==== */
     --logo-url: url("https://assets.almanhal.com/platform/shared/Product/ECSSR/middlelogo.png");
     --logo-size: 140%;          /* logo scale inside the bubble */
-    --fab-size: 64px;           /* bubble diameter (bigger) */
+    --fab-size: 64px;           /* bubble diameter */
 
     --box-width: 420px;
     --box-max-h: 62vh;
 
     /* Curved label controls */
     --label-text: "AI Assist";
-    --label-color: #00B050;     /* bright green like your markup */
-    --label-size: 18px;         /* BIGGER arc text */
+    --label-color: #3EA3DC;     /* requested color */
+    --label-size: 18px;         /* arc text size */
   }
 
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;padding:2rem}
@@ -28,24 +28,25 @@
   /* Wrapper keeps label + fab aligned and clickable */
   .fab-wrap{
     position:fixed; right:18px; bottom:18px; z-index:9999;
-    width:var(--fab-size); height:calc(var(--fab-size) + 60px);
+    width:var(--fab-size); height:calc(var(--fab-size) + 56px);
   }
 
-  /* Arc label (SVG) — larger viewBox + arc radius */
+  /* Arc label (SVG) — closer to the logo, tighter arc */
   .fab-label{
     position:absolute; left:50%;
-    bottom:calc(var(--fab-size) + 10px);
+    bottom:calc(var(--fab-size) + 2px); /* << closer to logo */
     transform:translateX(-50%);
-    width:calc(var(--fab-size) + 90px); height:56px;
-    pointer-events:none; /* don't block clicks */
+    width:calc(var(--fab-size) + 70px); height:48px;
+    pointer-events:none;
   }
   .fab-label text{
     fill:var(--label-color);
     font-weight:900;
     font-size:var(--label-size);
-    letter-spacing:.8px;
-    paint-order: stroke fill;          /* white outline for contrast */
-    stroke:#fff; stroke-width:3px;     /* outline thickness */
+    letter-spacing:.6px;
+    /* crisp rendering without the white outline that caused the cut look */
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
 
   /* Floating bubble with white background and logo */
@@ -58,7 +59,7 @@
     transform:translateZ(0);
   }
 
-  /* Attention animation (slightly stronger) */
+  /* Attention animation */
   @keyframes bounceGlow {
     0%,100% { transform:translateY(0); box-shadow:0 8px 20px rgba(0,0,0,.25); }
     30% { transform:translateY(-12px); box-shadow:0 12px 26px rgba(191,152,73,.35); }
@@ -112,17 +113,17 @@ function showBannerError(msg){
 }
 
 /* ===== UI ===== */
-/* Wrapper with curved SVG label + the button */
 const wrap = document.createElement("div"); wrap.className="fab-wrap";
 
+/* Curved label SVG — smaller radius & lower Y so it's closer to the circle */
 const label = document.createElementNS("http://www.w3.org/2000/svg","svg");
 label.setAttribute("class","fab-label");
-/* Wider canvas and a larger-radius arc so text is big & visible */
-label.setAttribute("viewBox","0 0 200 70");
+/* Arc tuned to sit just above the button */
+label.setAttribute("viewBox","0 0 160 48");
 label.innerHTML = `
   <defs>
-    <!-- Arc path: start x=20, y=56 ; big radius 85 -->
-    <path id="ka-arc" d="M 20,56 A 85,85 0 0 1 180,56" />
+    <!-- Arc path: start x=20, y=44 ; radius 60 makes it tighter/closer -->
+    <path id="ka-arc" d="M 20,44 A 60,60 0 0 1 140,44" />
   </defs>
   <text text-anchor="middle">
     <textPath href="#ka-arc" startOffset="50%">AI Assist</textPath>
@@ -297,20 +298,15 @@ let LAST = { items: [], shown: 0 };
 function clearResultsArea(){
   while (B.firstChild) B.removeChild(B.firstChild);
 }
-
-function appendItems(items){
-  B.appendChild(render(items));
-}
+function appendItems(items){ B.appendChild(render(items)); }
 
 function appendShowMoreIfNeeded(){
   const old = document.getElementById("ka-more");
   if (old) old.remove();
-
   if (LAST.shown >= LAST.items.length) return;
 
   const row = document.createElement("div");
-  row.id = "ka-more";
-  row.className = "more-row";
+  row.id = "ka-more"; row.className = "more-row";
   const btn = document.createElement("button");
   const remaining = LAST.items.length - LAST.shown;
   btn.textContent = remaining > BOT_CFG.PAGE_SIZE ? "Show more" : "Show all";
