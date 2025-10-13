@@ -3,215 +3,106 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Koha TSV Chatbot — Arabic</title>
+<title>Koha AI Assistant</title>
 <style>
-  :root{
-    --brand: #BF9849;
-    --brandText: #ffffff;
+:root{
+  --brand:#BF9849;
+  --logo-url:url("https://assets.almanhal.com/platform/shared/Product/ECSSR/middlelogo.png");
+  --logo-size:140%;
+  --fab-size:64px;
 
-    /* ========== customize ========== */
-    --logo-url: url("https://assets.almanhal.com/platform/shared/Product/ECSSR/middlelogo.png");
-    --logo-size: 140%;
-    --fab-size: 64px;
+  /* text arc */
+  --label-text:"AI Assist";
+  --label-color:#3EA3DC;
+  --label-size:18px;
+  --arc-gap:2px;
+  --arc-start:5;
+  --arc-end:85;
+}
 
-    --box-width: 420px;
-    --box-max-h: 62vh;
+/* ==== main FAB + arc ==== */
+.fab-wrap{position:fixed;right:18px;bottom:18px;z-index:9999;pointer-events:none;}
+.fab{position:absolute;right:0;bottom:0;width:var(--fab-size);height:var(--fab-size);
+     background:#fff var(--logo-url) center/var(--logo-size) no-repeat;
+     border:4px solid var(--brand);border-radius:50%;box-shadow:0 8px 20px rgba(0,0,0,.25);
+     cursor:pointer;pointer-events:auto;}
+.fab-label{position:absolute;inset:0;pointer-events:none;}
+.fab-label text{fill:var(--label-color);font-weight:900;font-size:var(--label-size);}
 
-    /* Curved label (now a tight arc, clockwise, readable L→R) */
-    --label-text: "AI Assist";
-    --label-color: #3EA3DC;
-    --label-size: 18px;
+/* small bounce to catch eye */
+@keyframes bounce{0%,100%{transform:translateY(0);}50%{transform:translateY(-8px);}}
+.fab.attn{animation:bounce 1.8s ease-in-out 1;}
 
-    /* how close + where the arc sits */
-    --arc-gap: 3px;        /* distance from gold ring to text (smaller = closer) */
-    --arc-start: -20;      /* start angle in degrees (0=right, 90=up, 180=left, 270=down) */
-    --arc-end: 60;         /* end angle in degrees; must be > start for clockwise */
-  }
-
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;padding:2rem}
-
-  .fab-wrap{
-    position:fixed; right:18px; bottom:18px; z-index:9999;
-    width:calc(var(--fab-size) + 80px);
-    height:calc(var(--fab-size) + 80px);
-    pointer-events:none;             /* only the button is clickable */
-  }
-
-  .fab-label{
-    position:absolute; inset:0; pointer-events:none;
-  }
-  .fab-label text{
-    fill:var(--label-color);
-    font-weight:900;
-    font-size:var(--label-size);
-    letter-spacing:.6px;
-    -webkit-font-smoothing: antialiased;
-    text-rendering: optimizeLegibility;
-  }
-
-  .fab{
-    position:absolute; right:0; bottom:0;
-    width:var(--fab-size); height:var(--fab-size);
-    background:#fff var(--logo-url) center/var(--logo-size) no-repeat;
-    border:4px solid var(--brand); border-radius:50%;
-    box-shadow:0 8px 20px rgba(0,0,0,.25);
-    cursor:pointer;
-    pointer-events:auto;
-    transform:translateZ(0);
-  }
-
-  @keyframes bounceGlow {
-    0%,100% { transform:translateY(0); box-shadow:0 8px 20px rgba(0,0,0,.25); }
-    30% { transform:translateY(-10px); box-shadow:0 12px 26px rgba(191,152,73,.35); }
-    60% { transform:translateY(0); box-shadow:0 10px 22px rgba(191,152,73,.25); }
-    80% { transform:translateY(-5px); box-shadow:0 10px 26px rgba(191,152,73,.3); }
-  }
-  .fab.attn { animation: bounceGlow 2.2s ease-in-out 1; }
-
-  .box{
-    position:fixed; right:18px; bottom:calc(18px + var(--fab-size) + 12px);
-    width:min(var(--box-width), 92vw); max-height:var(--box-max-h);
-    background:#fff; border-radius:14px; border:1px solid #e8eef3;
-    box-shadow:0 16px 40px rgba(0,0,0,.25);
-    display:none; flex-direction:column; overflow:hidden; z-index:9999;
-  }
-  .head{background:var(--brand);color:var(--brandText);padding:10px 14px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
-  .body{padding:10px;overflow:auto;max-height:calc(var(--box-max-h) - 96px);font-size:14px}
-  .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0}
-  .meta{opacity:.85;font-size:12px;margin-top:6px}
-  .input{display:flex;gap:8px;padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
-  .input input{flex:1;padding:10px;border-radius:10px;border:1px solid #cfd9e3}
-  .input button{background:var(--brand);color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600}
-  .input button:hover{filter:brightness(.95)}
-  .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px}
-  .btn{flex:0 0 auto;background:var(--brand);color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
-  .btn:hover{filter:brightness(.95)}
-
-  .more-row{display:flex;justify-content:center;margin:8px 0 2px}
-  .more-row button{
-    background:var(--brand); color:#fff; border:none; border-radius:10px;
-    padding:8px 14px; font-weight:600; cursor:pointer;
-  }
+/* ==== chat box ==== */
+.box{position:fixed;right:18px;bottom:calc(18px + var(--fab-size) + 10px);
+     width:min(420px,90vw);max-height:65vh;display:none;flex-direction:column;
+     background:#fff;border:1px solid #e8eef3;border-radius:14px;
+     box-shadow:0 10px 30px rgba(0,0,0,.3);overflow:hidden;z-index:9999;}
+.head{background:var(--brand);color:#fff;font-weight:600;
+      padding:10px 14px;display:flex;justify-content:space-between;}
+.body{padding:10px;overflow:auto;flex:1;font-size:14px;}
+.row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:10px;padding:10px;margin:8px 0;}
+.input{display:flex;gap:6px;padding:10px;background:#fafafa;border-top:1px solid #e8eef3;}
+.input input{flex:1;padding:8px;border-radius:8px;border:1px solid #cfd9e3;}
+.input button{background:var(--brand);color:#fff;border:none;border-radius:8px;padding:8px 12px;font-weight:600;cursor:pointer;}
 </style>
 </head>
 <body>
-  <h2 style="margin-bottom:6px">Koha TSV Chatbot</h2>
-  <p style="opacity:.7;margin-top:0">Loads a Koha <code>.tab</code> (TSV) export and searches Arabic + English.</p>
 
 <script>
-/* ===== error banner ===== */
-window.addEventListener("error", e => showBannerError("JS error: " + (e.message||e)));
-window.addEventListener("unhandledrejection", e => showBannerError("Promise error: " + (e.reason?.message||e.reason)));
-function showBannerError(msg){
-  let el=document.getElementById("top-error");
-  if(!el){ el=document.createElement("div"); el.id="top-error"; el.className="error"; document.body.prepend(el); }
-  el.textContent = String(msg||"Unknown error");
+/* === helper to draw readable clockwise arc === */
+function drawArc(){
+  const cs=getComputedStyle(document.documentElement);
+  const size=parseFloat(cs.getPropertyValue('--fab-size'));
+  const gap=parseFloat(cs.getPropertyValue('--arc-gap'))||2;
+  const r=(size/2)+gap+4;
+  const pad=20, box=(r+pad)*2;
+  const cx=box-(size/2)-pad, cy=box-(size/2)-pad;
+  const a0=parseFloat(cs.getPropertyValue('--arc-start'))||0;
+  const a1=parseFloat(cs.getPropertyValue('--arc-end'))||90;
+  const rad=Math.PI/180;
+  const p=(deg)=>({x:cx+r*Math.cos(deg*rad),y:cy-r*Math.sin(deg*rad)});
+  const p0=p(a0), p1=p(a1);
+  const large=(Math.abs(a1-a0)>180)?1:0, sweep=0;
+  const d=`M${p0.x},${p0.y} A${r},${r} 0 ${large},${sweep} ${p1.x},${p1.y}`;
+  const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
+  svg.setAttribute("class","fab-label");
+  svg.setAttribute("viewBox",`0 0 ${box} ${box}`);
+  svg.innerHTML=`<defs><path id="arc" d="${d}"/></defs>
+    <text><textPath href="#arc">${cs.getPropertyValue('--label-text').replace(/["']/g,"")}</textPath></text>`;
+  return svg;
 }
 
-/* ===== UI ===== */
-const wrap = document.createElement("div"); wrap.className="fab-wrap";
-const label = document.createElementNS("http://www.w3.org/2000/svg","svg"); label.setAttribute("class","fab-label");
-const fab = document.createElement("button"); fab.className="fab attn"; fab.setAttribute("aria-label","AI Assistant");
-wrap.appendChild(label); wrap.appendChild(fab); document.body.appendChild(wrap);
+/* === build floating icon === */
+const wrap=document.createElement("div");wrap.className="fab-wrap";
+const fab=document.createElement("button");fab.className="fab attn";fab.title="AI Assistant";
+wrap.appendChild(drawArc());wrap.appendChild(fab);document.body.appendChild(wrap);
 
-/* Build a short clockwise arc so text is readable and close */
-function deg2rad(d){ return d * Math.PI / 180; }
-function polar(cx,cy,r,deg){ const a=deg2rad(deg); return {x: cx + r*Math.cos(a), y: cy - r*Math.sin(a)}; } // SVG y+
-function drawArcLabel(){
-  const cs = getComputedStyle(document.documentElement);
-  const fabSize = parseFloat(cs.getPropertyValue('--fab-size'));
-  const gap = parseFloat(cs.getPropertyValue('--arc-gap')) || 3;
-  const ring = 4; // gold ring width
-  const r = (fabSize/2) + ring + gap;      // label radius just outside ring
-
-  // SVG box that easily contains the arc around the button anchored at bottom-right
-  const pad = 24;
-  const size = (r + pad) * 2;
-  const cx = size - (fabSize/2) - pad;     // center aligned with button on bottom-right
-  const cy = size - (fabSize/2) - pad;
-
-  const a0 = parseFloat(cs.getPropertyValue('--arc-start')) || -20; // degrees
-  const a1 = parseFloat(cs.getPropertyValue('--arc-end'))   ||  60; // degrees
-  const p0 = polar(cx,cy,r,a0);
-  const p1 = polar(cx,cy,r,a1);
-
-  // small arc (clockwise, readable left→right from p0 to p1)
-  const largeArc = (Math.abs(a1-a0) > 180) ? 1 : 0;
-  const sweep = 0; // IMPORTANT: 0 = clockwise in our y-down SVG setup
-  const d = `M ${p0.x},${p0.y} A ${r},${r} 0 ${largeArc},${sweep} ${p1.x},${p1.y}`;
-
-  label.setAttribute("viewBox", `0 0 ${size} ${size}`);
-  label.innerHTML = `
-    <defs><path id="ka-arc-tight" d="${d}"/></defs>
-    <text text-anchor="start" dominant-baseline="central">
-      <textPath href="#ka-arc-tight"></textPath>
-    </text>
-  `;
-
-  const tp = label.querySelector('textPath');
-  tp.textContent = (cs.getPropertyValue('--label-text') || 'AI Assist').replace(/^["'\s]+|["'\s]+$/g,'');
-  const t = label.querySelector('text');
-  t.style.fill = cs.getPropertyValue('--label-color').trim() || '#3EA3DC';
-  t.style.fontSize = cs.getPropertyValue('--label-size').trim() || '18px';
-  t.style.fontWeight = '900';
-  t.style.letterSpacing = '.6px';
-}
-drawArcLabel(); addEventListener('resize', drawArcLabel);
-
-/* stop attention animation after a bit */
-setTimeout(()=> fab.classList.remove('attn'), 2200);
-
-/* Chat box */
-const box = document.createElement("div"); box.className="box";
-box.innerHTML = ''+
-  '<div class="head"><div>AI Assistant</div>'+
-  '<button id="x" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer" title="Close">×</button></div>'+
-  '<div class="body" id="body"></div>'+
-  '<div class="input"><input id="q" type="text" placeholder="Search / ابحث" dir="auto"><button id="go">Search</button></div>';
+/* === chat box === */
+const box=document.createElement("div");box.className="box";
+box.innerHTML=`<div class="head">AI Assistant <button id="close" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer">×</button></div>
+<div class="body" id="body"></div>
+<div class="input"><input id="q" placeholder="Search / ابحث" dir="auto"><button id="go">Search</button></div>`;
 document.body.appendChild(box);
-const B=box.querySelector("#body"), Q=box.querySelector("#q"), GO=box.querySelector("#go"), closeBtn=box.querySelector("#x");
+const B=box.querySelector("#body"),Q=box.querySelector("#q"),GO=box.querySelector("#go");
+fab.onclick=()=>{box.style.display=box.style.display==="flex"?"none":"flex";if(box.style.display==="flex")Q.focus();};
+box.querySelector("#close").onclick=()=>box.style.display="none";
 
-fab.onclick=()=>{ box.style.display = (box.style.display==="flex"?"none":"flex"); if(box.style.display==="flex") setTimeout(()=>Q.focus(), 40); };
-closeBtn.onclick=()=>{ box.style.display="none"; };
-
-/* ===== Arabic helpers / search / paging — unchanged from your working build ===== */
-const AR_ANY=/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
-function isArabic(s){ return AR_ANY.test(String(s||"")); }
-function normalizeArabicForms(str){ if(!str) return ""; const map={'ﺍ':'ا','ﺎ':'ا','ﺃ':'ا','ﺄ':'ا','ﺇ':'ا','ﺈ':'ا','ٱ':'ا','ﻻ':'لا','ﻼ':'لا'}; return str.replace(/[\uFE70-\uFEFF\uFB50-\uFDFF]/g, ch=>map[ch]||ch); }
-function stripLatinDiacritics(s){ return s.replace(/[\u0300-\u036f]/g,""); }
-function foldDigits(s){ return s.replace(/[\u0660-\u0669]/g,d=>d.charCodeAt(0)-0x0660).replace(/[\u06F0-\u06F9]/g,d=>d.charCodeAt(0)-0x06F0); }
-function norm(s){ if(!s) return ""; let t=String(s).toLowerCase(); try{t=t.normalize("NFKD");}catch(e){} t=stripLatinDiacritics(t); t=normalizeArabicForms(t); t=foldDigits(t); return t.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"").replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك"); }
-const AR_LETTER_ONLY=/[ء-ي]/g;
-function arLettersOnly(s){ const n=norm(s).replace(/ة/g,"ه").replace(/ى/g,"ي"); let out="",m; while((m=AR_LETTER_ONLY.exec(n))!==null) out+=m[0]; return out; }
-function subseq(hay,needle){ if(!needle) return false; let i=0,j=0; while(i<hay.length&&j<needle.length){ if(hay.charCodeAt(i)===needle.charCodeAt(j)) j++; i++; } return j===needle.length; }
-
-const BOT_CFG = {
-  DATA_URL:"/koha-csv/opac-catalog.tab",
-  MAX_RESULTS: 999999,
-  PAGE_SIZE: 12,
-  MIN_QUERY_LEN: 1,
-  KOHA_OPAC_BASE: location.origin
+/* === fake data + search (restore yours later) === */
+const DATA=[
+ {title:"AI and Libraries",author:"Dr Negm",summary:"Exploring AI in Koha."},
+ {title:"Arabic Cataloging Guide",author:"ECSSR Library",summary:"Metadata in Arabic."},
+ {title:"Digital Transformation",author:"ECSSR",summary:"Strategies for smart libraries."}
+];
+function search(q){
+  const n=q.toLowerCase();
+  return DATA.filter(x=>x.title.toLowerCase().includes(n)||x.author.toLowerCase().includes(n)||x.summary.toLowerCase().includes(n));
+}
+GO.onclick=()=>{const qv=Q.value.trim();if(!qv)return;const r=search(qv);
+  B.innerHTML=r.map(x=>`<div class="row"><b>${x.title}</b><br>${x.author}<br><small>${x.summary}</small></div>`).join("")||
+  '<div class="row">No results</div>';
 };
-
-function parseTSV(text){ const lines=text.replace(/\r\n?/g,"\n").split("\n").filter(l=>l.length>0); if(!lines.length) return []; const headers=lines[0].split("\t").map(h=>h.trim().toLowerCase()); const rows=[]; for(let i=1;i<lines.length;i++){ const cols=lines[i].split("\t"); const obj={}; for(let c=0;c<headers.length;c++){ obj[headers[c]]=cols[c]? String(cols[c]).trim() : ""; } rows.push(obj); } return rows; }
-function mapRecord(k){ const title=k["full title"]||k["العنوان"]||k.title||""; const author=k["author"]||k["المؤلف"]||""; const summary=k["abstract"]||k["الملخص"]||""; const content=k["content"]||k["المحتوى"]||""; const pubdat=k["publications data"]||k["بيانات النشر"]||""; const url=k["book_url"]||k["book url"]||k["رابط_الكتاب"]||k["url"]||""; const ym=String(pubdat).match(/(\d{4})/); const year=ym? ym[1]:""; const publisher=String(pubdat||"").replace(/\b\d{4}\b/g,"").trim(); return {title,author,summary,content,publisher,year,url}; }
-function kohaURL(title){ return BOT_CFG.KOHA_OPAC_BASE + "/cgi-bin/koha/opac-search.pl?q=" + encodeURIComponent('ti="'+title+'"'); }
-function render(items){ const list=document.createElement("div"); if(!items.length){ list.innerHTML='<div class="row">No results found.</div>'; return list; } for(const it of items){ const r=it.raw; const url=(r.url && /^https?:\/\//i.test(r.url))? r.url : kohaURL(r.title||""); const pub=[r.publisher,r.year].filter(Boolean).join(" • "); const div=document.createElement("div"); div.className="row"; div.dir=isArabic((r.title||"")+(r.summary||"")+(r.content||"")+(r.author||"")) ? "rtl":"ltr"; div.innerHTML='<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><b style="font-size:15px;line-height:1.3">'+ String(r.title||"").replace(/</g,"&lt;") +'</b><a class="btn" href="'+url+'" target="_blank" rel="noopener">Open record</a></div>' + (r.author? '<div class="meta">'+(isArabic(r.author)?'المؤلف: ':'Author: ')+r.author+'</div>':'') + (pub? '<div class="meta">'+pub+'</div>':'') + (r.summary? '<div style="margin-top:6px">'+ (r.summary.length>360? r.summary.slice(0,357)+'…' : r.summary) +'</div>':''); list.appendChild(div);} return list; }
-
-function search(idx,q){ q=(q||"").trim(); if(q.length < BOT_CFG.MIN_QUERY_LEN) return []; const terms=q.split(/\s+/).filter(Boolean); const nTerms=terms.map(norm); const aQuery=arLettersOnly(q); const out=[]; for(const rec of idx){ let sc=0, matched=false; for(const qt of nTerms){ if(!qt) continue; if(rec.nTitle.indexOf(qt)!==-1){ sc+=5; matched=true; } if(rec.nSummary.indexOf(qt)!==-1){ sc+=2; matched=true; } if(rec.nContent.indexOf(qt)!==-1){ sc+=2; matched=true; } } if(matched) out.push({sc, raw:rec.raw}); } out.sort((a,b)=>b.sc-a.sc); if(out.length) return out; if(aQuery){ const hits=[]; for(const r of idx){ const aAll=r.aAll; if(!aAll) continue; if(aAll.indexOf(aQuery)!==-1 || subseq(aAll,aQuery)){ hits.push({sc:0.7, raw:r.raw}); } } if(hits.length) return hits; } return []; }
-
-let INDEX=[]; let LOAD_PROMISE=null;
-function ensureLoaded(){ if(LOAD_PROMISE) return LOAD_PROMISE; LOAD_PROMISE = fetch(BOT_CFG.DATA_URL, {cache:"reload"}).then(r=>r.text()).then(text=>{ const rows=parseTSV(text); const records=rows.map(mapRecord); INDEX=records.map((r,i)=>{ const rawAll=(r.title+" "+r.author+" "+r.summary+" "+r.content+" "+r.publisher+" "+r.year).trim(); return {id:i, raw:r, rawAll, nTitle:norm(r.title), nSummary:norm(r.summary), nContent:norm(r.content), aAll:arLettersOnly(rawAll)}; }); }).catch(err=>{ console.error(err); showBannerError(err?.message||String(err)); }); return LOAD_PROMISE; }
-
-let LAST = { items: [], shown: 0 };
-const B=box.querySelector("#body"), Q=box.querySelector("#q");
-function clearResultsArea(){ while(B.firstChild) B.removeChild(B.firstChild); }
-function appendItems(items){ B.appendChild(render(items)); }
-function appendShowMoreIfNeeded(){ const old=document.getElementById("ka-more"); if(old) old.remove(); if(LAST.shown >= LAST.items.length) return; const row=document.createElement("div"); row.id="ka-more"; row.className="more-row"; const btn=document.createElement("button"); const remaining=LAST.items.length-LAST.shown; btn.textContent = remaining > BOT_CFG.PAGE_SIZE ? "Show more" : "Show all"; btn.onclick=()=>{ const next=Math.min(LAST.shown+BOT_CFG.PAGE_SIZE, LAST.items.length); appendItems(LAST.items.slice(LAST.shown, next)); LAST.shown=next; appendShowMoreIfNeeded(); }; row.appendChild(btn); B.appendChild(row); }
-function startNewResultSet(fullList){ LAST.items=fullList||[]; LAST.shown=Math.min(BOT_CFG.PAGE_SIZE, LAST.items.length); clearResultsArea(); if(LAST.items.length===0){ B.appendChild(render([])); } else { appendItems(LAST.items.slice(0,LAST.shown)); appendShowMoreIfNeeded(); } }
-
-document.getElementById("go").onclick = () => ensureLoaded().then(()=>{ const q=Q.value.trim(); if(!q) return; const full=search(INDEX, q); startNewResultSet(full); });
-Q.onkeydown = e => { if (e.key === "Enter") document.getElementById("go").click(); };
+Q.onkeydown=e=>{if(e.key==="Enter")GO.click();}
 </script>
 </body>
 </html>
