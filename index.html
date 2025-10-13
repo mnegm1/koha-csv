@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Koha TSV Chatbot — Arabic</title>
+<title>Koha TSV Chatbot — Arabic + OpenAI Intent</title>
 <style>
   :root{
     --brand: #BF9849;          /* header + buttons + border */
@@ -93,7 +93,7 @@
 </head>
 <body>
   <h2 style="margin-bottom:6px">Koha TSV Chatbot</h2>
-  <p style="opacity:.7;margin-top:0">Loads a Koha <code>.tab</code> (TSV) export and searches Arabic + English.</p>
+  <p style="opacity:.7;margin-top:0">Arabic + English search with OpenAI-powered intent (author/title/year/publisher).</p>
 
 <script>
 /* ===== error banner ===== */
@@ -106,28 +106,22 @@ function showBannerError(msg){
 }
 
 /* ===== UI ===== */
-/* Wrapper with curved SVG label + the button */
 const wrap = document.createElement("div"); wrap.className="fab-wrap";
-
 const label = document.createElementNS("http://www.w3.org/2000/svg","svg");
 label.setAttribute("class","fab-label");
-label.setAttribute("viewBox","0 0 120 40"); // 120w x 40h; arc across top
+label.setAttribute("viewBox","0 0 120 40");
 label.innerHTML = `
-  <defs>
-    <path id="ka-arc" d="M 10,34 A 50,50 0 0 1 110,34" />
-  </defs>
+  <defs><path id="ka-arc" d="M 10,34 A 50,50 0 0 1 110,34" /></defs>
   <text text-anchor="middle">
     <textPath href="#ka-arc" startOffset="50%">AI Assist</textPath>
   </text>
 `;
-
 const fab = document.createElement("button"); fab.className="fab attn"; fab.setAttribute("aria-label","AI Assistant");
-wrap.appendChild(label); wrap.appendChild(fab);
-document.body.appendChild(wrap);
+wrap.appendChild(label); wrap.appendChild(fab); document.body.appendChild(wrap);
 
 /* Chat box */
 const box = document.createElement("div"); box.className="box";
-box.innerHTML = ''+
+box.innerHTML =
   '<div class="head"><div>AI Assistant</div>'+
   '<button id="x" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer" title="Close">×</button></div>'+
   '<div class="body" id="body"></div>'+
@@ -135,11 +129,7 @@ box.innerHTML = ''+
 document.body.appendChild(box);
 
 const B=box.querySelector("#body"), Q=box.querySelector("#q"), GO=box.querySelector("#go"), closeBtn=box.querySelector("#x");
-
-/* stop attention animation after a bit */
 setTimeout(()=> fab.classList.remove('attn'), 3000);
-
-/* open/close */
 fab.onclick=()=>{ box.style.display = (box.style.display==="flex"?"none":"flex"); if(box.style.display==="flex") setTimeout(()=>Q.focus(), 50); };
 closeBtn.onclick=()=>{ box.style.display="none"; };
 
@@ -171,8 +161,8 @@ function subseq(hay,needle){ if(!needle) return false; let i=0,j=0; while(i<hay.
 /* ===== Config ===== */
 const BOT_CFG = {
   DATA_URL:"/koha-csv/opac-catalog.tab",
-  MAX_RESULTS: 999999,    // not used for slicing anymore (kept for compatibility)
-  PAGE_SIZE: 12,          // how many items per click
+  INTENT_API:"https://koha-ai-intent.m-negm.workers.dev",   // <-- your Worker URL
+  PAGE_SIZE: 12,
   MIN_QUERY_LEN: 1,
   KOHA_OPAC_BASE: location.origin
 };
@@ -228,42 +218,6 @@ function render(items){
   return list;
 }
 
-/* ===== Search (returns FULL list; no slicing) ===== */
-function search(idx,q,limit){
-  q=(q||"").trim(); if(q.length < BOT_CFG.MIN_QUERY_LEN) return [];
-  const terms=q.split(/\s+/).filter(Boolean);
-  const nTerms=terms.map(norm);
-  const aQuery=arLettersOnly(q);
-
-  // Stage 1: ranked
-  const out=[];
-  for(const rec of idx){
-    let sc=0, matched=false;
-    for(const qt of nTerms){
-      if(!qt) continue;
-      if(rec.nTitle.indexOf(qt)!==-1){ sc+=5; matched=true; }
-      if(rec.nSummary.indexOf(qt)!==-1){ sc+=2; matched=true; }
-      if(rec.nContent.indexOf(qt)!==-1){ sc+=2; matched=true; }
-    }
-    if(matched) out.push({sc, raw:rec.raw});
-  }
-  out.sort((a,b)=>b.sc-a.sc);
-  if (out.length) return out;  // <-- FULL list
-
-  // Stage 2: Arabic letters-only
-  if(aQuery){
-    const hits=[];
-    for(const r of idx){
-      const aAll=r.aAll; if(!aAll) continue;
-      if(aAll.indexOf(aQuery)!==-1 || subseq(aAll,aQuery)){ hits.push({sc:0.7, raw:r.raw}); }
-    }
-    if(hits.length) return hits; // FULL
-  }
-
-  // Stage 3: (optional) regex fallback – omitted here for speed
-  return [];
-}
-
 /* ===== Build index ===== */
 let INDEX=[]; let LOAD_PROMISE=null;
 function ensureLoaded(){
@@ -276,7 +230,9 @@ function ensureLoaded(){
       INDEX = records.map((r,i)=>{
         const rawAll=(r.title+" "+r.author+" "+r.summary+" "+r.content+" "+r.publisher+" "+r.year).trim();
         return { id:i, raw:r, rawAll,
-          nTitle:norm(r.title), nSummary:norm(r.summary), nContent:norm(r.content),
+          nTitle:norm(r.title), nAuthor:norm(r.author),
+          nSummary:norm(r.summary), nContent:norm(r.content),
+          nPubl:norm(r.publisher), nYear:norm(r.year),
           aAll:arLettersOnly(rawAll)
         };
       });
@@ -285,26 +241,64 @@ function ensureLoaded(){
   return LOAD_PROMISE;
 }
 
+/* ===== Search helpers ===== */
+function scoreMulti(rec, nTerms){
+  let sc=0, matched=false;
+  for(const qt of nTerms){
+    if(!qt) continue;
+    if(rec.nTitle.indexOf(qt)!==-1){ sc+=5; matched=true; }
+    if(rec.nAuthor.indexOf(qt)!==-1){ sc+=4; matched=true; }
+    if(rec.nSummary.indexOf(qt)!==-1){ sc+=2; matched=true; }
+    if(rec.nContent.indexOf(qt)!==-1){ sc+=2; matched=true; }
+    if(rec.nPubl.indexOf(qt)!==-1){ sc+=1; matched=true; }
+    if(rec.nYear.indexOf(qt)!==-1){ sc+=1; matched=true; }
+  }
+  return matched ? sc : -1;
+}
+function searchAny(idx, q){
+  const terms=q.split(/\s+/).filter(Boolean);
+  const nTerms=terms.map(norm);
+  const aQuery=arLettersOnly(q);
+  const out=[];
+  for(const rec of idx){
+    const sc = scoreMulti(rec, nTerms);
+    if (sc>=0) out.push({sc, raw:rec.raw});
+  }
+  out.sort((a,b)=>b.sc-a.sc);
+  if (out.length) return out;
+  if(aQuery){
+    const hits=[];
+    for(const r of idx){
+      const aAll=r.aAll; if(!aAll) continue;
+      if(aAll.indexOf(aQuery)!==-1 || subseq(aAll,aQuery)){ hits.push({sc:0.7, raw:r.raw}); }
+    }
+    if(hits.length) return hits;
+  }
+  return [];
+}
+function searchField(idx, field, q){
+  const nq = norm(q);
+  const key = (field==="title")?"nTitle" :
+              (field==="author")?"nAuthor" :
+              (field==="publisher")?"nPubl" :
+              (field==="year")?"nYear" : null;
+  if (!key) return searchAny(idx, q);
+  const sel=[];
+  for (const rec of idx){
+    if (rec[key].indexOf(nq)!==-1) sel.push({sc:10, raw:rec.raw});
+  }
+  return sel;
+}
+
 /* ===== Paging state & helpers ===== */
 let LAST = { items: [], shown: 0 };
-
-function clearResultsArea(){
-  while (B.firstChild) B.removeChild(B.firstChild);
-}
-
-function appendItems(items){
-  B.appendChild(render(items));
-}
-
+function clearResultsArea(){ while (B.firstChild) B.removeChild(B.firstChild); }
+function appendItems(items){ B.appendChild(render(items)); }
 function appendShowMoreIfNeeded(){
   const old = document.getElementById("ka-more");
   if (old) old.remove();
-
   if (LAST.shown >= LAST.items.length) return;
-
-  const row = document.createElement("div");
-  row.id = "ka-more";
-  row.className = "more-row";
+  const row = document.createElement("div"); row.id = "ka-more"; row.className = "more-row";
   const btn = document.createElement("button");
   const remaining = LAST.items.length - LAST.shown;
   btn.textContent = remaining > BOT_CFG.PAGE_SIZE ? "Show more" : "Show all";
@@ -314,30 +308,43 @@ function appendShowMoreIfNeeded(){
     LAST.shown = next;
     appendShowMoreIfNeeded();
   };
-  row.appendChild(btn);
-  B.appendChild(row);
+  row.appendChild(btn); B.appendChild(row);
 }
-
 function startNewResultSet(fullList){
   LAST.items = fullList || [];
   LAST.shown = Math.min(BOT_CFG.PAGE_SIZE, LAST.items.length);
   clearResultsArea();
-  if (LAST.items.length === 0){
-    B.appendChild(render([]));
-  } else {
-    appendItems(LAST.items.slice(0, LAST.shown));
-    appendShowMoreIfNeeded();
+  if (LAST.items.length === 0){ B.appendChild(render([])); }
+  else { appendItems(LAST.items.slice(0, LAST.shown)); appendShowMoreIfNeeded(); }
+}
+
+/* ===== OpenAI intent call (to your Worker) ===== */
+async function getIntent(q){
+  try{
+    const r = await fetch(BOT_CFG.INTENT_API, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ q })
+    });
+    if (!r.ok) throw new Error("Intent API failed");
+    const j = await r.json();
+    const field = ["title","author","year","publisher","any"].includes(j.field) ? j.field : "any";
+    const query = (j.query||"").trim() || q;
+    return { field, query };
+  } catch(e){
+    console.warn("Intent API error", e);
+    return { field: "any", query: q };
   }
 }
 
 /* ===== Triggers ===== */
-document.getElementById("go").onclick = () =>
-  ensureLoaded().then(() => {
-    const q = Q.value.trim(); if (!q) return;
-    const full = search(INDEX, q, BOT_CFG.MAX_RESULTS); // returns full list now
-    startNewResultSet(full);
-  });
-
+document.getElementById("go").onclick = async () => {
+  await ensureLoaded();
+  const raw = Q.value.trim(); if (!raw) return;
+  const intent = await getIntent(raw);                 // <-- route via Worker
+  const full = searchField(INDEX, intent.field, intent.query);
+  startNewResultSet(full);
+};
 Q.onkeydown = e => { if (e.key === "Enter") document.getElementById("go").click(); };
 </script>
 </body>
