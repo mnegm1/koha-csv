@@ -6,39 +6,39 @@
 <title>Koha TSV Chatbot — Arabic</title>
 <style>
   :root{
-    --brand: #BF9849;          /* header + buttons + ring */
+    --brand: #BF9849;
     --brandText: #ffffff;
 
-    /* ====== customize ====== */
+    /* ========== customize ========== */
     --logo-url: url("https://assets.almanhal.com/platform/shared/Product/ECSSR/middlelogo.png");
-    --logo-size: 140%;          /* logo scale inside the bubble */
-    --fab-size: 64px;           /* bubble diameter */
+    --logo-size: 140%;
+    --fab-size: 64px;
 
     --box-width: 420px;
     --box-max-h: 62vh;
 
-    /* Curved label controls (now dynamically placed on a circle) */
+    /* Curved label (now a tight arc, clockwise, readable L→R) */
     --label-text: "AI Assist";
-    --label-color: #3EA3DC;     /* your color */
-    --label-size: 18px;         /* label font size */
-    --arc-gap: 6px;             /* distance from gold ring to label */
-    --arc-offset-deg: 300;      /* where the text starts on the circle (0 = right, 90 = bottom, 180 = left, 270 = top) */
+    --label-color: #3EA3DC;
+    --label-size: 18px;
+
+    /* how close + where the arc sits */
+    --arc-gap: 3px;        /* distance from gold ring to text (smaller = closer) */
+    --arc-start: -20;      /* start angle in degrees (0=right, 90=up, 180=left, 270=down) */
+    --arc-end: 60;         /* end angle in degrees; must be > start for clockwise */
   }
 
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;padding:2rem}
 
-  /* Wrap = label + bubble */
   .fab-wrap{
     position:fixed; right:18px; bottom:18px; z-index:9999;
-    width:calc(var(--fab-size) + 80px);   /* extra room for label arc */
+    width:calc(var(--fab-size) + 80px);
     height:calc(var(--fab-size) + 80px);
-    pointer-events:none;                  /* only the button is clickable */
+    pointer-events:none;             /* only the button is clickable */
   }
 
-  /* The label SVG fills the wrapper, but doesn’t block clicks */
   .fab-label{
-    position:absolute; inset:0;
-    pointer-events:none;
+    position:absolute; inset:0; pointer-events:none;
   }
   .fab-label text{
     fill:var(--label-color);
@@ -49,19 +49,17 @@
     text-rendering: optimizeLegibility;
   }
 
-  /* The clickable bubble (kept at bottom-right of wrapper) */
   .fab{
-    position:absolute;
-    right:0; bottom:0;               /* anchor to the wrapper’s bottom-right */
+    position:absolute; right:0; bottom:0;
     width:var(--fab-size); height:var(--fab-size);
     background:#fff var(--logo-url) center/var(--logo-size) no-repeat;
     border:4px solid var(--brand); border-radius:50%;
     box-shadow:0 8px 20px rgba(0,0,0,.25);
     cursor:pointer;
-    pointer-events:auto;             /* button IS clickable */
+    pointer-events:auto;
+    transform:translateZ(0);
   }
 
-  /* Subtle attention animation on load */
   @keyframes bounceGlow {
     0%,100% { transform:translateY(0); box-shadow:0 8px 20px rgba(0,0,0,.25); }
     30% { transform:translateY(-10px); box-shadow:0 12px 26px rgba(191,152,73,.35); }
@@ -70,7 +68,6 @@
   }
   .fab.attn { animation: bounceGlow 2.2s ease-in-out 1; }
 
-  /* Chat box */
   .box{
     position:fixed; right:18px; bottom:calc(18px + var(--fab-size) + 12px);
     width:min(var(--box-width), 92vw); max-height:var(--box-max-h);
@@ -90,13 +87,11 @@
   .btn{flex:0 0 auto;background:var(--brand);color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
   .btn:hover{filter:brightness(.95)}
 
-  /* Show more button */
   .more-row{display:flex;justify-content:center;margin:8px 0 2px}
   .more-row button{
     background:var(--brand); color:#fff; border:none; border-radius:10px;
     padding:8px 14px; font-weight:600; cursor:pointer;
   }
-  .more-row button:disabled{opacity:.5; cursor:default}
 </style>
 </head>
 <body>
@@ -115,71 +110,56 @@ function showBannerError(msg){
 
 /* ===== UI ===== */
 const wrap = document.createElement("div"); wrap.className="fab-wrap";
+const label = document.createElementNS("http://www.w3.org/2000/svg","svg"); label.setAttribute("class","fab-label");
+const fab = document.createElement("button"); fab.className="fab attn"; fab.setAttribute("aria-label","AI Assistant");
+wrap.appendChild(label); wrap.appendChild(fab); document.body.appendChild(wrap);
 
-/* SVG label — built dynamically so it hugs the button precisely */
-const label = document.createElementNS("http://www.w3.org/2000/svg","svg");
-label.setAttribute("class","fab-label");
-
-/* The button */
-const fab = document.createElement("button");
-fab.className="fab attn";
-fab.setAttribute("aria-label","AI Assistant");
-
-/* Put them in the wrapper and on the page */
-wrap.appendChild(label);
-wrap.appendChild(fab);
-document.body.appendChild(wrap);
-
-/* Draw the arc that sits just outside the gold ring */
+/* Build a short clockwise arc so text is readable and close */
+function deg2rad(d){ return d * Math.PI / 180; }
+function polar(cx,cy,r,deg){ const a=deg2rad(deg); return {x: cx + r*Math.cos(a), y: cy - r*Math.sin(a)}; } // SVG y+
 function drawArcLabel(){
-  // read sizes
-  const fabSize = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fab-size'));
-  const gap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--arc-gap')) || 6;
-  const ring = 4; // gold ring thickness
-  const r = (fabSize/2) + ring + gap;                // radius of the label circle
-  const pad = 20;                                    // room around the circle in the SVG
-  const cx = pad + r;                                // center x
-  const cy = pad + r;                                // center y
-  const box = (pad + r) * 2;                         // viewBox width/height
+  const cs = getComputedStyle(document.documentElement);
+  const fabSize = parseFloat(cs.getPropertyValue('--fab-size'));
+  const gap = parseFloat(cs.getPropertyValue('--arc-gap')) || 3;
+  const ring = 4; // gold ring width
+  const r = (fabSize/2) + ring + gap;      // label radius just outside ring
 
-  // full circle path around the button center
-  const d = `M ${cx - r},${cy}
-             a ${r},${r} 0 1,0 ${2*r},0
-             a ${r},${r} 0 1,0 ${-2*r},0`;
+  // SVG box that easily contains the arc around the button anchored at bottom-right
+  const pad = 24;
+  const size = (r + pad) * 2;
+  const cx = size - (fabSize/2) - pad;     // center aligned with button on bottom-right
+  const cy = size - (fabSize/2) - pad;
 
-  label.setAttribute("viewBox", `0 0 ${box} ${box}`);
+  const a0 = parseFloat(cs.getPropertyValue('--arc-start')) || -20; // degrees
+  const a1 = parseFloat(cs.getPropertyValue('--arc-end'))   ||  60; // degrees
+  const p0 = polar(cx,cy,r,a0);
+  const p1 = polar(cx,cy,r,a1);
+
+  // small arc (clockwise, readable left→right from p0 to p1)
+  const largeArc = (Math.abs(a1-a0) > 180) ? 1 : 0;
+  const sweep = 0; // IMPORTANT: 0 = clockwise in our y-down SVG setup
+  const d = `M ${p0.x},${p0.y} A ${r},${r} 0 ${largeArc},${sweep} ${p1.x},${p1.y}`;
+
+  label.setAttribute("viewBox", `0 0 ${size} ${size}`);
   label.innerHTML = `
-    <defs>
-      <path id="ka-circle" d="${d}"/>
-    </defs>
+    <defs><path id="ka-arc-tight" d="${d}"/></defs>
     <text text-anchor="start" dominant-baseline="central">
-      <textPath id="ka-tp" href="#ka-circle"></textPath>
+      <textPath href="#ka-arc-tight"></textPath>
     </text>
   `;
 
-  const tp = label.querySelector('#ka-tp');
-
-  // text content + color/size
-  tp.textContent = (getComputedStyle(document.documentElement).getPropertyValue('--label-text') || 'AI Assist')
-                    .replace(/^["'\s]+|["'\s]+$/g,'');
+  const tp = label.querySelector('textPath');
+  tp.textContent = (cs.getPropertyValue('--label-text') || 'AI Assist').replace(/^["'\s]+|["'\s]+$/g,'');
   const t = label.querySelector('text');
-  t.style.fill = getComputedStyle(document.documentElement).getPropertyValue('--label-color').trim() || '#3EA3DC';
-  t.style.fontSize = getComputedStyle(document.documentElement).getPropertyValue('--label-size').trim() || '18px';
+  t.style.fill = cs.getPropertyValue('--label-color').trim() || '#3EA3DC';
+  t.style.fontSize = cs.getPropertyValue('--label-size').trim() || '18px';
   t.style.fontWeight = '900';
   t.style.letterSpacing = '.6px';
-
-  // place the text on the top-right quadrant like your sample
-  const startDeg = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--arc-offset-deg')) || 300;
-  // arc length along the circle where the text begins (in px)
-  const startOffset = (Math.PI * 2 * r) * (startDeg / 360);
-  tp.setAttribute('startOffset', String(startOffset));
 }
-
-drawArcLabel();
-addEventListener('resize', drawArcLabel);
+drawArcLabel(); addEventListener('resize', drawArcLabel);
 
 /* stop attention animation after a bit */
-setTimeout(()=> fab.classList.remove('attn'), 2400);
+setTimeout(()=> fab.classList.remove('attn'), 2200);
 
 /* Chat box */
 const box = document.createElement("div"); box.className="box";
@@ -189,201 +169,48 @@ box.innerHTML = ''+
   '<div class="body" id="body"></div>'+
   '<div class="input"><input id="q" type="text" placeholder="Search / ابحث" dir="auto"><button id="go">Search</button></div>';
 document.body.appendChild(box);
-
 const B=box.querySelector("#body"), Q=box.querySelector("#q"), GO=box.querySelector("#go"), closeBtn=box.querySelector("#x");
 
-/* open/close */
-fab.onclick=()=>{ box.style.display = (box.style.display==="flex"?"none":"flex"); if(box.style.display==="flex") setTimeout(()=>Q.focus(), 50); };
+fab.onclick=()=>{ box.style.display = (box.style.display==="flex"?"none":"flex"); if(box.style.display==="flex") setTimeout(()=>Q.focus(), 40); };
 closeBtn.onclick=()=>{ box.style.display="none"; };
 
-/* ===== Arabic helpers / search (unchanged) ===== */
+/* ===== Arabic helpers / search / paging — unchanged from your working build ===== */
 const AR_ANY=/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
 function isArabic(s){ return AR_ANY.test(String(s||"")); }
-function normalizeArabicForms(str){
-  if(!str) return "";
-  const map={'ﺍ':'ا','ﺎ':'ا','ﺃ':'ا','ﺄ':'ا','ﺇ':'ا','ﺈ':'ا','ٱ':'ا','ﻻ':'لا','ﻼ':'لا'};
-  return str.replace(/[\uFE70-\uFEFF\uFB50-\uFDFF]/g, ch=>map[ch]||ch);
-}
+function normalizeArabicForms(str){ if(!str) return ""; const map={'ﺍ':'ا','ﺎ':'ا','ﺃ':'ا','ﺄ':'ا','ﺇ':'ا','ﺈ':'ا','ٱ':'ا','ﻻ':'لا','ﻼ':'لا'}; return str.replace(/[\uFE70-\uFEFF\uFB50-\uFDFF]/g, ch=>map[ch]||ch); }
 function stripLatinDiacritics(s){ return s.replace(/[\u0300-\u036f]/g,""); }
 function foldDigits(s){ return s.replace(/[\u0660-\u0669]/g,d=>d.charCodeAt(0)-0x0660).replace(/[\u06F0-\u06F9]/g,d=>d.charCodeAt(0)-0x06F0); }
-function norm(s){
-  if(!s) return "";
-  let t=String(s).toLowerCase();
-  try{t=t.normalize("NFKD");}catch(e){}
-  t=stripLatinDiacritics(t);
-  t=normalizeArabicForms(t);
-  t=foldDigits(t);
-  return t
-    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
-    .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك");
-}
+function norm(s){ if(!s) return ""; let t=String(s).toLowerCase(); try{t=t.normalize("NFKD");}catch(e){} t=stripLatinDiacritics(t); t=normalizeArabicForms(t); t=foldDigits(t); return t.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"").replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك"); }
 const AR_LETTER_ONLY=/[ء-ي]/g;
 function arLettersOnly(s){ const n=norm(s).replace(/ة/g,"ه").replace(/ى/g,"ي"); let out="",m; while((m=AR_LETTER_ONLY.exec(n))!==null) out+=m[0]; return out; }
 function subseq(hay,needle){ if(!needle) return false; let i=0,j=0; while(i<hay.length&&j<needle.length){ if(hay.charCodeAt(i)===needle.charCodeAt(j)) j++; i++; } return j===needle.length; }
 
-/* ===== Config ===== */
 const BOT_CFG = {
   DATA_URL:"/koha-csv/opac-catalog.tab",
-  MAX_RESULTS: 999999,    // kept for compatibility
-  PAGE_SIZE: 12,          // how many items per click
+  MAX_RESULTS: 999999,
+  PAGE_SIZE: 12,
   MIN_QUERY_LEN: 1,
   KOHA_OPAC_BASE: location.origin
 };
 
-/* ===== TSV + mapping ===== */
-function parseTSV(text){
-  const lines = text.replace(/\r\n?/g,"\n").split("\n").filter(l=>l.length>0);
-  if(!lines.length) return [];
-  const headers = lines[0].split("\t").map(h=>h.trim().toLowerCase());
-  const rows=[];
-  for(let i=1;i<lines.length;i++){
-    const cols = lines[i].split("\t");
-    const obj={};
-    for(let c=0;c<headers.length;c++){ obj[headers[c]] = cols[c]? String(cols[c]).trim() : ""; }
-    rows.push(obj);
-  }
-  return rows;
-}
-function mapRecord(k){
-  const title   = k["full title"]||k["العنوان"]||k.title||"";
-  const author  = k["author"]||k["المؤلف"]||"";
-  const summary = k["abstract"]||k["الملخص"]||"";
-  const content = k["content"]||k["المحتوى"]||"";
-  const pubdat  = k["publications data"]||k["بيانات النشر"]||"";
-  const url     = k["book_url"]||k["book url"]||k["رابط_الكتاب"]||k["url"]||"";
-  const ym = String(pubdat).match(/(\d{4})/);
-  const year = ym? ym[1] : "";
-  const publisher = String(pubdat||"").replace(/\b\d{4}\b/g,"").trim();
-  return {title,author,summary,content,publisher,year,url};
-}
-
-/* ===== render ===== */
+function parseTSV(text){ const lines=text.replace(/\r\n?/g,"\n").split("\n").filter(l=>l.length>0); if(!lines.length) return []; const headers=lines[0].split("\t").map(h=>h.trim().toLowerCase()); const rows=[]; for(let i=1;i<lines.length;i++){ const cols=lines[i].split("\t"); const obj={}; for(let c=0;c<headers.length;c++){ obj[headers[c]]=cols[c]? String(cols[c]).trim() : ""; } rows.push(obj); } return rows; }
+function mapRecord(k){ const title=k["full title"]||k["العنوان"]||k.title||""; const author=k["author"]||k["المؤلف"]||""; const summary=k["abstract"]||k["الملخص"]||""; const content=k["content"]||k["المحتوى"]||""; const pubdat=k["publications data"]||k["بيانات النشر"]||""; const url=k["book_url"]||k["book url"]||k["رابط_الكتاب"]||k["url"]||""; const ym=String(pubdat).match(/(\d{4})/); const year=ym? ym[1]:""; const publisher=String(pubdat||"").replace(/\b\d{4}\b/g,"").trim(); return {title,author,summary,content,publisher,year,url}; }
 function kohaURL(title){ return BOT_CFG.KOHA_OPAC_BASE + "/cgi-bin/koha/opac-search.pl?q=" + encodeURIComponent('ti="'+title+'"'); }
-function render(items){
-  const list=document.createElement("div");
-  if(!items.length){ list.innerHTML='<div class="row">No results found.</div>'; return list; }
-  for(const it of items){
-    const r=it.raw;
-    const url = (r.url && /^https?:\/\//i.test(r.url)) ? r.url : kohaURL(r.title||"");
-    const pub = [r.publisher, r.year].filter(Boolean).join(" • ");
-    const div=document.createElement("div"); div.className="row";
-    div.dir = isArabic((r.title||"")+(r.summary||"")+(r.content||"")+(r.author||"")) ? "rtl" : "ltr";
-    div.innerHTML =
-      '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">' +
-        '<b style="font-size:15px;line-height:1.3">'+ String(r.title||"").replace(/</g,"&lt;") +'</b>' +
-        '<a class="btn" href="'+url+'" target="_blank" rel="noopener">Open record</a>' +
-      '</div>' +
-      (r.author? '<div class="meta">'+(isArabic(r.author)?'المؤلف: ':'Author: ')+r.author+'</div>' : '') +
-      (pub? '<div class="meta">'+pub+'</div>' : '') +
-      (r.summary? '<div style="margin-top:6px">'+ (r.summary.length>360? r.summary.slice(0,357)+'…' : r.summary) +'</div>' : '');
-    list.appendChild(div);
-  }
-  return list;
-}
+function render(items){ const list=document.createElement("div"); if(!items.length){ list.innerHTML='<div class="row">No results found.</div>'; return list; } for(const it of items){ const r=it.raw; const url=(r.url && /^https?:\/\//i.test(r.url))? r.url : kohaURL(r.title||""); const pub=[r.publisher,r.year].filter(Boolean).join(" • "); const div=document.createElement("div"); div.className="row"; div.dir=isArabic((r.title||"")+(r.summary||"")+(r.content||"")+(r.author||"")) ? "rtl":"ltr"; div.innerHTML='<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><b style="font-size:15px;line-height:1.3">'+ String(r.title||"").replace(/</g,"&lt;") +'</b><a class="btn" href="'+url+'" target="_blank" rel="noopener">Open record</a></div>' + (r.author? '<div class="meta">'+(isArabic(r.author)?'المؤلف: ':'Author: ')+r.author+'</div>':'') + (pub? '<div class="meta">'+pub+'</div>':'') + (r.summary? '<div style="margin-top:6px">'+ (r.summary.length>360? r.summary.slice(0,357)+'…' : r.summary) +'</div>':''); list.appendChild(div);} return list; }
 
-/* ===== Search (returns FULL list; no slicing) ===== */
-function search(idx,q){
-  q=(q||"").trim(); if(q.length < BOT_CFG.MIN_QUERY_LEN) return [];
-  const terms=q.split(/\s+/).filter(Boolean);
-  const nTerms=terms.map(norm);
-  const aQuery=arLettersOnly(q);
+function search(idx,q){ q=(q||"").trim(); if(q.length < BOT_CFG.MIN_QUERY_LEN) return []; const terms=q.split(/\s+/).filter(Boolean); const nTerms=terms.map(norm); const aQuery=arLettersOnly(q); const out=[]; for(const rec of idx){ let sc=0, matched=false; for(const qt of nTerms){ if(!qt) continue; if(rec.nTitle.indexOf(qt)!==-1){ sc+=5; matched=true; } if(rec.nSummary.indexOf(qt)!==-1){ sc+=2; matched=true; } if(rec.nContent.indexOf(qt)!==-1){ sc+=2; matched=true; } } if(matched) out.push({sc, raw:rec.raw}); } out.sort((a,b)=>b.sc-a.sc); if(out.length) return out; if(aQuery){ const hits=[]; for(const r of idx){ const aAll=r.aAll; if(!aAll) continue; if(aAll.indexOf(aQuery)!==-1 || subseq(aAll,aQuery)){ hits.push({sc:0.7, raw:r.raw}); } } if(hits.length) return hits; } return []; }
 
-  // Stage 1: ranked
-  const out=[];
-  for(const rec of idx){
-    let sc=0, matched=false;
-    for(const qt of nTerms){
-      if(!qt) continue;
-      if(rec.nTitle.indexOf(qt)!==-1){ sc+=5; matched=true; }
-      if(rec.nSummary.indexOf(qt)!==-1){ sc+=2; matched=true; }
-      if(rec.nContent.indexOf(qt)!==-1){ sc+=2; matched=true; }
-    }
-    if(matched) out.push({sc, raw:rec.raw});
-  }
-  out.sort((a,b)=>b.sc-a.sc);
-  if (out.length) return out;
-
-  // Stage 2: Arabic letters-only
-  if(aQuery){
-    const hits=[];
-    for(const r of idx){
-      const aAll=r.aAll; if(!aAll) continue;
-      if(aAll.indexOf(aQuery)!==-1 || subseq(aAll,aQuery)){ hits.push({sc:0.7, raw:r.raw}); }
-    }
-    if(hits.length) return hits;
-  }
-  return [];
-}
-
-/* ===== Build index ===== */
 let INDEX=[]; let LOAD_PROMISE=null;
-function ensureLoaded(){
-  if (LOAD_PROMISE) return LOAD_PROMISE;
-  LOAD_PROMISE = fetch(BOT_CFG.DATA_URL, {cache:"reload"})
-    .then(r=>r.text())
-    .then(text=>{
-      const rows = parseTSV(text);
-      const records = rows.map(mapRecord);
-      INDEX = records.map((r,i)=>{
-        const rawAll=(r.title+" "+r.author+" "+r.summary+" "+r.content+" "+r.publisher+" "+r.year).trim();
-        return { id:i, raw:r, rawAll,
-          nTitle:norm(r.title), nSummary:norm(r.summary), nContent:norm(r.content),
-          aAll:arLettersOnly(rawAll)
-        };
-      });
-    })
-    .catch(err=>{ console.error(err); showBannerError(err?.message||String(err)); });
-  return LOAD_PROMISE;
-}
+function ensureLoaded(){ if(LOAD_PROMISE) return LOAD_PROMISE; LOAD_PROMISE = fetch(BOT_CFG.DATA_URL, {cache:"reload"}).then(r=>r.text()).then(text=>{ const rows=parseTSV(text); const records=rows.map(mapRecord); INDEX=records.map((r,i)=>{ const rawAll=(r.title+" "+r.author+" "+r.summary+" "+r.content+" "+r.publisher+" "+r.year).trim(); return {id:i, raw:r, rawAll, nTitle:norm(r.title), nSummary:norm(r.summary), nContent:norm(r.content), aAll:arLettersOnly(rawAll)}; }); }).catch(err=>{ console.error(err); showBannerError(err?.message||String(err)); }); return LOAD_PROMISE; }
 
-/* ===== Paging state & helpers ===== */
 let LAST = { items: [], shown: 0 };
-
-function clearResultsArea(){
-  while (B.firstChild) B.removeChild(B.firstChild);
-}
+const B=box.querySelector("#body"), Q=box.querySelector("#q");
+function clearResultsArea(){ while(B.firstChild) B.removeChild(B.firstChild); }
 function appendItems(items){ B.appendChild(render(items)); }
+function appendShowMoreIfNeeded(){ const old=document.getElementById("ka-more"); if(old) old.remove(); if(LAST.shown >= LAST.items.length) return; const row=document.createElement("div"); row.id="ka-more"; row.className="more-row"; const btn=document.createElement("button"); const remaining=LAST.items.length-LAST.shown; btn.textContent = remaining > BOT_CFG.PAGE_SIZE ? "Show more" : "Show all"; btn.onclick=()=>{ const next=Math.min(LAST.shown+BOT_CFG.PAGE_SIZE, LAST.items.length); appendItems(LAST.items.slice(LAST.shown, next)); LAST.shown=next; appendShowMoreIfNeeded(); }; row.appendChild(btn); B.appendChild(row); }
+function startNewResultSet(fullList){ LAST.items=fullList||[]; LAST.shown=Math.min(BOT_CFG.PAGE_SIZE, LAST.items.length); clearResultsArea(); if(LAST.items.length===0){ B.appendChild(render([])); } else { appendItems(LAST.items.slice(0,LAST.shown)); appendShowMoreIfNeeded(); } }
 
-function appendShowMoreIfNeeded(){
-  const old = document.getElementById("ka-more");
-  if (old) old.remove();
-  if (LAST.shown >= LAST.items.length) return;
-
-  const row = document.createElement("div");
-  row.id = "ka-more"; row.className = "more-row";
-  const btn = document.createElement("button");
-  const remaining = LAST.items.length - LAST.shown;
-  btn.textContent = remaining > BOT_CFG.PAGE_SIZE ? "Show more" : "Show all";
-  btn.onclick = () => {
-    const next = Math.min(LAST.shown + BOT_CFG.PAGE_SIZE, LAST.items.length);
-    appendItems(LAST.items.slice(LAST.shown, next));
-    LAST.shown = next;
-    appendShowMoreIfNeeded();
-  };
-  row.appendChild(btn);
-  B.appendChild(row);
-}
-
-function startNewResultSet(fullList){
-  LAST.items = fullList || [];
-  LAST.shown = Math.min(BOT_CFG.PAGE_SIZE, LAST.items.length);
-  clearResultsArea();
-  if (LAST.items.length === 0){
-    B.appendChild(render([]));
-  } else {
-    appendItems(LAST.items.slice(0, LAST.shown));
-    appendShowMoreIfNeeded();
-  }
-}
-
-/* ===== Triggers ===== */
-document.getElementById("go").onclick = () =>
-  ensureLoaded().then(() => {
-    const q = Q.value.trim(); if (!q) return;
-    const full = search(INDEX, q);
-    startNewResultSet(full);
-  });
-
+document.getElementById("go").onclick = () => ensureLoaded().then(()=>{ const q=Q.value.trim(); if(!q) return; const full=search(INDEX, q); startNewResultSet(full); });
 Q.onkeydown = e => { if (e.key === "Enter") document.getElementById("go").click(); };
 </script>
 </body>
