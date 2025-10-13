@@ -6,21 +6,21 @@
 <title>Koha TSV Chatbot — Arabic</title>
 <style>
   :root{
-    --brand: #BF9849;          /* header + buttons + border */
+    --brand: #BF9849;          /* header + buttons + ring */
     --brandText: #ffffff;
 
     /* ==== customize these ==== */
     --logo-url: url("https://assets.almanhal.com/platform/shared/Product/ECSSR/middlelogo.png");
-    --logo-size: 130%;          /* logo scale inside the bubble */
-    --fab-size: 56px;           /* bubble diameter */
+    --logo-size: 140%;          /* logo scale inside the bubble */
+    --fab-size: 64px;           /* bubble diameter (bigger) */
 
-    --box-width: 420px;         /* chat box width */
-    --box-max-h: 62vh;          /* chat box max height */
+    --box-width: 420px;
+    --box-max-h: 62vh;
 
     /* Curved label controls */
     --label-text: "AI Assist";
-    --label-color: var(--brand);
-    --label-size: 12px;         /* font size on the arc */
+    --label-color: #00B050;     /* bright green like your markup */
+    --label-size: 18px;         /* BIGGER arc text */
   }
 
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;padding:2rem}
@@ -28,19 +28,25 @@
   /* Wrapper keeps label + fab aligned and clickable */
   .fab-wrap{
     position:fixed; right:18px; bottom:18px; z-index:9999;
-    width:var(--fab-size); height:calc(var(--fab-size) + 34px);
+    width:var(--fab-size); height:calc(var(--fab-size) + 60px);
   }
 
-  /* Arc label (SVG) */
+  /* Arc label (SVG) — larger viewBox + arc radius */
   .fab-label{
     position:absolute; left:50%;
-    bottom:calc(var(--fab-size) + 4px);
+    bottom:calc(var(--fab-size) + 10px);
     transform:translateX(-50%);
-    width:calc(var(--fab-size) + 36px); height:34px;
+    width:calc(var(--fab-size) + 90px); height:56px;
     pointer-events:none; /* don't block clicks */
-    filter: drop-shadow(0 1px 0 rgba(255,255,255,.65));
   }
-  .fab-label text{ fill:var(--label-color); font-weight:700; font-size:var(--label-size); letter-spacing:.5px; }
+  .fab-label text{
+    fill:var(--label-color);
+    font-weight:900;
+    font-size:var(--label-size);
+    letter-spacing:.8px;
+    paint-order: stroke fill;          /* white outline for contrast */
+    stroke:#fff; stroke-width:3px;     /* outline thickness */
+  }
 
   /* Floating bubble with white background and logo */
   .fab{
@@ -52,12 +58,12 @@
     transform:translateZ(0);
   }
 
-  /* Attention animation (subtle) */
+  /* Attention animation (slightly stronger) */
   @keyframes bounceGlow {
     0%,100% { transform:translateY(0); box-shadow:0 8px 20px rgba(0,0,0,.25); }
-    30% { transform:translateY(-10px); box-shadow:0 12px 26px rgba(191,152,73,.35); }
+    30% { transform:translateY(-12px); box-shadow:0 12px 26px rgba(191,152,73,.35); }
     60% { transform:translateY(0); box-shadow:0 10px 22px rgba(191,152,73,.25); }
-    80% { transform:translateY(-5px); box-shadow:0 10px 26px rgba(191,152,73,.3); }
+    80% { transform:translateY(-6px); box-shadow:0 10px 26px rgba(191,152,73,.3); }
   }
   .fab.attn { animation: bounceGlow 2.6s ease-in-out 1; }
 
@@ -111,10 +117,12 @@ const wrap = document.createElement("div"); wrap.className="fab-wrap";
 
 const label = document.createElementNS("http://www.w3.org/2000/svg","svg");
 label.setAttribute("class","fab-label");
-label.setAttribute("viewBox","0 0 120 40"); // 120w x 40h; arc across top
+/* Wider canvas and a larger-radius arc so text is big & visible */
+label.setAttribute("viewBox","0 0 200 70");
 label.innerHTML = `
   <defs>
-    <path id="ka-arc" d="M 10,34 A 50,50 0 0 1 110,34" />
+    <!-- Arc path: start x=20, y=56 ; big radius 85 -->
+    <path id="ka-arc" d="M 20,56 A 85,85 0 0 1 180,56" />
   </defs>
   <text text-anchor="middle">
     <textPath href="#ka-arc" startOffset="50%">AI Assist</textPath>
@@ -171,7 +179,7 @@ function subseq(hay,needle){ if(!needle) return false; let i=0,j=0; while(i<hay.
 /* ===== Config ===== */
 const BOT_CFG = {
   DATA_URL:"/koha-csv/opac-catalog.tab",
-  MAX_RESULTS: 999999,    // not used for slicing anymore (kept for compatibility)
+  MAX_RESULTS: 999999,    // kept for compatibility
   PAGE_SIZE: 12,          // how many items per click
   MIN_QUERY_LEN: 1,
   KOHA_OPAC_BASE: location.origin
@@ -229,7 +237,7 @@ function render(items){
 }
 
 /* ===== Search (returns FULL list; no slicing) ===== */
-function search(idx,q,limit){
+function search(idx,q){
   q=(q||"").trim(); if(q.length < BOT_CFG.MIN_QUERY_LEN) return [];
   const terms=q.split(/\s+/).filter(Boolean);
   const nTerms=terms.map(norm);
@@ -248,7 +256,7 @@ function search(idx,q,limit){
     if(matched) out.push({sc, raw:rec.raw});
   }
   out.sort((a,b)=>b.sc-a.sc);
-  if (out.length) return out;  // <-- FULL list
+  if (out.length) return out;
 
   // Stage 2: Arabic letters-only
   if(aQuery){
@@ -257,10 +265,8 @@ function search(idx,q,limit){
       const aAll=r.aAll; if(!aAll) continue;
       if(aAll.indexOf(aQuery)!==-1 || subseq(aAll,aQuery)){ hits.push({sc:0.7, raw:r.raw}); }
     }
-    if(hits.length) return hits; // FULL
+    if(hits.length) return hits;
   }
-
-  // Stage 3: (optional) regex fallback – omitted here for speed
   return [];
 }
 
@@ -334,7 +340,7 @@ function startNewResultSet(fullList){
 document.getElementById("go").onclick = () =>
   ensureLoaded().then(() => {
     const q = Q.value.trim(); if (!q) return;
-    const full = search(INDEX, q, BOT_CFG.MAX_RESULTS); // returns full list now
+    const full = search(INDEX, q);
     startNewResultSet(full);
   });
 
