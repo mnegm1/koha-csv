@@ -10,11 +10,11 @@
     --brandText: #ffffff;
 
     /* ==== customize these ==== */
-    --logo-url: url("https://assets.almanhal.com/platform/shared/Product/ECSSR/middlelogo.png"); /* <-- your logo URL */
-    --logo-size: 150%;          /* logo scale inside the bubble (e.g., 50%..80%) */
-    --fab-size: 52px;          /* bubble diameter */
-    --box-width: 420px;        /* chat box width */
-    --box-max-h: 62vh;         /* chat box max height */
+    --logo-url: url("https://assets.almanhal.com/platform/shared/Product/ECSSR/middlelogo.png");
+    --logo-size: 150%;          /* logo scale inside the bubble */
+    --fab-size: 52px;           /* bubble diameter */
+    --box-width: 420px;         /* chat box width */
+    --box-max-h: 62vh;          /* chat box max height */
   }
 
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;padding:2rem}
@@ -26,6 +26,22 @@
     background: var(--brand) var(--logo-url) center/var(--logo-size) no-repeat;
     border:none; border-radius:50%; cursor:pointer;
     box-shadow:0 8px 20px rgba(0,0,0,.25); z-index:9999;
+    transform:translateZ(0);
+  }
+  /* one-time attention animation on load */
+  @keyframes ka-wiggle {
+    0%{ transform:translateY(0) }
+    30%{ transform:translateY(-6px) }
+    60%{ transform:translateY(0) }
+    80%{ transform:translateY(-3px) }
+    100%{ transform:translateY(0) }
+  }
+  @keyframes ka-glow {
+    0%,100%{ box-shadow:0 8px 20px rgba(0,0,0,.25) }
+    50%{ box-shadow:0 10px 26px rgba(0,0,0,.35), 0 0 0 8px rgba(191,152,73,.18) }
+  }
+  .fab.attn{
+    animation: ka-wiggle 1.4s ease-in-out 2, ka-glow 1.4s ease-in-out 2;
   }
 
   .box{
@@ -65,15 +81,19 @@ function showBannerError(msg){
 }
 
 /* ===== UI ===== */
-const fab = document.createElement("button"); fab.className="fab"; fab.setAttribute("aria-label","Catalog Assistant");
+const fab = document.createElement("button"); fab.className="fab attn"; fab.setAttribute("aria-label","AI Assistant"); // starts with attention anim
 const box = document.createElement("div"); box.className="box";
 box.innerHTML = ''+
-  '<div class="head"><div>Catalog Assistant</div>'+
+  '<div class="head"><div>AI Assistant</div>'+
   '<button id="x" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer" title="Close">×</button></div>'+
   '<div class="body" id="body"></div>'+
   '<div class="input"><input id="q" type="text" placeholder="Search / ابحث" dir="auto"><button id="go">Search</button></div>';
 document.body.appendChild(fab); document.body.appendChild(box);
 const B=box.querySelector("#body"), Q=box.querySelector("#q"), GO=box.querySelector("#go"), closeBtn=box.querySelector("#x");
+
+/* stop the attention animation after a short while */
+setTimeout(()=> fab.classList.remove('attn'), 3200);
+
 fab.onclick=()=>{ box.style.display = (box.style.display==="flex"?"none":"flex"); if(box.style.display==="flex") setTimeout(()=>Q.focus(), 50); };
 closeBtn.onclick=()=>{ box.style.display="none"; };
 
