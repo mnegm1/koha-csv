@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Koha ODS Chatbot (AR solid)</title>
+  <title>Koha ODS Chatbot – Arabic Fuzzy Match</title>
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;padding:2rem}
     .fab{position:fixed;right:18px;bottom:18px;background:#3EA3DC;color:#fff;border:none;border-radius:50%;
@@ -45,8 +45,8 @@
   </script>
 </head>
 <body>
-  <h2>Koha ODS Chatbot</h2>
-  <p>This page loads the ODS catalog and adds the chat bubble 💬 automatically.</p>
+  <h2>Catalog Assistant</h2>
+  <p>Arabic fuzzy search enabled. Type Arabic or English keywords. مثال: الخليج ، الطاقة ، شمل</p>
 
   <script>
   (function startWhenReady(){
@@ -62,7 +62,7 @@
     /* ===== CONFIG ===== */
     var BOT_CFG = {
       DATA_URL: "https://raw.githubusercontent.com/mnegm1/koha-csv/main/opac-catalog.ods",
-      MAX_RESULTS: 12,
+      MAX_RESULTS: 20,
       MIN_QUERY_LEN: 1,
       KOHA_OPAC_BASE: location.origin
     };
@@ -71,13 +71,10 @@
     var fab=document.createElement("button"); fab.className="fab"; fab.textContent="💬";
     var box=document.createElement("div"); box.className="box";
     box.innerHTML='' +
-      '<div class="head">' +
-        '<div>Catalog Assistant</div>' +
-        '<button id="x" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer">×</button>' +
-      '</div>' +
+      '<div class="head"><div>Catalog Assistant</div><button id="x" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer">×</button></div>' +
       '<div class="body" id="body">' +
         '<div class="row" id="status">Loading catalog…</div>' +
-        '<div class="row">Type title, author, year — أو اكتب كلمات عربية من العنوان/الملخص/المحتوى. فلاتر: author:"name"  year:2021</div>' +
+        '<div class="row">Filters: author:"name"  year:2021</div>' +
       '</div>' +
       '<div class="input">' +
         '<input id="q" type="text" placeholder="Search / ابحث" dir="auto">' +
@@ -90,7 +87,7 @@
     closeBtn.onclick = function(){ box.style.display = "none"; };
     box.style.display = "flex"; Q.focus();
 
-    /* ===== Arabic helpers (no exotic regex features) ===== */
+    /* ===== Arabic helpers ===== */
     var AR_ANY = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
     function isArabic(s){ return AR_ANY.test(String(s||"")); }
 
@@ -121,9 +118,7 @@
         'ﻡ':'م','ﻢ':'م','ﻣ':'م','ﻤ':'م',
         'ﻥ':'ن','ﻦ':'ن','ﻧ':'ن','ﻨ':'ن',
         'ﻩ':'ه','ﻪ':'ه','ﻫ':'ه','ﻬ':'ه',
-        'ﻭ':'و','ﻮ':'و',
-        'ﻱ':'ي','ﻲ':'ي','ﻳ':'ي','ﻴ':'ي','ﻰ':'ى',
-        'ﻻ':'لا','ﻼ':'لا'
+        'ﻭ':'و','ﻮ':'و','ﻱ':'ي','ﻲ':'ي','ﻳ':'ي','ﻴ':'ي','ﻰ':'ى','ﻻ':'لا','ﻼ':'لا'
       };
       return str.replace(/[\uFE70-\uFEFF\uFB50-\uFDFF]/g, function(ch){ return map[ch] || ch; });
     }
@@ -138,8 +133,8 @@
       t = normalizeArabicForms(t);
       t = t
         .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"") // tashkīl + tatweel
-        .replace(/[\u200c-\u200f\u202a-\u202e]/g,"")                          // zero-width/bidi
-        .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك");       // unify variants
+        .replace(/[\u200c-\u200f\u202a-\u202e]/g,"")                          // ZWJ/RLM/LRM/embeds
+        .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك");
       return t;
     }
 
@@ -148,6 +143,18 @@
       var n = norm(s), out = "", m;
       while ((m = KEEP_CH.exec(n)) !== null) out += m[0];
       return out;
+    }
+
+    function escapeRe(s){ return s.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&"); }
+
+    // The key: build a fuzzy Arabic regex that allows diacritics/ZWJ/space/punct between letters.
+    var BETWEEN = "[\\u0610-\\u061A\\u064B-\\u065F\\u0670\\u06D6-\\u06ED\\u0640\\u200c-\\u200f\\u202a-\\u202e\\s\\W_]*";
+    function makeFuzzyArabicRegex(q){
+      var base = norm(q);                   // strip forms to base letters
+      if (!base) return null;
+      var chars = base.split("");           // individual letters
+      var pattern = chars.map(escapeRe).join(BETWEEN);
+      try { return new RegExp(pattern, "i"); } catch(e){ return null; }
     }
 
     function setStatus(msg, err){
@@ -264,7 +271,7 @@
       })
       .catch(function(err){ console.error(err); setStatus("Chatbot init failed: "+err.message, true); });
 
-    /* ===== Search: ranked → normalized AND → final Arabic sweep ===== */
+    /* ===== Search with fuzzy Arabic ===== */
     function parseFilters(q){
       var aMatch = q.match(/author:\s*"([^"]+)"/i) || q.match(/author:\s*([^\s]+)/i);
       var yMatch = q.match(/year:\s*(\d{4})/i);
@@ -279,66 +286,56 @@
       if (q.length < BOT_CFG.MIN_QUERY_LEN) return [];
       var F = parseFilters(q);
 
-      // tokens (simple split so we work in old browsers too)
       var terms = F.cleaned.split(/\s+/).filter(function(t){return t;});
       var nTerms = terms.map(norm);
       var uTerms = terms.map(ultra);
 
-      // Stage 1: ranked scoring
+      // Build fuzzy Arabic regex for the whole cleaned query (works for single words too)
+      var fuzzyRe = isArabic(F.cleaned) ? makeFuzzyArabicRegex(F.cleaned) : null;
+
       var out = [];
       for (var i=0;i<idx.length;i++){
         var rec = idx[i];
+
         if (F.author && norm(rec.raw.author).indexOf(norm(F.author)) === -1) continue;
         if (F.year && String(rec.raw.year||"") !== String(F.year)) continue;
 
-        var sc = 0, matched = false;
+        var hit = false;
+        // 1) normal field hits
         for (var t=0;t<nTerms.length;t++){
           var qt = nTerms[t]; if (!qt) continue;
-          if (rec.nTitle.indexOf(qt) !== -1) { sc += 5; matched = true; }
-          if (rec.nSummary.indexOf(qt) !== -1) { sc += 2; matched = true; }
-          if (rec.nContent.indexOf(qt) !== -1) { sc += 2; matched = true; }
+          if (rec.nTitle.indexOf(qt) !== -1 || rec.nSummary.indexOf(qt) !== -1 || rec.nContent.indexOf(qt) !== -1){ hit=true; break; }
         }
-        // year bonus
-        var yTerm = q.match(/\b(\d{4})\b/);
-        if (yTerm && String(rec.raw.year) === yTerm[1]) { sc += 6; matched = true; }
+        // 2) AND on normalized whole
+        if (!hit && nTerms.length){
+          var ok = true; for (var j=0;j<nTerms.length;j++){ if (nTerms[j] && rec.nAll.indexOf(nTerms[j]) === -1){ ok=false; break; } }
+          if (ok) hit = true;
+        }
+        // 3) Ultra AND
+        if (!hit && uTerms.length){
+          var ok2 = true; for (var k=0;k<uTerms.length;k++){ if (uTerms[k] && rec.uAll.indexOf(uTerms[k]) === -1){ ok2=false; break; } }
+          if (ok2) hit = true;
+        }
+        // 4) **Fuzzy Arabic sweep**: allow diacritics/ZWJ/etc between letters in RAW text
+        if (!hit && fuzzyRe && fuzzyRe.test(rec.rawAll)) hit = true;
 
-        if (matched) out.push({sc:sc, raw:rec.raw});
+        if (hit){
+          // simple score
+          var sc = 0;
+          for (var t2=0;t2<nTerms.length;t2++){
+            var qt2 = nTerms[t2];
+            if (rec.nTitle.indexOf(qt2)!==-1) sc+=5;
+            if (rec.nSummary.indexOf(qt2)!==-1) sc+=2;
+            if (rec.nContent.indexOf(qt2)!==-1) sc+=2;
+          }
+          var yTerm = q.match(/\b(\d{4})\b/);
+          if (yTerm && String(rec.raw.year) === yTerm[1]) sc += 6;
+          out.push({sc:sc, raw:rec.raw});
+        }
       }
       out.sort(function(a,b){ return b.sc - a.sc; });
-      if (out.length) return out.slice(0, limit||BOT_CFG.MAX_RESULTS);
-
-      // Stage 2: normalized AND (each nTerm must be in nAll)
-      var andHits = [];
-      for (var j=0;j<idx.length;j++){
-        var r = idx[j];
-        if (F.author && norm(r.raw.author).indexOf(norm(F.author)) === -1) continue;
-        if (F.year && String(r.raw.year||"") !== String(F.year)) continue;
-
-        var ok = true;
-        for (var k=0;k<nTerms.length;k++){ if (nTerms[k] && r.nAll.indexOf(nTerms[k]) === -1) { ok=false; break; } }
-        if (ok) andHits.push({sc:1, raw:r.raw});
-      }
-      if (andHits.length) return andHits.slice(0, limit||BOT_CFG.MAX_RESULTS);
-
-      // Stage 3: **Arabic sweep** — match the WHOLE query against uAll OR nAll OR rawAll
-      var qn = norm(F.cleaned);
-      var qu = ultra(F.cleaned);
-      var sweep = [];
-      for (var m=0;m<idx.length;m++){
-        var rr = idx[m];
-        if (F.author && norm(rr.raw.author).indexOf(norm(F.author)) === -1) continue;
-        if (F.year && String(rr.raw.year||"") !== String(F.year)) continue;
-
-        if ((qu && rr.uAll.indexOf(qu) !== -1) ||
-            (qn && rr.nAll.indexOf(qn) !== -1) ||
-            (F.cleaned && rr.rawAll.indexOf(F.cleaned) !== -1)) {
-          sweep.push({sc:0.5, raw:rr.raw});
-        }
-      }
-      return sweep.slice(0, limit||BOT_CFG.MAX_RESULTS);
+      return out.slice(0, limit||BOT_CFG.MAX_RESULTS);
     }
-
-    function kohaOpen(title){ return BOT_CFG.KOHA_OPAC_BASE + "/cgi-bin/koha/opac-search.pl?q=" + encodeURIComponent('ti="'+title+'"'); }
 
     GO.onclick = function(){
       var q = Q.value.trim(); if(!q) return;
