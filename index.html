@@ -6,7 +6,7 @@
   <title>Koha ODS Chatbot</title>
 
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#BF9849;padding:2rem}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;padding:2rem}
     .fab{position:fixed;right:18px;bottom:18px;background:#3EA3DC;color:#fff;border:none;border-radius:50%;
          width:56px;height:56px;font-size:24px;cursor:pointer;box-shadow:0 8px 20px rgba(0,0,0,.25);z-index:9999}
     .box{position:fixed;right:18px;bottom:86px;width:min(520px,92vw);max-height:70vh;background:#fff;border-radius:14px;
@@ -17,9 +17,9 @@
     .meta{opacity:.85;font-size:12px;margin-top:6px}
     .input{display:flex;gap:8px;padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
     .input input{flex:1;padding:10px;border-radius:10px;border:1px solid #cfd9e3}
-    .input button{background:#BF9849;color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600}
+    .input button{background:#3EA3DC;color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600}
     .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px}
-    .btn{flex:0 0 auto;background:#BF9849;color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
+    .btn{flex:0 0 auto;background:#3EA3DC;color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
   </style>
 
   <!-- SheetJS loader (tries local copy first, then CDNs) -->
@@ -64,7 +64,8 @@
     const BOT_CFG = {
       DATA_URL: "https://raw.githubusercontent.com/mnegm1/koha-csv/main/opac-catalog.ods",
       MAX_RESULTS: 8,
-      MIN_QUERY_LEN: 2
+      MIN_QUERY_LEN: 2,
+      KOHA_OPAC_BASE: location.origin   // ensures OPAC search links work when embedded in OPAC
     };
 
     /* ===== UI ===== */
@@ -77,7 +78,7 @@
       </div>
       <div class="body" id="body">
         <div class="row" id="status">Loading catalog…</div>
-        <div class="row">Type title, author, year, أو كلمات من الملخص/المحتوى. فلاتر: author:"name"  year:2021</div>
+        <div class="row">Type title, author, year، أو كلمات من الملخص/المحتوى. فلاتر: author:"name"  year:2021</div>
       </div>
       <div class="input">
         <input id="q" type="text" placeholder="Search / ابحث" dir="auto">
@@ -85,106 +86,90 @@
       </div>`;
     document.body.appendChild(fab); document.body.appendChild(box);
     const B = box.querySelector("#body"), Q = box.querySelector("#q"), GO = box.querySelector("#go");
+    const closeBtn = box.querySelector("#x");
     fab.onclick = () => box.style.display = (box.style.display==="flex" ? "none" : "flex");
+    closeBtn.onclick = () => box.style.display = "none";
     box.style.display = "flex"; Q.focus();
 
-  /* ===== Unicode-aware Arabic detection + tokenization ===== */
+    /* ===== Unicode-aware Arabic detection + tokenization ===== */
+    const U_LETTER_OR_NUMBER_RE = /[\p{L}\p{N}]+/gu;     // tokens across scripts
+    const U_ARABIC_ANY_RE       = /\p{Script=Arabic}/u;  // “string contains Arabic?”
 
-// Use Unicode property escapes instead of manual ranges
-const U_LETTER_OR_NUMBER_RE = /[\p{L}\p{N}]+/gu;              // tokens = all letters/numbers from any script
-const U_ARABIC_ANY_RE       = /\p{Script=Arabic}/u;           // “does this string contain Arabic?”
+    function isArabic(s){ return U_ARABIC_ANY_RE.test(String(s||"")); }
 
-function isArabic(s){ return U_ARABIC_ANY_RE.test(String(s||"")); }
-
-// Normalize Arabic presentation forms + common variants (keep your existing map)
-function normalizeArabicForms(str){
-  if(!str) return "";
-  const map = {
-    'ﺍ':'ا','ﺎ':'ا','ﺃ':'ا','ﺄ':'ا','ﺇ':'ا','ﺈ':'ا','ٱ':'ا',
-    'ﺏ':'ب','ﺐ':'ب','ﺑ':'ب','ﺒ':'ب',
-    'ﺕ':'ت','ﺖ':'ت','ﺗ':'ت','ﺘ':'ت',
-    'ﺙ':'ث','ﺚ':'ث','ﺛ':'ث','ﺜ':'ث',
-    'ﺝ':'ج','ﺞ':'ج','ﺟ':'ج','ﺠ':'ج',
-    'ﺡ':'ح','ﺢ':'ح','ﺣ':'ح','ﺤ':'ح',
-    'ﺥ':'خ','ﺦ':'خ','ﺧ':'خ','ﺨ':'خ',
-    'ﺩ':'د','ﺪ':'د','ﺫ':'ذ','ﺬ':'ذ',
-    'ﺭ':'ر','ﺮ':'ر','ﺯ':'ز','ﺰ':'ز',
-    'ﺱ':'س','ﺲ':'س','ﺳ':'س','ﺴ':'س',
-    'ﺵ':'ش','ﺶ':'ش','ﺷ':'ش','ﺸ':'ش',
-    'ﺹ':'ص','ﺺ':'ص','ﺻ':'ص','ﺼ':'ص',
-    'ﺽ':'ض','ﺾ':'ض','ﺿ':'ض','ﻀ':'ض',
-    'ﻁ':'ط','ﻂ':'ط','ﻃ':'ط','ﻄ':'ط',
-    'ﻅ':'ظ','ﻆ':'ظ','ﻇ':'ظ','ﻈ':'ظ',
-    'ﻉ':'ع','ﻊ':'ع','ﻋ':'ع','ﻌ':'ع',
-    'ﻍ':'غ','ﻎ':'غ','ﻏ':'غ','ﻐ':'غ',
-    'ﻑ':'ف','ﻒ':'ف','ﻓ':'ف','ﻔ':'ف',
-    'ﻕ':'ق','ﻖ':'ق','ﻗ':'ق','ﻘ':'ق',
-    'ﻙ':'ك','ﻚ':'ك','ﻛ':'ك','ﻜ':'ك',
-    'ﻝ':'ل','ﻞ':'ل','ﻟ':'ل','ﻠ':'ل',
-    'ﻡ':'م','ﻢ':'م','ﻣ':'م','ﻤ':'م',
-    'ﻥ':'ن','ﻦ':'ن','ﻧ':'ن','ﻨ':'ن',
-    'ﻩ':'ه','ﻪ':'ه','ﻫ':'ه','ﻬ':'ه',
-    'ﻭ':'و','ﻮ':'و',
-    'ﻱ':'ي','ﻲ':'ي','ﻳ':'ي','ﻴ':'ي','ﻰ':'ى',
-    'ﻻ':'لا','ﻼ':'لا'
-  };
-  return str.replace(/[\uFE70-\uFEFF\uFB50-\uFDFF]/g, ch => map[ch] || ch);
-}
-
-// Canonical normalizer (kept from your code, but works with any script)
-function norm(s){
-  if (!s) return "";
-  let t = String(s).toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, ""); // strip Latin diacritics
-  t = normalizeArabicForms(t);
-  t = t
-    // Arabic: strip tashkīl + tatweel
-    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
-    // strip zero-width + bidi marks
-    .replace(/[\u200c-\u200f\u202a-\u202e]/g,"")
-    // unification forms
-    .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك");
-  return t;
-}
-
-// Tokenizer: grab all letter/number runs across scripts, then normalize each
-function toks(s){
-  const out = [];
-  const src = String(s ?? "");
-  const it = src.matchAll(U_LETTER_OR_NUMBER_RE);
-  for (const m of it) {
-    const t = norm(m[0]);
-    if (t) out.push(t);
-  }
-  return out;
-}
-
-/* ===== Stopwords (normalize once so they match normalized tokens) ===== */
-const RAW_STOP = new Set([
-  "the","and","of","in","on","for","a","an","to","with","by",
-  "عن","في","على","من","و","الى"
-]);
-const STOP = new Set(Array.from(RAW_STOP, w => norm(w)));
-
-/* ===== Make fallback use the same tokenizer ===== */
-function fallbackScan(idx, q, limit){
-  const terms = toks(q);
-  if (!terms.length) return [];
-  const out = [];
-  for (const rec of idx){
-    const hay = rec.n.all; // already normalized
-    if (terms.every(t => hay.includes(t))){
-      out.push({sc:1, rec});
-      if (out.length >= (limit || BOT_CFG.MAX_RESULTS)) break;
+    // Normalize Arabic presentation forms + variants
+    function normalizeArabicForms(str){
+      if(!str) return "";
+      const map = {
+        'ﺍ':'ا','ﺎ':'ا','ﺃ':'ا','ﺄ':'ا','ﺇ':'ا','ﺈ':'ا','ٱ':'ا',
+        'ﺏ':'ب','ﺐ':'ب','ﺑ':'ب','ﺒ':'ب',
+        'ﺕ':'ت','ﺖ':'ت','ﺗ':'ت','ﺘ':'ت',
+        'ﺙ':'ث','ﺚ':'ث','ﺛ':'ث','ﺜ':'ث',
+        'ﺝ':'ج','ﺞ':'ج','ﺟ':'ج','ﺠ':'ج',
+        'ﺡ':'ح','ﺢ':'ح','ﺣ':'ح','ﺤ':'ح',
+        'ﺥ':'خ','ﺦ':'خ','ﺧ':'خ','ﺨ':'خ',
+        'ﺩ':'د','ﺪ':'د','ﺫ':'ذ','ﺬ':'ذ',
+        'ﺭ':'ر','ﺮ':'ر','ﺯ':'ز','ﺰ':'ز',
+        'ﺱ':'س','ﺲ':'س','ﺳ':'س','ﺴ':'س',
+        'ﺵ':'ش','ﺶ':'ش','ﺷ':'ش','ﺸ':'ش',
+        'ﺹ':'ص','ﺺ':'ص','ﺻ':'ص','ﺼ':'ص',
+        'ﺽ':'ض','ﺾ':'ض','ﺿ':'ض','ﻀ':'ض',
+        'ﻁ':'ط','ﻂ':'ط','ﻃ':'ط','ﻄ':'ط',
+        'ﻅ':'ظ','ﻆ':'ظ','ﻇ':'ظ','ﻈ':'ظ',
+        'ﻉ':'ع','ﻊ':'ع','ﻋ':'ع','ﻌ':'ع',
+        'ﻍ':'غ','ﻎ':'غ','ﻏ':'غ','ﻐ':'غ',
+        'ﻑ':'ف','ﻒ':'ف','ﻓ':'ف','ﻔ':'ف',
+        'ﻕ':'ق','ﻖ':'ق','ﻗ':'ق','ﻘ':'ق',
+        'ﻙ':'ك','ﻚ':'ك','ﻛ':'ك','ﻜ':'ك',
+        'ﻝ':'ل','ﻞ':'ل','ﻟ':'ل','ﻠ':'ل',
+        'ﻡ':'م','ﻢ':'م','ﻣ':'م','ﻤ':'م',
+        'ﻥ':'ن','ﻦ':'ن','ﻧ':'ن','ﻨ':'ن',
+        'ﻩ':'ه','ﻪ':'ه','ﻫ':'ه','ﻬ':'ه',
+        'ﻭ':'و','ﻮ':'و',
+        'ﻱ':'ي','ﻲ':'ي','ﻳ':'ي','ﻴ':'ي','ﻰ':'ى',
+        'ﻻ':'لا','ﻼ':'لا'
+      };
+      return str.replace(/[\uFE70-\uFEFF\uFB50-\uFDFF]/g, ch => map[ch] || ch);
     }
-  }
-  return out;
-}
+
+    function norm(s){
+      if (!s) return "";
+      let t = String(s).toLowerCase()
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, ""); // strip Latin diacritics
+      t = normalizeArabicForms(t);
+      t = t
+        // Arabic: strip tashkīl + tatweel
+        .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
+        // strip zero-width + bidi marks
+        .replace(/[\u200c-\u200f\u202a-\u202e]/g,"")
+        // unification forms
+        .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك");
+      return t;
+    }
+
+    function toks(s){
+      const out = [];
+      const src = String(s ?? "");
+      const it = src.matchAll(U_LETTER_OR_NUMBER_RE);
+      for (const m of it) {
+        const t = norm(m[0]);
+        if (t) out.push(t);
+      }
+      return out;
+    }
+
+    // Stopwords (normalize once so they match normalized tokens)
+    const RAW_STOP = new Set([
+      "the","and","of","in","on","for","a","an","to","with","by",
+      "عن","في","على","من","و","الى"
+    ]);
+    const STOP = new Set(Array.from(RAW_STOP, w => norm(w)));
+
+    Q.addEventListener("input", ()=>{ Q.dir = isArabic(Q.value) ? "rtl" : "ltr"; });
 
     /* ===== Ranking / search ===== */
     const WEIGHTS={title:4,author:3,summary:1.5,content:1.5,publisher:1,year:2};
-    const STOP=new Set(["the","and","of","in","on","for","a","an","to","with","by","عن","في","على","من","و","الى"]);
 
     function buildIndex(rows){
       return rows.map((r,i)=>({
@@ -223,7 +208,7 @@ function fallbackScan(idx, q, limit){
       if(phrase && rec.n.summary.includes(phrase)) s+=1.0;
       if(phrase && rec.n.content.includes(phrase)) s+=1.0;
 
-      // Arabic-friendly substring fallback for short tokens
+      // Arabic-friendly substring bonus for short tokens
       for (const qt of qT) {
         if (qt.length >= 2) {
           if (rec.n.title.includes(qt) || rec.n.summary.includes(qt) || (rec.n.content||"").includes(qt)) {
@@ -234,15 +219,13 @@ function fallbackScan(idx, q, limit){
       return s;
     }
 
-    // NEW: brute-force fallback if ranked search returns nothing
+    // Fallback: AND-match all normalized terms as substrings against normalized concat
     function fallbackScan(idx, q, limit){
-      const nq = norm(q);
-      if (!nq) return [];
-      const terms = nq.split(/\s+/).filter(Boolean);
+      const terms = toks(q);
+      if (!terms.length) return [];
       const out = [];
       for (const rec of idx){
         const hay = rec.n.all;
-        // AND-match all terms as substrings
         if (terms.every(t => hay.includes(t))){
           out.push({sc:1, rec});
           if (out.length >= (limit||BOT_CFG.MAX_RESULTS)) break;
@@ -264,7 +247,7 @@ function fallbackScan(idx, q, limit){
         const sc=score(qT,rec); if(sc>0) out.push({sc,rec});
       }
       out.sort((a,b)=>b.sc-a.sc);
-      if (out.length===0){ return fallbackScan(idx, cleaned, lim); } // << robust Arabic fallback
+      if (out.length===0){ return fallbackScan(idx, cleaned, lim); }
       return out.slice(0, lim??BOT_CFG.MAX_RESULTS);
     }
 
@@ -272,8 +255,10 @@ function fallbackScan(idx, q, limit){
       if(!el) return; el.className = err ? "row error" : "row"; el.textContent = msg; }
 
     function kohaURL(title){
+      if (!BOT_CFG.KOHA_OPAC_BASE) return "#";
       return `${BOT_CFG.KOHA_OPAC_BASE}/cgi-bin/koha/opac-search.pl?q=${encodeURIComponent(`ti="${title}"`)}`;
     }
+
     function render(items){
       const list=document.createElement("div");
       if(!items.length){ list.innerHTML=`<div class="row">No results found.</div>`; return list; }
@@ -282,7 +267,7 @@ function fallbackScan(idx, q, limit){
         const url = r.url && /^https?:\/\//i.test(r.url) ? r.url : kohaURL(r.title||"");
         const pub = [r.publisher, r.year].filter(Boolean).join(" • ");
         const div=document.createElement("div"); div.className="row";
-        div.dir = isArabic(r.title||r.summary||r.content) ? "rtl" : "ltr";
+        div.dir = isArabic(r.title||r.summary||r.content||r.author) ? "rtl" : "ltr";
         div.innerHTML=`
           <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
             <b style="font-size:15px;line-height:1.3">${(r.title||"").replace(/</g,"&lt;")}</b>
@@ -313,12 +298,12 @@ function fallbackScan(idx, q, limit){
           for (const [h,v] of Object.entries(row)) k[String(h).trim().toLowerCase()] = v;
 
           // Your columns + Arabic variants
-          const title  = k["full title"] ?? k["العنوان"] ?? k.title ?? "";
-          const author = k["author"] ?? k["المؤلف"] ?? k["المؤلفون"] ?? "";
-          const summary= k["abstract"] ?? k["الملخص"] ?? "";
-          const content= k["content"] ?? k["المحتوى"] ?? "";
-          const pubdat = k["publications data"] ?? k["بيانات النشر"] ?? "";
-          const url    = k["book_url"] ?? k["book url"] ?? k["رابط_الكتاب"] ?? k.url ?? "";
+          const title   = k["full title"] ?? k["العنوان"] ?? k.title ?? "";
+          const author  = k["author"] ?? k["المؤلف"] ?? k["المؤلفون"] ?? "";
+          const summary = k["abstract"] ?? k["الملخص"] ?? "";
+          const content = k["content"] ?? k["المحتوى"] ?? "";
+          const pubdat  = k["publications data"] ?? k["بيانات النشر"] ?? "";
+          const url     = k["book_url"] ?? k["book url"] ?? k["رابط_الكتاب"] ?? k.url ?? "";
 
           const yearMatch = String(pubdat).match(/(\d{4})/);
           const year  = yearMatch ? yearMatch[1] : "";
