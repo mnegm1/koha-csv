@@ -88,59 +88,99 @@
     fab.onclick = () => box.style.display = (box.style.display==="flex" ? "none" : "flex");
     box.style.display = "flex"; Q.focus();
 
-    /* ===== Arabic normalization — with presentation-form unification ===== */
-    const AR_RANGES = "\\u0600-\\u06FF\\u0750-\\u077F\\u08A0-\\u08FF\\uFB50-\\uFDFF\\uFE70-\\uFEFF";
-    const AR_TEST   = new RegExp("[" + AR_RANGES + "]");
-    const SPLIT_RE  = new RegExp("[^0-9A-Za-z" + AR_RANGES + "]+", "g");
+  /* ===== Unicode-aware Arabic detection + tokenization ===== */
 
-    function normalizeArabicForms(str){
-      if(!str) return "";
-      const map = {
-        'ﺍ':'ا','ﺎ':'ا','ﺃ':'ا','ﺄ':'ا','ﺇ':'ا','ﺈ':'ا','ٱ':'ا',
-        'ﺏ':'ب','ﺐ':'ب','ﺑ':'ب','ﺒ':'ب',
-        'ﺕ':'ت','ﺖ':'ت','ﺗ':'ت','ﺘ':'ت',
-        'ﺙ':'ث','ﺚ':'ث','ﺛ':'ث','ﺜ':'ث',
-        'ﺝ':'ج','ﺞ':'ج','ﺟ':'ج','ﺠ':'ج',
-        'ﺡ':'ح','ﺢ':'ح','ﺣ':'ح','ﺤ':'ح',
-        'ﺥ':'خ','ﺦ':'خ','ﺧ':'خ','ﺨ':'خ',
-        'ﺩ':'د','ﺪ':'د','ﺫ':'ذ','ﺬ':'ذ',
-        'ﺭ':'ر','ﺮ':'ر','ﺯ':'ز','ﺰ':'ز',
-        'ﺱ':'س','ﺲ':'س','ﺳ':'س','ﺴ':'س',
-        'ﺵ':'ش','ﺶ':'ش','ﺷ':'ش','ﺸ':'ش',
-        'ﺹ':'ص','ﺺ':'ص','ﺻ':'ص','ﺼ':'ص',
-        'ﺽ':'ض','ﺾ':'ض','ﺿ':'ض','ﻀ':'ض',
-        'ﻁ':'ط','ﻂ':'ط','ﻃ':'ط','ﻄ':'ط',
-        'ﻅ':'ظ','ﻆ':'ظ','ﻇ':'ظ','ﻈ':'ظ',
-        'ﻉ':'ع','ﻊ':'ع','ﻋ':'ع','ﻌ':'ع',
-        'ﻍ':'غ','ﻎ':'غ','ﻏ':'غ','ﻐ':'غ',
-        'ﻑ':'ف','ﻒ':'ف','ﻓ':'ف','ﻔ':'ف',
-        'ﻕ':'ق','ﻖ':'ق','ﻗ':'ق','ﻘ':'ق',
-        'ﻙ':'ك','ﻚ':'ك','ﻛ':'ك','ﻜ':'ك',
-        'ﻝ':'ل','ﻞ':'ل','ﻟ':'ل','ﻠ':'ل',
-        'ﻡ':'م','ﻢ':'م','ﻣ':'م','ﻤ':'م',
-        'ﻥ':'ن','ﻦ':'ن','ﻧ':'ن','ﻨ':'ن',
-        'ﻩ':'ه','ﻪ':'ه','ﻫ':'ه','ﻬ':'ه',
-        'ﻭ':'و','ﻮ':'و',
-        'ﻱ':'ي','ﻲ':'ي','ﻳ':'ي','ﻴ':'ي','ﻰ':'ى',
-        'ﻻ':'لا','ﻼ':'لا'
-      };
-      return str.replace(/[\uFE70-\uFEFF\uFB50-\uFDFF]/g, ch => map[ch] || ch);
-    }
+// Use Unicode property escapes instead of manual ranges
+const U_LETTER_OR_NUMBER_RE = /[\p{L}\p{N}]+/gu;              // tokens = all letters/numbers from any script
+const U_ARABIC_ANY_RE       = /\p{Script=Arabic}/u;           // “does this string contain Arabic?”
 
-    function norm(s){
-      if (!s) return "";
-      let t = String(s).toLowerCase()
-        .normalize("NFKD")
-        .replace(/[\u0300-\u036f]/g, "");     // strip Latin diacritics
-      t = normalizeArabicForms(t);
-      t = t.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")  // tashkīl + tatweel
-           .replace(/[\u200c-\u200f\u202a-\u202e]/g,"")                          // zero-width/bidi
-           .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك");
-      return t;
+function isArabic(s){ return U_ARABIC_ANY_RE.test(String(s||"")); }
+
+// Normalize Arabic presentation forms + common variants (keep your existing map)
+function normalizeArabicForms(str){
+  if(!str) return "";
+  const map = {
+    'ﺍ':'ا','ﺎ':'ا','ﺃ':'ا','ﺄ':'ا','ﺇ':'ا','ﺈ':'ا','ٱ':'ا',
+    'ﺏ':'ب','ﺐ':'ب','ﺑ':'ب','ﺒ':'ب',
+    'ﺕ':'ت','ﺖ':'ت','ﺗ':'ت','ﺘ':'ت',
+    'ﺙ':'ث','ﺚ':'ث','ﺛ':'ث','ﺜ':'ث',
+    'ﺝ':'ج','ﺞ':'ج','ﺟ':'ج','ﺠ':'ج',
+    'ﺡ':'ح','ﺢ':'ح','ﺣ':'ح','ﺤ':'ح',
+    'ﺥ':'خ','ﺦ':'خ','ﺧ':'خ','ﺨ':'خ',
+    'ﺩ':'د','ﺪ':'د','ﺫ':'ذ','ﺬ':'ذ',
+    'ﺭ':'ر','ﺮ':'ر','ﺯ':'ز','ﺰ':'ز',
+    'ﺱ':'س','ﺲ':'س','ﺳ':'س','ﺴ':'س',
+    'ﺵ':'ش','ﺶ':'ش','ﺷ':'ش','ﺸ':'ش',
+    'ﺹ':'ص','ﺺ':'ص','ﺻ':'ص','ﺼ':'ص',
+    'ﺽ':'ض','ﺾ':'ض','ﺿ':'ض','ﻀ':'ض',
+    'ﻁ':'ط','ﻂ':'ط','ﻃ':'ط','ﻄ':'ط',
+    'ﻅ':'ظ','ﻆ':'ظ','ﻇ':'ظ','ﻈ':'ظ',
+    'ﻉ':'ع','ﻊ':'ع','ﻋ':'ع','ﻌ':'ع',
+    'ﻍ':'غ','ﻎ':'غ','ﻏ':'غ','ﻐ':'غ',
+    'ﻑ':'ف','ﻒ':'ف','ﻓ':'ف','ﻔ':'ف',
+    'ﻕ':'ق','ﻖ':'ق','ﻗ':'ق','ﻘ':'ق',
+    'ﻙ':'ك','ﻚ':'ك','ﻛ':'ك','ﻜ':'ك',
+    'ﻝ':'ل','ﻞ':'ل','ﻟ':'ل','ﻠ':'ل',
+    'ﻡ':'م','ﻢ':'م','ﻣ':'م','ﻤ':'م',
+    'ﻥ':'ن','ﻦ':'ن','ﻧ':'ن','ﻨ':'ن',
+    'ﻩ':'ه','ﻪ':'ه','ﻫ':'ه','ﻬ':'ه',
+    'ﻭ':'و','ﻮ':'و',
+    'ﻱ':'ي','ﻲ':'ي','ﻳ':'ي','ﻴ':'ي','ﻰ':'ى',
+    'ﻻ':'لا','ﻼ':'لا'
+  };
+  return str.replace(/[\uFE70-\uFEFF\uFB50-\uFDFF]/g, ch => map[ch] || ch);
+}
+
+// Canonical normalizer (kept from your code, but works with any script)
+function norm(s){
+  if (!s) return "";
+  let t = String(s).toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, ""); // strip Latin diacritics
+  t = normalizeArabicForms(t);
+  t = t
+    // Arabic: strip tashkīl + tatweel
+    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
+    // strip zero-width + bidi marks
+    .replace(/[\u200c-\u200f\u202a-\u202e]/g,"")
+    // unification forms
+    .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك");
+  return t;
+}
+
+// Tokenizer: grab all letter/number runs across scripts, then normalize each
+function toks(s){
+  const out = [];
+  const src = String(s ?? "");
+  const it = src.matchAll(U_LETTER_OR_NUMBER_RE);
+  for (const m of it) {
+    const t = norm(m[0]);
+    if (t) out.push(t);
+  }
+  return out;
+}
+
+/* ===== Stopwords (normalize once so they match normalized tokens) ===== */
+const RAW_STOP = new Set([
+  "the","and","of","in","on","for","a","an","to","with","by",
+  "عن","في","على","من","و","الى"
+]);
+const STOP = new Set(Array.from(RAW_STOP, w => norm(w)));
+
+/* ===== Make fallback use the same tokenizer ===== */
+function fallbackScan(idx, q, limit){
+  const terms = toks(q);
+  if (!terms.length) return [];
+  const out = [];
+  for (const rec of idx){
+    const hay = rec.n.all; // already normalized
+    if (terms.every(t => hay.includes(t))){
+      out.push({sc:1, rec});
+      if (out.length >= (limit || BOT_CFG.MAX_RESULTS)) break;
     }
-    function toks(s){ return norm(s).split(SPLIT_RE).filter(Boolean); }
-    function isArabic(s){ return AR_TEST.test(String(s||"")); }
-    Q.addEventListener("input", ()=>{ Q.dir = isArabic(Q.value) ? "rtl" : "ltr"; });
+  }
+  return out;
+}
 
     /* ===== Ranking / search ===== */
     const WEIGHTS={title:4,author:3,summary:1.5,content:1.5,publisher:1,year:2};
