@@ -65,7 +65,7 @@
       DATA_URL: "https://raw.githubusercontent.com/mnegm1/koha-csv/main/opac-catalog.ods",
       MAX_RESULTS: 8,
       MIN_QUERY_LEN: 2,
-      KOHA_OPAC_BASE: location.origin   // ensures OPAC search links work when embedded in OPAC
+      KOHA_OPAC_BASE: location.origin
     };
 
     /* ===== UI ===== */
@@ -92,12 +92,11 @@
     box.style.display = "flex"; Q.focus();
 
     /* ===== Unicode-aware Arabic detection + tokenization ===== */
-    const U_LETTER_OR_NUMBER_RE = /[\p{L}\p{N}]+/gu;     // tokens across scripts
-    const U_ARABIC_ANY_RE       = /\p{Script=Arabic}/u;  // “string contains Arabic?”
-
+    const U_LETTER_OR_NUMBER_RE = /[\p{L}\p{N}]+/gu;
+    const U_ARABIC_ANY_RE       = /\p{Script=Arabic}/u;
     function isArabic(s){ return U_ARABIC_ANY_RE.test(String(s||"")); }
 
-    // Normalize Arabic presentation forms + variants
+    // Presentation-form mapping (kept)
     function normalizeArabicForms(str){
       if(!str) return "";
       const map = {
@@ -132,20 +131,24 @@
       return str.replace(/[\uFE70-\uFEFF\uFB50-\uFDFF]/g, ch => map[ch] || ch);
     }
 
+    // Base normalizer
     function norm(s){
       if (!s) return "";
       let t = String(s).toLowerCase()
         .normalize("NFKD")
-        .replace(/[\u0300-\u036f]/g, ""); // strip Latin diacritics
+        .replace(/[\u0300-\u036f]/g, "");
       t = normalizeArabicForms(t);
       t = t
-        // Arabic: strip tashkīl + tatweel
-        .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
-        // strip zero-width + bidi marks
-        .replace(/[\u200c-\u200f\u202a-\u202e]/g,"")
-        // unification forms
-        .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك");
+        .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"") // tashkīl + tatweel
+        .replace(/[\u200c-\u200f\u202a-\u202e]/g,"")                          // zero-width/bidi
+        .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك");       // unify variants
       return t;
+    }
+
+    // ULTRA normalizer: remove everything except letters+numbers and squash
+    function ultraNormalize(s){
+      const n = norm(s).normalize("NFKC");
+      return n.replace(/[^\p{L}\p{N}]+/gu,""); // drop spaces/punct entirely
     }
 
     function toks(s){
@@ -159,7 +162,7 @@
       return out;
     }
 
-    // Stopwords (normalize once so they match normalized tokens)
+    // Stopwords (normalized)
     const RAW_STOP = new Set([
       "the","and","of","in","on","for","a","an","to","with","by",
       "عن","في","على","من","و","الى"
@@ -177,11 +180,14 @@
         raw:r,
         tokens:{
           title:toks(r.title),author:toks(r.author),summary:toks(r.summary),
-          content:toks(r.content||""),publisher:toks(r.publisher)
+          content:toks(r.content||""),publisher:toks(r.publisher||"")
         },
         n:{
           title:norm(r.title),summary:norm(r.summary),content:norm(r.content||""),
           all: norm([r.title,r.author,r.summary,r.content,r.publisher,r.year].join(" "))
+        },
+        ultra:{
+          all: ultraNormalize([r.title,r.author,r.summary,r.content,r.publisher,r.year].join(" "))
         }
       }));
     }
@@ -208,7 +214,6 @@
       if(phrase && rec.n.summary.includes(phrase)) s+=1.0;
       if(phrase && rec.n.content.includes(phrase)) s+=1.0;
 
-      // Arabic-friendly substring bonus for short tokens
       for (const qt of qT) {
         if (qt.length >= 2) {
           if (rec.n.title.includes(qt) || rec.n.summary.includes(qt) || (rec.n.content||"").includes(qt)) {
@@ -219,7 +224,7 @@
       return s;
     }
 
-    // Fallback: AND-match all normalized terms as substrings against normalized concat
+    // Basic fallback (normalized AND-of-terms)
     function fallbackScan(idx, q, limit){
       const terms = toks(q);
       if (!terms.length) return [];
@@ -228,6 +233,21 @@
         const hay = rec.n.all;
         if (terms.every(t => hay.includes(t))){
           out.push({sc:1, rec});
+          if (out.length >= (limit||BOT_CFG.MAX_RESULTS)) break;
+        }
+      }
+      return out;
+    }
+
+    // *** ULTRA Arabic fallback ***
+    // Works even if cells contain stubborn presentation forms or odd punctuation.
+    function arabicUltraScan(idx, q, limit){
+      const nq = ultraNormalize(q);
+      if (!nq) return [];
+      const out = [];
+      for (const rec of idx){
+        if (rec.ultra.all.includes(nq)){
+          out.push({sc:0.9, rec});
           if (out.length >= (limit||BOT_CFG.MAX_RESULTS)) break;
         }
       }
@@ -247,8 +267,18 @@
         const sc=score(qT,rec); if(sc>0) out.push({sc,rec});
       }
       out.sort((a,b)=>b.sc-a.sc);
-      if (out.length===0){ return fallbackScan(idx, cleaned, lim); }
-      return out.slice(0, lim??BOT_CFG.MAX_RESULTS);
+      if (out.length>0) return out.slice(0, lim??BOT_CFG.MAX_RESULTS);
+
+      // if nothing, try tolerant normalized AND scan
+      const fb = fallbackScan(idx, cleaned, lim);
+      if (fb.length>0) return fb;
+
+      // if query contains Arabic, run ultra fallback
+      if (isArabic(q) || /[\u0600-\u06FF]/.test(q)) {
+        const ultra = arabicUltraScan(idx, q, lim);
+        if (ultra.length>0) return ultra;
+      }
+      return [];
     }
 
     function setStatus(msg, err){ const el=document.getElementById("status");
