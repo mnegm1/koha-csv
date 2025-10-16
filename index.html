@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Koha TSV Search — AR/EN • Progressive Author • Clean Headers • Exact Book_Url</title>
+<title>Koha TSV Search — File-Only • Exact Book_Url • AR/EN</title>
 <style>
   :root{
     --brand:#BF9849; --brandText:#fff;
@@ -33,6 +33,7 @@
   .input input{flex:1;padding:10px;border-radius:10px;border:1px solid #cfd9e3}
   .input button{background:#BF9849;color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600}
   .btn{flex:0 0 auto;background:#BF9849;color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
+  .btn[disabled]{opacity:.5; cursor:not-allowed}
   .more-row{display:flex;justify-content:center;margin-top:6px}
   .more-row button{background:#BF9849;color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:700;cursor:pointer}
   .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px}
@@ -60,9 +61,8 @@
   </div>
 
 <script>
-/* ====== CONFIG ====== */
-const DATA_URL  = "/koha-csv/opac-catalog.tab";    // your Koha TSV/TAB (UTF-8)
-const KOHA_BASE = "https://library.ecssr.ae";       // your OPAC origin
+/* ====== CONFIG: data source only ====== */
+const DATA_URL  = "/koha-csv/opac-catalog.tab";   // your Koha export file (TSV/TAB, UTF-8)
 const PAGE_SIZE = 12;
 
 /* ====== Errors ====== */
@@ -105,7 +105,7 @@ function norm(s){
 function normForPhrase(s){ return norm(s).replace(/[،,;]/g," ").replace(/\s+/g," ").trim(); }
 function isArabic(s){ return /[\u0600-\u06FF]/.test(s||""); }
 
-/* ====== TSV parser ====== */
+/* ====== TSV/TAB parser ====== */
 function parseTSV(text){
   text = clean(String(text||"")).replace(/\r\n?/g,"\n");
   if(!text.trim()) return {headers:[], rows:[], delim:"\t"};
@@ -145,7 +145,7 @@ function parseTSV(text){
   return {headers, rows:out, delim:DELIM};
 }
 
-/* ====== Header aliases ====== */
+/* ====== Header aliases (file-only) ====== */
 function pick(obj, keys){
   for(const k of keys){
     const kk=canonHeader(k);
@@ -154,21 +154,20 @@ function pick(obj, keys){
   return "";
 }
 function mapRecord(k){
-  const biblio  = pick(k, ["biblionumber","id","biblio number"]);
   const title   = pick(k, ["full title","title","العنوان","عنوان","اسم الكتاب"]);
   const author  = pick(k, ["author","authors","المؤلف","المؤلفون","كاتب","بقلم","اسم المؤلف"]);
   const summary = pick(k, ["abstract","summary","الملخص","نبذة","وصف"]);
   const content = pick(k, ["content","contents","المحتويات","المحتوى","نص"]);
   const subject = pick(k, ["subjects","subject","topic","topics","الموضوعات","الموضوع","موضوع","التخصص","الكلمات المفتاحية"]);
   const pubdat  = pick(k, ["publications data","publication data","publishing data","publisher data","بيانات النشر","تاريخ النشر","سنة النشر"]);
-  const url     = pick(k, ["book_url","book url","url","رابط الكتاب","رابط_الكتاب","link"]);
+  const bookUrl = pick(k, ["book_url","book url","رابط الكتاب","رابط_الكتاب","link","url"]);
   let year = pick(k, ["year","السنة","سنة النشر","تاريخ"]);
   if(!year){
     const ym = String(pubdat).match(/(19|20)\d{2}/);
     year = ym ? ym[0] : "";
   }
   const publisher = pubdat ? String(pubdat).replace(/\b(19|20)\d{2}\b/g,"").replace(/\s*[،,:-]\s*$/,"").trim() : "";
-  return {biblionumber:biblio, title, author, summary, content, subject, publisher, year, url, pubdat, book_url:url, Book_Url:url};
+  return {title, author, summary, content, subject, publisher, year, book_url:bookUrl, Book_Url:bookUrl};
 }
 
 /* ====== Build index ====== */
@@ -185,8 +184,8 @@ async function ensureLoaded(){
       id:i, raw:r,
       nTitle:  norm(r.title),   nAuthor: norm(r.author),
       nSummary:norm(r.summary), nContent:norm(r.content),
-      nSubject:norm(r.subject), nPub:    norm(r.pubdat||""),
-      nYear:   norm(r.year||""),
+      nSubject:norm(r.subject), nPub:    norm(r.publisher || ""),
+      nYear:   norm(r.year || ""),
       nAuthorPhrase: normForPhrase(r.author)
     }));
 
@@ -197,11 +196,11 @@ async function ensureLoaded(){
   }
 }
 
-/* ====== Author matching (progressive) ====== */
+/* ====== Author matching (progressive; author field only) ====== */
 function tokenizeQuery(raw){
   const q = norm(raw);
   if (!q) return [];
-  return q.split(/\s+/).filter(t => t.length >= 2 && !/^\d+$/.test(t)); // ignore pure numbers
+  return q.split(/\s+/).filter(t => t.length >= 2 && !/^\d+$/.test(t));
 }
 function countTokensContained(targetNorm, tokens){
   let m = 0; for (const t of tokens) if (targetNorm.includes(t)) m++; return m;
@@ -263,19 +262,14 @@ function searchField(field,q){
       if (tokens.length > 1){
         const all = countTokensContained(r.nAuthor, tokens) === tokens.length;
         const phrase = r.nAuthorPhrase.includes(phraseQ);
-
-        if (all && phrase){               // Tier A
-          sc = 100 + tokens.length; hit = true; MATCH_NOTE = "Exact full name (all tokens + phrase)";
-        } else if (!hit && all){          // Tier B
-          sc = 95 + tokens.length; hit = true; MATCH_NOTE = "All name parts matched (any order)";
-        } else if (!hit){
+        if (all && phrase){               sc = 100 + tokens.length; hit = true; MATCH_NOTE = "Exact full name (all tokens + phrase)"; }
+        else if (!hit && all){            sc = 95 + tokens.length;  hit = true; MATCH_NOTE = "All name parts matched (any order)"; }
+        else if (!hit){
           const m = countTokensContained(r.nAuthor, tokens);
-          if (m >= ceil60(tokens.length)){ // Tier C
-            sc = 90 + m; hit = true; MATCH_NOTE = "Most name parts matched";
-          }
+          if (m >= ceil60(tokens.length)){ sc = 90 + m; hit = true; MATCH_NOTE = "Most name parts matched"; }
         }
       } else {
-        const tok = tokens[0] || nq;      // Tier D (single token)
+        const tok = tokens[0] || nq;
         if (tok && r.nAuthor.includes(tok)){ sc = 85; hit = true; MATCH_NOTE = "Single name part matched"; }
       }
     } else if (field === "title"){
@@ -297,24 +291,10 @@ function searchField(field,q){
   return out;
 }
 
-/* ====== Record URL (exact Book_Url) ====== */
-function kohaDetailByBib(biblionumber){
-  return KOHA_BASE.replace(/\/+$/,"") +
-    "/cgi-bin/koha/opac-detail.pl?biblionumber=" +
-    encodeURIComponent(String(biblionumber||"").trim());
-}
-function kohaSearchByTitle(title){
-  const q = "ti=" + encodeURIComponent((title||"").trim());
-  return KOHA_BASE.replace(/\/+$/,"") + "/cgi-bin/koha/opac-search.pl?q=" + q;
-}
-function bestRecordURL(rec) {
-  // 1) Exact URL from file if present (no modification)
-  const nu = String(rec.Book_Url || rec.book_url || rec["book url"] || "").trim();
-  if (nu) return nu;
-  // 2) Fallback to biblionumber
-  if (rec.biblionumber) return kohaDetailByBib(rec.biblionumber);
-  // 3) Last fallback: title search
-  return kohaSearchByTitle(rec.title||"");
+/* ====== Record URL: file-only ====== */
+function recordURLFromFile(rec){
+  const url = String(rec.Book_Url || rec.book_url || rec["book url"] || "").trim();
+  return url || ""; // exact from file; no reconstruction or search
 }
 
 /* ====== Render + paging ====== */
@@ -327,12 +307,21 @@ function renderChunk(items){
     const r=it.raw, div=document.createElement("div");
     div.className="row";
     div.dir = /[\u0600-\u06FF]/.test((r.title||"")+(r.summary||"")+(r.author||"")+(r.subject||"")+(r.publisher||"")) ? "rtl" : "ltr";
-    const openUrl = bestRecordURL(r);
+    const openUrl = recordURLFromFile(r);
     const pubLine = [r.publisher, r.year].filter(Boolean).join(" • ");
+
+    let linkHTML = "";
+    if (openUrl){
+      linkHTML = `<a class="btn" href="${openUrl}" target="_blank" rel="noopener">Open record</a>`;
+    } else {
+      // No URL provided in file — do NOT create any link or search
+      linkHTML = `<button class="btn" disabled title="لا يوجد رابط في الملف / No URL in file">Open record</button>`;
+    }
+
     div.innerHTML =
       `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
          <b style="font-size:15px;line-height:1.3">${titleOrPlaceholder(r.title).replace(/</g,"&lt;")}</b>
-         <a class="btn" href="${openUrl}" target="_blank" rel="noopener">Open record</a>
+         ${linkHTML}
        </div>` +
       (r.author?  `<div class="meta">${isArabic(r.author)?'المؤلف: ':'Author: '}${r.author}</div>` : "") +
       (r.subject? `<div class="meta">${isArabic(r.subject)?'الموضوع: ':'Subject: '}${r.subject}</div>` : "") +
