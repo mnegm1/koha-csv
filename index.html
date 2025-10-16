@@ -188,7 +188,7 @@ async function ensureLoaded(){
 }
 
 /* ====== Strict Author Matching ====== */
-const NAME_STOPWORDS=new Set(["بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال","الشيخ","شيخ","الدكتور","دكتور","الأستاذ","استاذ","د","م","سمو","سعادة","معالي","حاكم","ولي","أمير","امير"]);
+const NAME_STOPWORDS=new Set(["بن","ابن","بنت","أبو","ابو","آل","","","","","الدكتور","دكتور","الأستاذ","استاذ","د","م","","سعادة","معالي","","","",""]);
 function tokenizeQuery(raw){
   const q=norm(raw); if(!q) return [];
   return q.split(/\s+/).filter(t=>t.length>=2&&!NAME_STOPWORDS.has(t));
