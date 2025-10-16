@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Koha TSV Search — AR/EN • Exact Author • Clean Headers • Fixed Links</title>
+<title>Koha TSV Search — AR/EN • Strict Field • Exact Author Tokens • Fixed Links</title>
 <style>
   :root{
     --brand:#BF9849; --brandText:#fff;
@@ -12,6 +12,8 @@
     --box-width:520px; --box-max-h:72vh;
   }
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;margin:0;padding:2rem}
+
+  /* FAB widget */
   .fab-wrap{position:fixed; right:18px; bottom:18px; z-index:9999; width:var(--fab-size); height:calc(var(--fab-size)+36px)}
   .fab-label{position:absolute; left:50%; bottom:calc(var(--fab-size)+4px); transform:translateX(-50%);
     width:calc(var(--fab-size)+36px); height:34px; pointer-events:none;
@@ -20,6 +22,8 @@
   .fab{position:absolute; left:0; bottom:0; width:var(--fab-size); height:var(--fab-size);
     background:#fff var(--logo-url) center/var(--logo-size) no-repeat; border:4px solid var(--brand);
     border-radius:50%; cursor:pointer; box-shadow:0 8px 20px rgba(0,0,0,.25)}
+
+  /* Chat box */
   .box{position:fixed; right:18px; bottom:calc(18px + var(--fab-size) + 12px);
     width:min(var(--box-width),94vw); max-height:var(--box-max-h);
     background:#fff; border-radius:14px; border:1px solid #e8eef3;
@@ -39,6 +43,7 @@
 </style>
 </head>
 <body>
+  <!-- Floating widget -->
   <div class="fab-wrap">
     <svg class="fab-label" viewBox="0 0 120 40"><defs><path id="ka-arc" d="M 10,34 A 50,50 0 0 1 110,34"/></defs>
       <text text-anchor="middle"><textPath href="#ka-arc" startOffset="50%">AI Assist</textPath></text>
@@ -46,6 +51,7 @@
     <button class="fab" aria-label="AI Assistant" id="fab"></button>
   </div>
 
+  <!-- Chat box -->
   <div class="box" id="box">
     <div class="head">
       <div>AI Assistant</div>
@@ -61,7 +67,7 @@
 
 <script>
 /* ====== CONFIG ====== */
-const DATA_URL  = "/koha-csv/opac-catalog.tab";    // your Koha TSV/TAB (UTF-8)
+const DATA_URL  = "/koha-csv/opac-catalog.tab";    // your TSV/TAB (UTF-8, Koha export)
 const KOHA_BASE = "https://library.ecssr.ae";       // your OPAC origin (no trailing slash)
 const PAGE_SIZE = 12;
 
@@ -87,7 +93,6 @@ closeBtn.onclick=()=>{ box.style.display="none"; };
 /* ====== Arabic normalization ====== */
 function stripBidi(s){ return String(s||"").replace(/[\u200E\u200F\u202A-\u202E]/g,""); }
 function clean(s){ return stripBidi(String(s||"").replace(/^\uFEFF/,"")); }
-function canonHeader(h){ return clean(h).toLowerCase().replace(/\s+/g," ").trim(); }   // <— NEW
 function norm(s){
   if(!s) return "";
   s = clean(s).toLowerCase();
@@ -97,21 +102,17 @@ function norm(s){
     .replace(/[ىی]/g,"ي")
     .replace(/ة/g,"ه")
     .replace(/ک/g,"ك")
-    .replace(/\bعبد\s+ال/g,"عبدال")
-    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
+    .replace(/\bعبد\s+ال/g,"عبدال") // join common compound names
+    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"") // harakat+tatweel
     .replace(/[\u0660-\u0669]/g,d=>d.charCodeAt(0)-0x0660)
     .replace(/[\u06F0-\u06F9]/g,d=>d.charCodeAt(0)-0x06F0)
     .replace(/[^\p{L}\p{N}\s]/gu," ")
     .replace(/\s+/g," ").trim();
   return s;
 }
-function normForPhrase(s){
-  // strip commas/“،” etc. to allow contiguous phrase checks across styles
-  return norm(s).replace(/[،,;]/g," ").replace(/\s+/g," ").trim();
-}
 function isArabic(s){ return /[\u0600-\u06FF]/.test(s||""); }
 
-/* ====== TSV parser ====== */
+/* ====== TSV parser (quoted-aware) ====== */
 function parseTSV(text){
   text = clean(String(text||"")).replace(/\r\n?/g,"\n");
   if(!text.trim()) return {headers:[], rows:[], delim:"\t"};
@@ -138,7 +139,7 @@ function parseTSV(text){
   row.push(field); if(row.length && (row.length>1 || row[0]!=="" )) rows.push(row);
 
   if(!rows.length) return {headers:[], rows:[], delim:DELIM};
-  const headers = rows[0].map(canonHeader);   // <— NEW
+  const headers = rows[0].map(h=>clean(h).toLowerCase());
   const out=[];
   for(let r=1;r<rows.length;r++){
     const rec={}; const cols=rows[r];
@@ -151,16 +152,16 @@ function parseTSV(text){
   return {headers, rows:out, delim:DELIM};
 }
 
-/* ====== Header aliases ====== */
+/* ====== Header aliases (incl. biblionumber) ====== */
 function pick(obj, keys){
   for(const k of keys){
-    const kk=canonHeader(k); // <— NEW
+    const kk=k.toLowerCase();
     if (Object.prototype.hasOwnProperty.call(obj, kk) && obj[kk]) return obj[kk];
   }
   return "";
 }
 function mapRecord(k){
-  const biblio  = pick(k, ["biblionumber","id","biblio number"]);
+  const biblio  = pick(k, ["biblionumber","id"]);
   const title   = pick(k, ["full title","title","العنوان","عنوان","اسم الكتاب"]);
   const author  = pick(k, ["author","authors","المؤلف","المؤلفون","كاتب","بقلم","اسم المؤلف"]);
   const summary = pick(k, ["abstract","summary","الملخص","نبذة","وصف"]);
@@ -173,8 +174,7 @@ function mapRecord(k){
     const ym = String(pubdat).match(/(19|20)\d{2}/);
     year = ym ? ym[0] : "";
   }
-  // Clean publisher text by removing any standalone 4-digit year
-  const publisher = pubdat ? String(pubdat).replace(/\b(19|20)\d{2}\b/g,"").replace(/\s*[،,:-]\s*$/,"").trim() : "";
+  const publisher = pubdat ? String(pubdat).replace(/\b(19|20)\d{2}\b/g,"").trim() : "";
   return {biblionumber:biblio, title, author, summary, content, subject, publisher, year, url, pubdat, book_url:url};
 }
 
@@ -193,18 +193,17 @@ async function ensureLoaded(){
       nTitle:  norm(r.title),   nAuthor: norm(r.author),
       nSummary:norm(r.summary), nContent:norm(r.content),
       nSubject:norm(r.subject), nPub:    norm(r.pubdat||""),
-      nYear:   norm(r.year||""),
-      nAuthorPhrase: normForPhrase(r.author)  // <— NEW
+      nYear:   norm(r.year||"")
     }));
 
-    STATUS.textContent = `Loaded ${INDEX.length} records • delimiter “${parsed.delim === "\t" ? "TAB" : parsed.delim}” • headers: ${HEADERS.join(" | ")}`;
+    STATUS.textContent = `Loaded ${INDEX.length} records • delimiter “${parsed.delim}” • headers: ${HEADERS.join(" | ")}`;
   }catch(e){
     STATUS.textContent = `Load error: ${e.message}`;
     banner(e?.message||String(e));
   }
 }
 
-/* ====== Author matching helpers (order-agnostic AND + phrase) ====== */
+/* ====== Token helpers for author (order-agnostic, AND) ====== */
 function tokenizeQuery(raw){
   const q = norm(raw);
   if (!q) return [];
@@ -216,7 +215,7 @@ function containsAllTokens(targetNorm, tokens){
   return true;
 }
 
-/* ====== Field choice (strict) ====== */
+/* ====== Field choice (strict field) ====== */
 const AR_NAME_PARTS = new Set(["بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال"]);
 const EN_STOP = new Set(["the","a","an","of","and","for","on","in","to","with"]);
 function looksLikeYear(q){ return /^\d{4}$/.test(q.trim()); }
@@ -243,7 +242,7 @@ function chooseField(q){
   if(looksLikeName(q)) return "author";
   const nq=norm(q);
   let votes={title:0,subject:0,summary:0,author:0,pub:0};
-  for(let i=0;i<Math.min(1200,INDEX.length);i++){
+  for(let i=0;i<Math.min(1500,INDEX.length);i++){
     const r=INDEX[i];
     if(r.nTitle.includes(nq))   votes.title++;
     if(r.nSubject.includes(nq)) votes.subject++;
@@ -253,37 +252,34 @@ function chooseField(q){
     if(r.nPub.includes(nq))     votes.pub+=0.6;
   }
   const w={author:votes.author*1.2,subject:votes.subject*1.1,title:votes.title,summary:votes.summary*0.95,pub:votes.pub};
-  let best="title",bestV=-1; for(const k of Object.keys(w)){ if(w[k]>bestV){ best=k; bestV=w[k]; } }
-  return best;
+  let best="title",bestV=-1;
+  for(const k of Object.keys(w)){ if(w[k]>bestV){ best=k; bestV=w[k]; } }
+  return best; // author/title/subject/summary/pub/year
 }
 
 /* ====== STRICT field search with paging ====== */
 function searchField(field,q){
-  const nq=norm(q), phraseQ=normForPhrase(q);
+  const nq=norm(q), out=[];
   const tokens = field==="author" ? tokenizeQuery(q) : [];
-  const out=[];
   for(const r of INDEX){
     let hit=false, sc=0;
     if(field==="author"){
-      if(tokens.length>1){
-        // require ALL tokens in Author + a contiguous phrase hit (after punctuation removal)
-        if( containsAllTokens(r.nAuthor, tokens) && r.nAuthorPhrase.includes(phraseQ) ){
-          sc = 100 + tokens.length; hit=true;
-        }
-      }else{
-        const tok = tokens[0] || nq;
-        if(tok && r.nAuthor.includes(tok)){ sc=90; hit=true; }
+      // NEW: exact multi-token requirement (AND). One-token query still allowed.
+      if (tokens.length > 1) {
+        if (containsAllTokens(r.nAuthor, tokens)) { sc=10*tokens.length; hit=true; }
+      } else {
+        if (r.nAuthor.includes(tokens[0] || nq)) { sc=9; hit=true; }
       }
-    }else if(field==="title"){
-      if (r.nTitle.includes(nq)) { sc=80; hit=true; }
-    }else if(field==="subject"){
-      if (r.nSubject.includes(nq)) { sc=70; hit=true; }
-    }else if(field==="summary"){
-      if (r.nSummary.includes(nq) || r.nContent.includes(nq)) { sc=60; hit=true; }
-    }else if(field==="year"){
-      if (r.nYear.includes(nq)) { sc=60; hit=true; }
-    }else if(field==="pub"){
-      if (r.nPub.includes(nq) || (/^\d{4}$/.test(q) && r.nYear.includes(nq))) { sc=50; hit=true; }
+    } else if(field==="title"){
+      if (r.nTitle.includes(nq)) { sc=8; hit=true; }
+    } else if(field==="subject"){
+      if (r.nSubject.includes(nq)) { sc=7; hit=true; }
+    } else if(field==="summary"){
+      if (r.nSummary.includes(nq) || r.nContent.includes(nq)) { sc=6; hit=true; }
+    } else if(field==="year"){
+      if (r.nYear.includes(nq)) { sc=6; hit=true; }
+    } else if(field==="pub"){
+      if (r.nPub.includes(nq) || (/^\d{4}$/.test(q) && r.nYear.includes(nq))) { sc=5; hit=true; }
     }
     if(hit) out.push({sc, raw:r.raw});
   }
@@ -291,7 +287,7 @@ function searchField(field,q){
   return out;
 }
 
-/* ====== Koha link building ====== */
+/* ====== Koha link building (fixed & robust) ====== */
 function safeJoin(base, path){
   const p = String(path||"").trim().replace(/^"+|"+$/g,"");
   if (!p) return "";
@@ -316,7 +312,6 @@ function bestRecordURL(rec){
 /* ====== Render + paging ====== */
 let LAST={items:[],shown:0,field:""};
 function clearResults(){ while(B.firstChild) B.removeChild(B.firstChild); }
-function titleOrPlaceholder(t){ return (t && t.trim()) ? t : "(بدون عنوان)"; }   // <— NEW
 function renderChunk(items){
   const frag=document.createDocumentFragment();
   for(const it of items){
@@ -327,7 +322,7 @@ function renderChunk(items){
     const pubLine = [r.publisher, r.year].filter(Boolean).join(" • ");
     div.innerHTML =
       `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
-         <b style="font-size:15px;line-height:1.3">${titleOrPlaceholder(r.title).replace(/</g,"&lt;")}</b>
+         <b style="font-size:15px;line-height:1.3">${(r.title||"").replace(/</g,"&lt;")}</b>
          <a class="btn" href="${openUrl}" target="_blank" rel="noopener">Open record</a>
        </div>` +
       (r.author?  `<div class="meta">${isArabic(r.author)?'المؤلف: ':'Author: '}${r.author}</div>` : "") +
@@ -379,6 +374,7 @@ async function run(){
 document.getElementById("go").onclick=run;
 Q.addEventListener("keydown", e=>{ if(e.key==="Enter") run(); });
 
+/* Load now so status shows */
 ensureLoaded();
 </script>
 </body>
