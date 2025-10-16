@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Koha TSV Search — AR/EN • Progressive Author • Clean Headers • Fixed Links</title>
+<title>Koha TSV Search — AR/EN • Progressive Author • Clean Headers • Exact Book_Url</title>
 <style>
   :root{
     --brand:#BF9849; --brandText:#fff;
@@ -62,7 +62,7 @@
 <script>
 /* ====== CONFIG ====== */
 const DATA_URL  = "/koha-csv/opac-catalog.tab";    // your Koha TSV/TAB (UTF-8)
-const KOHA_BASE = "https://library.ecssr.ae";       // your OPAC origin (no trailing slash)
+const KOHA_BASE = "https://library.ecssr.ae";       // your OPAC origin
 const PAGE_SIZE = 12;
 
 /* ====== Errors ====== */
@@ -93,10 +93,7 @@ function norm(s){
   s = clean(s).toLowerCase();
   try{s=s.normalize("NFKD");}catch(e){}
   s = s
-    .replace(/[إأآٱ]/g,"ا")
-    .replace(/[ىی]/g,"ي")
-    .replace(/ة/g,"ه")
-    .replace(/ک/g,"ك")
+    .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ة/g,"ه").replace(/ک/g,"ك")
     .replace(/\bعبد\s+ال/g,"عبدال")
     .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
     .replace(/[\u0660-\u0669]/g,d=>d.charCodeAt(0)-0x0660)
@@ -105,9 +102,7 @@ function norm(s){
     .replace(/\s+/g," ").trim();
   return s;
 }
-function normForPhrase(s){
-  return norm(s).replace(/[،,;]/g," ").replace(/\s+/g," ").trim();
-}
+function normForPhrase(s){ return norm(s).replace(/[،,;]/g," ").replace(/\s+/g," ").trim(); }
 function isArabic(s){ return /[\u0600-\u06FF]/.test(s||""); }
 
 /* ====== TSV parser ====== */
@@ -173,7 +168,7 @@ function mapRecord(k){
     year = ym ? ym[0] : "";
   }
   const publisher = pubdat ? String(pubdat).replace(/\b(19|20)\d{2}\b/g,"").replace(/\s*[،,:-]\s*$/,"").trim() : "";
-  return {biblionumber:biblio, title, author, summary, content, subject, publisher, year, url, pubdat, book_url:url};
+  return {biblionumber:biblio, title, author, summary, content, subject, publisher, year, url, pubdat, book_url:url, Book_Url:url};
 }
 
 /* ====== Build index ====== */
@@ -209,9 +204,7 @@ function tokenizeQuery(raw){
   return q.split(/\s+/).filter(t => t.length >= 2 && !/^\d+$/.test(t)); // ignore pure numbers
 }
 function countTokensContained(targetNorm, tokens){
-  let m = 0;
-  for (const t of tokens) if (targetNorm.includes(t)) m++;
-  return m;
+  let m = 0; for (const t of tokens) if (targetNorm.includes(t)) m++; return m;
 }
 function ceil60(x){ return Math.max(1, Math.ceil(x * 0.6)); }
 
@@ -304,25 +297,23 @@ function searchField(field,q){
   return out;
 }
 
-/* ====== Koha link building ====== */
-function safeJoin(base, path){
-  const p = String(path||"").trim().replace(/^"+|"+$/g,"");
-  if (!p) return "";
-  if (/^https?:\/\//i.test(p)) return p;
-  if (p.startsWith("/")) return base.replace(/\/+$/,"") + p;
-  return base.replace(/\/+$/,"") + "/" + p.replace(/^\/+/,"");
-}
+/* ====== Record URL (exact Book_Url) ====== */
 function kohaDetailByBib(biblionumber){
-  return KOHA_BASE.replace(/\/+$/,"") + "/cgi-bin/koha/opac-detail.pl?biblionumber=" + encodeURIComponent(String(biblionumber||"").trim());
+  return KOHA_BASE.replace(/\/+$/,"") +
+    "/cgi-bin/koha/opac-detail.pl?biblionumber=" +
+    encodeURIComponent(String(biblionumber||"").trim());
 }
 function kohaSearchByTitle(title){
   const q = "ti=" + encodeURIComponent((title||"").trim());
   return KOHA_BASE.replace(/\/+$/,"") + "/cgi-bin/koha/opac-search.pl?q=" + q;
 }
-function bestRecordURL(rec){
-  const nu = String(rec.url||rec.book_url||rec["book url"]||"").trim();
-  if (nu) return safeJoin(KOHA_BASE, nu);
+function bestRecordURL(rec) {
+  // 1) Exact URL from file if present (no modification)
+  const nu = String(rec.Book_Url || rec.book_url || rec["book url"] || "").trim();
+  if (nu) return nu;
+  // 2) Fallback to biblionumber
   if (rec.biblionumber) return kohaDetailByBib(rec.biblionumber);
+  // 3) Last fallback: title search
   return kohaSearchByTitle(rec.title||"");
 }
 
