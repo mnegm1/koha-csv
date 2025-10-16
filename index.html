@@ -227,4 +227,173 @@ function looksLikeName(q){
   for(const t of toks){
     const nt=norm(t);
     if(/^[a-z\u0600-\u06FF]+$/i.test(nt)) ok++;
-    if(AR_NAME_PARTS.has
+    if(AR_NAME_PARTS.has(nt)) ar=true;
+    if(EN_STOP.has(nt)) return false;
+  }
+  if(ok!==toks.length && ok<toks.length-1) return false;
+  const nq=norm(s);
+  for(let i=0;i<Math.min(400,INDEX.length);i++){
+    if(INDEX[i].nAuthor.includes(nq)) return true;
+  }
+  return ar || toks.length===2;
+}
+function chooseField(q){
+  if(looksLikeYear(q)) return "year";
+  if(looksLikeName(q)) return "author";
+  const nq=norm(q);
+  let votes={title:0,subject:0,summary:0,author:0,pub:0};
+  for(let i=0;i<Math.min(1200,INDEX.length);i++){
+    const r=INDEX[i];
+    if(r.nTitle.includes(nq))   votes.title++;
+    if(r.nSubject.includes(nq)) votes.subject++;
+    if(r.nSummary.includes(nq)) votes.summary++;
+    if(r.nContent.includes(nq)) votes.summary+=0.6;
+    if(r.nAuthor.includes(nq))  votes.author+=0.6;
+    if(r.nPub.includes(nq))     votes.pub+=0.6;
+  }
+  const w={author:votes.author*1.2,subject:votes.subject*1.1,title:votes.title,summary:votes.summary*0.95,pub:votes.pub};
+  let best="title",bestV=-1; for(const k of Object.keys(w)){ if(w[k]>bestV){ best=k; bestV=w[k]; } }
+  return best;
+}
+
+/* ====== STRICT field search with paging ====== */
+let MATCH_NOTE = "";
+function searchField(field,q){
+  const nq = norm(q), phraseQ = normForPhrase(q);
+  const tokens = field==="author" ? tokenizeQuery(q) : [];
+  const out = [];
+
+  for (const r of INDEX){
+    let hit=false, sc=0;
+
+    if (field === "author"){
+      if (tokens.length > 1){
+        const all = countTokensContained(r.nAuthor, tokens) === tokens.length;
+        const phrase = r.nAuthorPhrase.includes(phraseQ);
+
+        if (all && phrase){               // Tier A
+          sc = 100 + tokens.length; hit = true; MATCH_NOTE = "Exact full name (all tokens + phrase)";
+        } else if (!hit && all){          // Tier B
+          sc = 95 + tokens.length; hit = true; MATCH_NOTE = "All name parts matched (any order)";
+        } else if (!hit){
+          const m = countTokensContained(r.nAuthor, tokens);
+          if (m >= ceil60(tokens.length)){ // Tier C
+            sc = 90 + m; hit = true; MATCH_NOTE = "Most name parts matched";
+          }
+        }
+      } else {
+        const tok = tokens[0] || nq;      // Tier D (single token)
+        if (tok && r.nAuthor.includes(tok)){ sc = 85; hit = true; MATCH_NOTE = "Single name part matched"; }
+      }
+    } else if (field === "title"){
+      if (r.nTitle.includes(nq)) { sc=80; hit=true; }
+    } else if (field === "subject"){
+      if (r.nSubject.includes(nq)) { sc=70; hit=true; }
+    } else if (field === "summary"){
+      if (r.nSummary.includes(nq) || r.nContent.includes(nq)) { sc=60; hit=true; }
+    } else if (field === "year"){
+      if (r.nYear.includes(nq)) { sc=60; hit=true; }
+    } else if (field === "pub"){
+      if (r.nPub.includes(nq) || (/^\d{4}$/.test(q) && r.nYear.includes(nq))) { sc=50; hit=true; }
+    }
+
+    if (hit) out.push({sc, raw:r.raw});
+  }
+
+  out.sort((a,b)=>b.sc-a.sc);
+  return out;
+}
+
+/* ====== Koha link building ====== */
+function safeJoin(base, path){
+  const p = String(path||"").trim().replace(/^"+|"+$/g,"");
+  if (!p) return "";
+  if (/^https?:\/\//i.test(p)) return p;
+  if (p.startsWith("/")) return base.replace(/\/+$/,"") + p;
+  return base.replace(/\/+$/,"") + "/" + p.replace(/^\/+/,"");
+}
+function kohaDetailByBib(biblionumber){
+  return KOHA_BASE.replace(/\/+$/,"") + "/cgi-bin/koha/opac-detail.pl?biblionumber=" + encodeURIComponent(String(biblionumber||"").trim());
+}
+function kohaSearchByTitle(title){
+  const q = "ti=" + encodeURIComponent((title||"").trim());
+  return KOHA_BASE.replace(/\/+$/,"") + "/cgi-bin/koha/opac-search.pl?q=" + q;
+}
+function bestRecordURL(rec){
+  const nu = String(rec.url||rec.book_url||rec["book url"]||"").trim();
+  if (nu) return safeJoin(KOHA_BASE, nu);
+  if (rec.biblionumber) return kohaDetailByBib(rec.biblionumber);
+  return kohaSearchByTitle(rec.title||"");
+}
+
+/* ====== Render + paging ====== */
+let LAST={items:[],shown:0,field:""};
+function clearResults(){ while(B.firstChild) B.removeChild(B.firstChild); }
+function titleOrPlaceholder(t){ return (t && t.trim()) ? t : "(بدون عنوان)"; }
+function renderChunk(items){
+  const frag=document.createDocumentFragment();
+  for(const it of items){
+    const r=it.raw, div=document.createElement("div");
+    div.className="row";
+    div.dir = /[\u0600-\u06FF]/.test((r.title||"")+(r.summary||"")+(r.author||"")+(r.subject||"")+(r.publisher||"")) ? "rtl" : "ltr";
+    const openUrl = bestRecordURL(r);
+    const pubLine = [r.publisher, r.year].filter(Boolean).join(" • ");
+    div.innerHTML =
+      `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+         <b style="font-size:15px;line-height:1.3">${titleOrPlaceholder(r.title).replace(/</g,"&lt;")}</b>
+         <a class="btn" href="${openUrl}" target="_blank" rel="noopener">Open record</a>
+       </div>` +
+      (r.author?  `<div class="meta">${isArabic(r.author)?'المؤلف: ':'Author: '}${r.author}</div>` : "") +
+      (r.subject? `<div class="meta">${isArabic(r.subject)?'الموضوع: ':'Subject: '}${r.subject}</div>` : "") +
+      (pubLine?   `<div class="meta">${pubLine}</div>` : "") +
+      (r.summary? `<div style="margin-top:6px">${r.summary.length>360? r.summary.slice(0,357)+'…' : r.summary}</div>` : "");
+    frag.appendChild(div);
+  }
+  B.appendChild(frag);
+}
+function addShowMoreIfNeeded(){
+  const old=document.getElementById("ka-more"); if(old) old.remove();
+  if(LAST.shown>=LAST.items.length) return;
+  const row=document.createElement("div"); row.id="ka-more"; row.className="more-row";
+  const btn=document.createElement("button");
+  const remaining=LAST.items.length-LAST.shown;
+  btn.textContent = remaining>PAGE_SIZE ? "Show more" : "Show all";
+  btn.onclick=()=>{
+    const next=Math.min(LAST.shown+PAGE_SIZE, LAST.items.length);
+    renderChunk(LAST.items.slice(LAST.shown, next));
+    LAST.shown=next; addShowMoreIfNeeded();
+  };
+  row.appendChild(btn); B.appendChild(row);
+}
+function renderAll(list, field){
+  clearResults();
+  const labelAR = {author:"المؤلف", title:"العنوان", subject:"الموضوع", summary:"الملخص", year:"سنة النشر", pub:"بيانات النشر"}[field] || field;
+  const note=document.createElement("div"); note.className="meta";
+  const extra = (field==="author" && MATCH_NOTE) ? " • " + MATCH_NOTE : "";
+  note.textContent=`Searching field only: ${field} / حقل البحث فقط: ${labelAR}${extra}`;
+  B.appendChild(note);
+
+  if(!list.length){
+    const d=document.createElement("div"); d.className="row"; d.textContent="No results found in that field.";
+    B.appendChild(d); return;
+  }
+  LAST.items=list; LAST.shown=Math.min(PAGE_SIZE, list.length); LAST.field=field;
+  renderChunk(list.slice(0, LAST.shown));
+  addShowMoreIfNeeded();
+}
+
+/* ====== Run ====== */
+async function run(){
+  await ensureLoaded();
+  const raw = Q.value.trim(); if(!raw) return;
+  const field = chooseField(raw);
+  const res = searchField(field, raw);
+  renderAll(res, field);
+}
+document.getElementById("go").onclick=run;
+Q.addEventListener("keydown", e=>{ if(e.key==="Enter") run(); });
+
+ensureLoaded();
+</script>
+</body>
+</html>
