@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Koha TSV Search — AR/EN • Strict Field • Tokened Author • Fixed Links</title>
+<title>Koha TSV Search — AR/EN • Strict Field • Exact Author Tokens • Fixed Links</title>
 <style>
   :root{
     --brand:#BF9849; --brandText:#fff;
@@ -203,18 +203,16 @@ async function ensureLoaded(){
   }
 }
 
-/* ====== Token helpers for author (order-agnostic) ====== */
+/* ====== Token helpers for author (order-agnostic, AND) ====== */
 function tokenizeQuery(raw){
   const q = norm(raw);
   if (!q) return [];
   return q.split(/\s+/).filter(t => t.length >= 2);
 }
-/* returns how many tokens are contained in target; 0 = no match */
-function matchScoreTokens(targetNorm, tokens){
-  if(!tokens.length) return 0;
-  let m = 0;
-  for(const t of tokens) if(targetNorm.includes(t)) m++;
-  return m;
+function containsAllTokens(targetNorm, tokens){
+  if (!tokens.length) return false;
+  for (const t of tokens) if (!targetNorm.includes(t)) return false;
+  return true;
 }
 
 /* ====== Field choice (strict field) ====== */
@@ -266,8 +264,12 @@ function searchField(field,q){
   for(const r of INDEX){
     let hit=false, sc=0;
     if(field==="author"){
-      const m = tokens.length ? matchScoreTokens(r.nAuthor, tokens) : (nq? (r.nAuthor.includes(nq)?1:0):0);
-      if (m>0){ sc=10*m; hit=true; }
+      // NEW: exact multi-token requirement (AND). One-token query still allowed.
+      if (tokens.length > 1) {
+        if (containsAllTokens(r.nAuthor, tokens)) { sc=10*tokens.length; hit=true; }
+      } else {
+        if (r.nAuthor.includes(tokens[0] || nq)) { sc=9; hit=true; }
+      }
     } else if(field==="title"){
       if (r.nTitle.includes(nq)) { sc=8; hit=true; }
     } else if(field==="subject"){
