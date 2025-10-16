@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Koha TSV Chatbot — Auto Field (AR/EN)</title>
+<title>Koha CSV Chatbot — Auto Field (AR/EN)</title>
 <style>
   :root{
     --brand:#BF9849; --brandText:#fff;
@@ -36,8 +36,8 @@
 </style>
 </head>
 <body>
-  <h2 style="margin-bottom:6px">Koha TSV Chatbot</h2>
-  <p style="opacity:.7;margin-top:0">Type anything (Arabic/English). I’ll detect if it’s an author name, subject/topic, title, or abstract terms—and search only that field.</p>
+  <h2 style="margin-bottom:6px">Koha CSV Chatbot</h2>
+  <p style="opacity:.7;margin-top:0">Type anything (Arabic/English). I’ll infer whether you mean Author, Title, Subject, or Summary and search only that field.</p>
 
 <script>
 /* ===== error banner ===== */
@@ -66,11 +66,12 @@ const B=box.querySelector("#body"), Q=box.querySelector("#q"), GO=box.querySelec
 fab.onclick=()=>{ box.style.display=(box.style.display==="flex"?"none":"flex"); if(box.style.display==="flex") setTimeout(()=>Q.focus(),50); };
 closeBtn.onclick=()=>{ box.style.display="none"; };
 
-/* ===== Arabic helpers / normalization ===== */
+/* ===== Arabic helpers / normalization (strong) ===== */
 const AR_ANY=/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
 function isArabic(s){ return AR_ANY.test(String(s||"")); }
 function normalizeArabicForms(str){
   if(!str) return "";
+  // fold presentation forms; keep lam-alef ligatures
   const map={'ﺍ':'ا','ﺎ':'ا','ﺃ':'ا','ﺄ':'ا','ﺇ':'ا','ﺈ':'ا','ٱ':'ا','ﻻ':'لا','ﻼ':'لا'};
   return str.replace(/[\uFE70-\uFEFF\uFB50-\uFDFF]/g, ch=>map[ch]||ch);
 }
@@ -78,13 +79,13 @@ function stripLatinDiacritics(s){ return s.replace(/[\u0300-\u036f]/g,""); }
 function foldDigits(s){ return s.replace(/[\u0660-\u0669]/g,d=>d.charCodeAt(0)-0x0660).replace(/[\u06F0-\u06F9]/g,d=>d.charCodeAt(0)-0x06F0); }
 function norm(s){
   if(!s) return "";
-  let t=String(s).toLowerCase();
+  let t=String(s).replace(/^\uFEFF/,'').toLowerCase(); // strip BOM if present
   try{t=t.normalize("NFKD");}catch(e){}
   t=stripLatinDiacritics(t);
   t=normalizeArabicForms(t);
   t=foldDigits(t);
   return t
-    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
+    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"") // Arabic diacritics/ tatweel
     .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك");
 }
 const AR_LETTER_ONLY=/[ء-ي]/g;
@@ -92,30 +93,79 @@ function arLettersOnly(s){ const n=norm(s).replace(/ة/g,"ه").replace(/ى/g,"ي
 function subseq(hay,needle){ if(!needle) return false; let i=0,j=0; while(i<hay.length&&j<needle.length){ if(hay.charCodeAt(i)===needle.charCodeAt(j)) j++; i++; } return j===needle.length; }
 
 /* ===== Config ===== */
-const BOT_CFG={ DATA_URL:"/koha-csv/opac-catalog.tab", PAGE_SIZE:12, MIN_QUERY_LEN:1, KOHA_OPAC_BASE:location.origin };
+const BOT_CFG={ DATA_URL:"/koha-csv/opac-catalog.csv", PAGE_SIZE:12, MIN_QUERY_LEN:1, KOHA_OPAC_BASE:location.origin };
 
-/* ===== TSV mapping (includes SUBJECT) ===== */
-function parseTSV(text){
-  const lines = text.replace(/\r\n?/g,"\n").split("\n").filter(l=>l.length>0);
-  if(!lines.length) return [];
-  const headers = lines[0].split("\t").map(h=>h.trim().toLowerCase());
-  const rows=[];
-  for(let i=1;i<lines.length;i++){
-    const cols = lines[i].split("\t");
-    const obj={};
-    for(let c=0;c<headers.length;c++){ obj[headers[c]] = cols[c]? String(cols[c]).trim() : ""; }
-    rows.push(obj);
+/* ===== CSV parsing with delimiter sniffing (handles quotes + BOM) ===== */
+function sniffDelimiter(headerLine){
+  // choose the delimiter with most splits (but not crazy many)
+  const c = (ch)=> (headerLine.match(new RegExp("\\"+ch,"g"))||[]).length;
+  const scores = [{d:",",n:c(",")},{d:";",n:c(";")},{d:"\t",n:c("\t")}].sort((a,b)=>b.n-a.n);
+  return (scores[0].n>0)? scores[0].d : ",";
+}
+function parseCSV(text){
+  text = String(text||"").replace(/^\uFEFF/,''); // strip BOM
+  // normalize newlines
+  text = text.replace(/\r\n?/g,"\n");
+  if(!text.trim()) return [];
+  const firstNL = text.indexOf("\n");
+  const firstLine = firstNL>=0 ? text.slice(0, firstNL) : text;
+  const DELIM = sniffDelimiter(firstLine);
+
+  const rows=[]; let i=0, len=text.length, field="", row=[], inQuotes=false;
+  function pushField(){ row.push(field); field=""; }
+  function pushRow(){ rows.push(row); row=[]; }
+  while(i<len){
+    const ch=text[i];
+    if(inQuotes){
+      if(ch==='\"'){
+        if(i+1<len && text[i+1]=='\"'){ field+='\"'; i+=2; continue; } // escaped quote
+        inQuotes=false; i++; continue;
+      } else {
+        field+=ch; i++; continue;
+      }
+    } else {
+      if(ch==='\"'){ inQuotes=true; i++; continue; }
+      if(ch===DELIM){ pushField(); i++; continue; }
+      if(ch==='\n'){ pushField(); pushRow(); i++; continue; }
+      field+=ch; i++; continue;
+    }
   }
-  return rows;
+  // last field/row
+  pushField(); if(row.length>1 || (row.length===1 && row[0]!=='')) pushRow();
+
+  if(!rows.length) return [];
+  // headers → lowercased, trimmed
+  const headers = rows[0].map(h=>String(h||"").trim().toLowerCase());
+  const out=[];
+  for(let r=1;r<rows.length;r++){
+    const rec={};
+    const cols=rows[r];
+    for(let c=0;c<headers.length;c++){
+      const key=headers[c]||("col"+c);
+      rec[key] = cols[c]!==undefined ? String(cols[c]).trim() : "";
+    }
+    out.push(rec);
+  }
+  return out;
+}
+
+/* ===== Header mapping (EN/AR aliases) ===== */
+function pick(obj, keys){
+  for(const k of keys){
+    const key = k.toLowerCase();
+    if (obj.hasOwnProperty(key) && obj[key]) return obj[key];
+  }
+  return "";
 }
 function mapRecord(k){
-  const title   = k["full title"]||k["العنوان"]||k.title||"";
-  const author  = k["author"]||k["المؤلف"]||k["المؤلفون"]||"";
-  const summary = k["abstract"]||k["الملخص"]||"";
-  const content = k["content"]||k["المحتوى"]||"";
-  const subject = k["subject"]||k["subjects"]||k["topic"]||k["الموضوع"]||k["موضوع"]||k["التخصص"]||"";
-  const pubdat  = k["publications data"]||k["بيانات النشر"]||"";
-  const url     = k["book_url"]||k["book url"]||k["رابط_الكتاب"]||k["url"]||"";
+  // expand aliases if your export uses different labels
+  const title   = pick(k, ["full title","title","العنوان","اسم الكتاب","اسم العمل"]);
+  const author  = pick(k, ["author","authors","المؤلف","المؤلفون","كاتب","بقلم"]);
+  const summary = pick(k, ["abstract","summary","الملخص","نبذة"]);
+  const content = pick(k, ["content","المحتوى","نص"]);
+  const subject = pick(k, ["subject","subjects","topic","topics","الموضوع","موضوع","التخصص","الكلمات المفتاحية"]);
+  const pubdat  = pick(k, ["publications data","publication data","بيانات النشر"]);
+  const url     = pick(k, ["book_url","book url","url","رابط_الكتاب","الرابط"]);
   const ym = String(pubdat).match(/(\d{4})/);
   const year = ym? ym[1] : "";
   const publisher = String(pubdat||"").replace(/\b\d{4}\b/g,"").trim();
@@ -124,35 +174,33 @@ function mapRecord(k){
 
 /* ===== Build index ===== */
 let INDEX=[]; let LOAD_PROMISE=null;
-function ensureLoaded(){
+async function ensureLoaded(){
   if (LOAD_PROMISE) return LOAD_PROMISE;
   LOAD_PROMISE = fetch(BOT_CFG.DATA_URL, {cache:"reload"})
-    .then(r=>r.text())
-    .then(text=>{
-      const rows = parseTSV(text);
+    .then(async r=>{
+      // decode via TextDecoder to be robust with BOM; (must export as UTF-8 from Koha)
+      const buf = await r.arrayBuffer();
+      const text = new TextDecoder("utf-8",{fatal:false}).decode(buf);
+      const rows = parseCSV(text);
       const records = rows.map(mapRecord);
-      INDEX = records.map((r,i)=>{
-        return {
-          id:i, raw:r,
-          nTitle:  norm(r.title),   aTitle:  arLettersOnly(r.title),
-          nAuthor: norm(r.author),  aAuthor: arLettersOnly(r.author),
-          nSummary:norm(r.summary), aSummary:arLettersOnly(r.summary),
-          nContent:norm(r.content), aContent:arLettersOnly(r.content),
-          nSubject:norm(r.subject), aSubject:arLettersOnly(r.subject)
-        };
-      });
+      INDEX = records.map((r,i)=>({
+        id:i, raw:r,
+        nTitle:  norm(r.title),   aTitle:  arLettersOnly(r.title),
+        nAuthor: norm(r.author),  aAuthor: arLettersOnly(r.author),
+        nSummary:norm(r.summary), aSummary:arLettersOnly(r.summary),
+        nContent:norm(r.content), aContent:arLettersOnly(r.content),
+        nSubject:norm(r.subject), aSubject:arLettersOnly(r.subject)
+      }));
     })
     .catch(err=>{ console.error(err); showBannerError(err?.message||String(err)); });
   return LOAD_PROMISE;
 }
 
-/* ===== Heuristics: is this query a person name? ===== */
-const AR_NAME_PARTS = new Set(["بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال","عبدالـ","عبدُ"]);
+/* ===== Heuristics: “looks like a person” ===== */
+const AR_NAME_PARTS = new Set(["بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال"]);
 const EN_STOP = new Set(["the","a","an","of","and","for","on","in","to","with"]);
 function isLikelyPersonQuery(raw){
-  // Quick structural cues: 2–4 tokens, mostly letters, contains AR name parts or typical name pattern.
-  const s = raw.trim();
-  if (!s) return false;
+  const s = raw.trim(); if (!s) return false;
   const tokens = s.split(/\s+/).filter(Boolean);
   if (tokens.length<1 || tokens.length>5) return false;
 
@@ -161,67 +209,57 @@ function isLikelyPersonQuery(raw){
     const nt = norm(t);
     if (/^[a-z\u0600-\u06FF]+$/i.test(nt)) letterish++;
     if (AR_NAME_PARTS.has(nt)) arPart = true;
-    if (EN_STOP.has(nt)) return false; // “the development” ≠ a name
+    if (EN_STOP.has(nt)) return false;
   }
   if (letterish !== tokens.length && letterish < tokens.length-1) return false;
 
-  // Bonus: if *any* author field contains this string as a substring, treat as name-ish
   const nQ = norm(s), aQ = arLettersOnly(s);
   let authorHit=false, sample=0;
   for (const r of INDEX){
     if (sample>400) break; sample++;
     if ((nQ && r.nAuthor.includes(nQ)) || (aQ && r.aAuthor.includes(aQ))) { authorHit=true; break; }
   }
-  return arPart || authorHit || tokens.length===2; // two solid words often a name
+  return arPart || authorHit || tokens.length===2;
 }
 
-/* ===== Score a field ===== */
-function scoreContains(textNorm, qNorm){ return (textNorm && qNorm) ? (textNorm.includes(qNorm) ? 1 : 0) : 0; }
+/* ===== Voting → choose best single field ===== */
+function scoreContains(textNorm, qNorm){ return (textNorm && qNorm && textNorm.includes(qNorm)) ? 1 : 0; }
 function scoreArabicLane(textA, qA){ if(!qA||!textA) return 0; return (textA.includes(qA) || subseq(textA,qA)) ? 0.6 : 0; }
 
-/* ===== Decide best field WITHOUT prefixes ===== */
 function chooseFieldAuto(raw){
   const nQ = norm(raw);
   const aQ = arLettersOnly(raw);
-
-  // 1) If it *looks like a person’s name*, try Author first.
   const personHint = isLikelyPersonQuery(raw);
 
-  // 2) Aggregate evidence across the index (lightweight voting)
   let tot = {author:0, title:0, subject:0, summary:0};
   let sample = 0;
   for (const r of INDEX){
-    if (sample>1500) break; // cap for speed on big TSVs
+    if (sample>1500) break;
     sample++;
     tot.author  += scoreContains(r.nAuthor, nQ)  + scoreArabicLane(r.aAuthor, aQ);
     tot.title   += scoreContains(r.nTitle, nQ)   + scoreArabicLane(r.aTitle, aQ);
     tot.subject += scoreContains(r.nSubject, nQ) + scoreArabicLane(r.aSubject, aQ);
-    // summary: use both abstract + content as “summary” evidence
     const sumHit = scoreContains(r.nSummary, nQ) + scoreContains(r.nContent, nQ) +
                    scoreArabicLane(r.aSummary, aQ) + scoreArabicLane(r.aContent, aQ);
     tot.summary += sumHit ? Math.min(1.2, sumHit) : 0;
   }
 
-  // 3) Weighting + person override
   if (personHint && tot.author > 0) return "author";
-  // titles are usually short; subjects often broader – give a small bump to subject
   const w = {
-    author: tot.author*1.25,
+    author:  tot.author*1.25,
     subject: tot.subject*1.15,
-    title: tot.title*1.00,
+    title:   tot.title*1.00,
     summary: tot.summary*0.90
   };
-  // pick the argmax
   let best="title", bestV=-1;
   for (const k of ["author","subject","title","summary"]){
     if (w[k] > bestV){ bestV = w[k]; best = k; }
   }
-  // If *everything* is nearly zero, but query looks like a name → author, else title
   if (bestV <= 0.01) return personHint ? "author" : "title";
   return best;
 }
 
-/* ===== Final, field-restricted search ===== */
+/* ===== Field-restricted search (strict) ===== */
 function searchFieldOnly(field, raw){
   const nQ = norm(raw); const aQ = arLettersOnly(raw);
   const out=[];
@@ -246,17 +284,13 @@ function searchFieldOnly(field, raw){
       if (scoreArabicLane(r.aContent,aQ)) { ah+=1; }
       if (ah){ sc+=1.2*ah; hit=true; }
     }
-    if (hit) out.push({sc, raw:rToView(r)});
+    if (hit) out.push({sc, raw:r.raw});
   }
   out.sort((a,b)=>b.sc-a.sc);
   return out;
 }
 
-/* ===== Render helpers ===== */
-function rToView(r){
-  // we kept only normalized fields in INDEX – bring back raw fields using a side map
-  return r.raw; // already attached
-}
+/* ===== Render ===== */
 function kohaURL(title){ return BOT_CFG.KOHA_OPAC_BASE + "/cgi-bin/koha/opac-search.pl?q=" + encodeURIComponent('ti="'+(title||"")+'"'); }
 function render(items){
   const list=document.createElement("div");
@@ -281,7 +315,7 @@ function render(items){
   return list;
 }
 
-/* ===== Paging state ===== */
+/* ===== Paging ===== */
 let LAST={items:[], shown:0};
 function clearResultsArea(){ while(B.firstChild) B.removeChild(B.firstChild); }
 function appendItems(items){ B.appendChild(render(items)); }
@@ -310,18 +344,11 @@ function startNewResultSet(fullList){
 function runSearch(){
   ensureLoaded().then(()=>{
     const raw = Q.value.trim(); if (!raw || raw.length < BOT_CFG.MIN_QUERY_LEN) return;
-
-    // 1) decide best single field (author/title/subject/summary)
     const field = chooseFieldAuto(raw);
-
-    // 2) strictly search that field only
     const full = searchFieldOnly(field, raw);
-
-    // 3) show results + a tiny note about which field was used
     startNewResultSet(full);
     const note = document.createElement("div");
-    note.className="meta";
-    note.style.marginTop="6px";
+    note.className="meta"; note.style.marginTop="6px";
     const ar = {author:"المؤلف", title:"العنوان", subject:"الموضوع", summary:"الملخص"};
     note.textContent = `Searching field: ${field} / حقل البحث: ${ar[field]||field}`;
     B.prepend(note);
