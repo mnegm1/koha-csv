@@ -3,25 +3,24 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Koha CSV Chatbot — Auto Field (AR/EN) + Diagnostics</title>
+<title>Koha CSV Chatbot — Auto Field (AR/EN) + Year + Diagnostics</title>
 <style>
   :root{
     --brand:#BF9849; --brandText:#fff;
     --logo-url:url("https://assets.almanhal.com/platform/shared/Product/ECSSR/middlelogo.png");
     --logo-size:130%; --fab-size:56px;
-    --box-width:460px; --box-max-h:68vh;
+    --box-width:460px; --box-max-h:66vh;
   }
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;padding:2rem}
   .fab-wrap{position:fixed;right:18px;bottom:18px;z-index:9999;width:var(--fab-size);height:var(--fab-size)}
   .fab{position:absolute;left:0;bottom:0;width:var(--fab-size);height:var(--fab-size);
     background:#fff var(--logo-url) center/var(--logo-size) no-repeat;border:4px solid var(--brand);
     border-radius:50%;cursor:pointer;box-shadow:0 8px 20px rgba(0,0,0,.25)}
-  .box{position:fixed;right:18px;bottom:calc(18px + var(--fab-size) + 12px);width:min(var(--box-width),92vw);
+  .box{position:fixed;right:18px;bottom:calc(18px + var(--fab-size) + 12px);width:min(var(--box-width),94vw);
     max-height:var(--box-max-h);background:#fff;border-radius:14px;border:1px solid #e8eef3;
     box-shadow:0 16px 40px rgba(0,0,0,.25);display:none;flex-direction:column;overflow:hidden;z-index:9999}
   .head{background:var(--brand);color:var(--brandText);padding:10px 14px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
-  .diag{font-size:12px;opacity:.75;padding:6px 12px;background:#fafafa;border-bottom:1px solid #e8eef3}
-  .body{padding:10px;overflow:auto;max-height:calc(var(--box-max-h) - 146px);font-size:14px}
+  .body{padding:10px;overflow:auto;max-height:calc(var(--box-max-h) - 132px);font-size:14px}
   .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0}
   .meta{opacity:.85;font-size:12px;margin-top:6px}
   .input{display:flex;gap:8px;padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
@@ -34,14 +33,15 @@
   .more-row{display:flex;justify-content:center;margin:8px 0 2px}
   .more-row button{background:var(--brand);color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:600;cursor:pointer}
   .more-row button:disabled{opacity:.5;cursor:default}
+  .status{font-size:12px;opacity:.85;margin:6px 2px}
 </style>
 </head>
 <body>
   <h2 style="margin-bottom:6px">Koha CSV Chatbot</h2>
-  <p style="opacity:.7;margin-top:0">Type anything (AR/EN). I infer Author, Title, Subject, Summary, or Year — then search <b>only that field</b>.</p>
+  <div id="status" class="status">Loading data…</div>
 
 <script>
-/* ===== error banner ===== */
+/* ============ error banner ============ */
 addEventListener("error", e => showBannerError("JS error: " + (e.message||e)));
 addEventListener("unhandledrejection", e => showBannerError("Promise error: " + (e.reason?.message||e.reason)));
 function showBannerError(msg){
@@ -50,7 +50,7 @@ function showBannerError(msg){
   el.textContent = String(msg||"Unknown error");
 }
 
-/* ===== UI ===== */
+/* ============ UI ============ */
 const wrap=document.createElement("div"); wrap.className="fab-wrap";
 const fab=document.createElement("button"); fab.className="fab"; fab.setAttribute("aria-label","AI Assistant");
 wrap.appendChild(fab); document.body.appendChild(wrap);
@@ -59,19 +59,17 @@ const box=document.createElement("div"); box.className="box";
 box.innerHTML='' +
   '<div class="head"><div>AI Assistant</div>' +
   '<button id="x" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer" title="Close">×</button></div>' +
-  '<div class="diag" id="diag">Loading…</div>' +
   '<div class="body" id="body"></div>' +
-  '<div class="input"><input id="q" type="text" placeholder="ابحث هنا / Search here (e.g., نجيب محفوظ, أمن الخليج, history, 2019)" dir="auto"><button id="go">Search</button></div>';
+  '<div class="input"><input id="q" type="text" placeholder="ابحث هنا / Search here" dir="auto"><button id="go">Search</button></div>';
 document.body.appendChild(box);
 
-const B=box.querySelector("#body"), Q=box.querySelector("#q"),
-      GO=box.querySelector("#go"), closeBtn=box.querySelector("#x"),
-      DIAG=box.querySelector("#diag");
-
+const B=box.querySelector("#body"), Q=box.querySelector("#q"), GO=box.querySelector("#go"), closeBtn=box.querySelector("#x");
 fab.onclick=()=>{ box.style.display=(box.style.display==="flex"?"none":"flex"); if(box.style.display==="flex") setTimeout(()=>Q.focus(),50); };
 closeBtn.onclick=()=>{ box.style.display="none"; };
+const STATUS = document.getElementById("status");
+const DEBUG = false; // set true to log headers/sample in console
 
-/* ===== Arabic helpers / normalization ===== */
+/* ============ Arabic normalization (strong) ============ */
 const AR_ANY=/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
 function isArabic(s){ return AR_ANY.test(String(s||"")); }
 function normalizeArabicForms(str){
@@ -83,35 +81,31 @@ function stripLatinDiacritics(s){ return s.replace(/[\u0300-\u036f]/g,""); }
 function foldDigits(s){ return s.replace(/[\u0660-\u0669]/g,d=>d.charCodeAt(0)-0x0660).replace(/[\u06F0-\u06F9]/g,d=>d.charCodeAt(0)-0x06F0); }
 function norm(s){
   if(!s) return "";
-  let t=String(s).replace(/^\uFEFF/,'').toLowerCase(); // strip BOM if present
+  let t=String(s).replace(/^\uFEFF/,'').toLowerCase(); // strip BOM
   try{t=t.normalize("NFKD");}catch(e){}
   t=stripLatinDiacritics(t);
   t=normalizeArabicForms(t);
   t=foldDigits(t);
   return t
-    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
+    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"") // Arabic diacritics & tatweel
     .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ک/g,"ك");
 }
 const AR_LETTER_ONLY=/[ء-ي]/g;
 function arLettersOnly(s){ const n=norm(s).replace(/ة/g,"ه").replace(/ى/g,"ي"); let out="",m; while((m=AR_LETTER_ONLY.exec(n))!==null) out+=m[0]; return out; }
 function subseq(hay,needle){ if(!needle) return false; let i=0,j=0; while(i<hay.length&&j<needle.length){ if(hay.charCodeAt(i)===needle.charCodeAt(j)) j++; i++; } return j===needle.length; }
 
-/* ===== Config ===== */
-const BOT_CFG={
-  DATA_URL:"/koha-csv/opac-catalog.csv",   // <-- put your CSV path here
-  PAGE_SIZE:12, MIN_QUERY_LEN:1, KOHA_OPAC_BASE:location.origin
-};
+/* ============ Config ============ */
+const BOT_CFG={ DATA_URL:"/koha-csv/opac-catalog.csv", PAGE_SIZE:12, MIN_QUERY_LEN:1, KOHA_OPAC_BASE:location.origin };
 
-/* ===== CSV parsing with delimiter sniffing ===== */
+/* ============ CSV parsing (delimiter sniffing) ============ */
 function sniffDelimiter(headerLine){
   const c = (ch)=> (headerLine.match(new RegExp("\\"+ch,"g"))||[]).length;
   const scores = [{d:",",n:c(",")},{d:";",n:c(";")},{d:"\t",n:c("\t")}].sort((a,b)=>b.n-a.n);
   return (scores[0].n>0)? scores[0].d : ",";
 }
 function parseCSV(text){
-  text = String(text||"").replace(/^\uFEFF/,''); // strip BOM
-  text = text.replace(/\r\n?/g,"\n");
-  if(!text.trim()) return {headers:[], rows:[]};
+  text = String(text||"").replace(/^\uFEFF/,'').replace(/\r\n?/g,"\n");
+  if(!text.trim()) return {headers:[], rows:[], delim:","};
   const firstNL = text.indexOf("\n");
   const firstLine = firstNL>=0 ? text.slice(0, firstNL) : text;
   const DELIM = sniffDelimiter(firstLine);
@@ -134,81 +128,82 @@ function parseCSV(text){
     }
   }
   pushField(); if(row.length>1 || (row.length===1 && row[0]!=='')) pushRow();
-
-  if(!rows.length) return {headers:[], rows:[]};
+  if(!rows.length) return {headers:[], rows:[], delim:DELIM};
   const headers = rows[0].map(h=>String(h||"").trim().toLowerCase());
-  const out=[];
+  const data=[];
   for(let r=1;r<rows.length;r++){
-    const rec={};
-    const cols=rows[r];
+    const rec={}; const cols=rows[r];
     for(let c=0;c<headers.length;c++){
       const key=headers[c]||("col"+c);
       rec[key] = cols[c]!==undefined ? String(cols[c]).trim() : "";
     }
-    out.push(rec);
+    data.push(rec);
   }
-  return {headers, rows:out};
+  return {headers, rows:data, delim:DELIM};
 }
 
-/* ===== Header mapping (AR/EN aliases) ===== */
+/* ============ Header mapping (aliases match your CSV) ============ */
 function pick(obj, keys){
   for(const k of keys){
     const key = k.toLowerCase();
-    if (obj.hasOwnProperty(key) && obj[key]) return obj[key];
+    if (Object.prototype.hasOwnProperty.call(obj, key) && obj[key]) return obj[key];
   }
   return "";
 }
 function mapRecord(k){
-  const title   = pick(k, ["full title","title","العنوان","اسم الكتاب","اسم العمل"]);
-  const author  = pick(k, ["author","authors","المؤلف","المؤلفون","كاتب","بقلم"]);
-  const summary = pick(k, ["abstract","summary","الملخص","نبذة"]);
-  const content = pick(k, ["content","المحتوى","نص"]);
-  const subject = pick(k, ["subject","subjects","topic","topics","الموضوع","موضوع","التخصص","الكلمات المفتاحية"]);
-  const pubdat  = pick(k, ["publications data","publication data","بيانات النشر"]);
-  const url     = pick(k, ["book_url","book url","url","رابط_الكتاب","الرابط"]);
-  const ym = String(pubdat).match(/(\d{4})/);
-  const year = ym? ym[1] : "";
-  const publisher = String(pubdat||"").replace(/\b\d{4}\b/g,"").trim();
-  return {title,author,summary,content,subject,publisher,year,url};
+  // EXACT aliases from your screenshot + common variants
+  const title   = pick(k, ["full title","title","العنوان","عنوان","اسم الكتاب"]);
+  const author  = pick(k, ["author","authors","المؤلف","المؤلفون","كاتب","بقلم","اسم المؤلف"]);
+  const summary = pick(k, ["abstract","summary","الملخص","نبذة","وصف"]);
+  const content = pick(k, ["content","contents","المحتويات","المحتوى","نص"]);
+  const subject = pick(k, ["subjects","subject","topic","topics","الموضوعات","الموضوع","موضوع","التخصص","الكلمات المفتاحية"]);
+  const pubdat  = pick(k, ["publications data","publication data","publishing data","publisher data","بيانات النشر","تاريخ النشر","سنة النشر"]);
+  const url     = pick(k, ["book_url","book url","url","رابط الكتاب","رابط_الكتاب","link"]);
+
+  // Extract year (19xx/20xx) from publications data if present
+  let year = pick(k, ["year","السنة","سنة النشر","تاريخ"]);
+  if(!year){
+    const ym = String(pubdat).match(/(19|20)\d{2}/);
+    year = ym ? ym[0] : "";
+  }
+  const publisher = pubdat ? String(pubdat).replace(/\b(19|20)\d{2}\b/g,"").trim() : "";
+
+  return {title,author,summary,content,subject,publisher,year,url,pubdat};
 }
 
-/* ===== Build index + diagnostics ===== */
-let INDEX=[]; let LOAD_PROMISE=null; let LAST_HEADERS=[];
+/* ============ Build index + status line ============ */
+let INDEX=[]; let LAST_HEADERS=[];
 async function ensureLoaded(){
-  if (LOAD_PROMISE) return LOAD_PROMISE;
-  LOAD_PROMISE = fetch(BOT_CFG.DATA_URL, {cache:"reload"})
-    .then(async r=>{
-      if(!r.ok){ throw new Error("HTTP "+r.status+" loading "+BOT_CFG.DATA_URL); }
-      const buf = await r.arrayBuffer();
-      const text = new TextDecoder("utf-8",{fatal:false}).decode(buf);
-      const parsed = parseCSV(text);
-      LAST_HEADERS = parsed.headers;
-      const records = parsed.rows.map(mapRecord);
-      INDEX = records.map((r,i)=>({
-        id:i, raw:r,
-        nTitle:  norm(r.title),   aTitle:  arLettersOnly(r.title),
-        nAuthor: norm(r.author),  aAuthor: arLettersOnly(r.author),
-        nSummary:norm(r.summary), aSummary:arLettersOnly(r.summary),
-        nContent:norm(r.content), aContent:arLettersOnly(r.content),
-        nSubject:norm(r.subject), aSubject:arLettersOnly(r.subject),
-        nYear:   norm(r.year) // simple
-      }));
-      updateDiag();
-    })
-    .catch(err=>{ console.error(err); DIAG.textContent = "Load error: "+(err?.message||String(err)); showBannerError(err?.message||String(err)); });
-  return LOAD_PROMISE;
-}
-function updateDiag(){
-  const head = LAST_HEADERS && LAST_HEADERS.length ? ("headers: " + LAST_HEADERS.join(", ")) : "no headers";
-  DIAG.textContent = `Loaded ${INDEX.length.toLocaleString()} records · ${head}`;
+  try{
+    const buf = await fetch(BOT_CFG.DATA_URL, {cache:"reload"}).then(r=>{ if(!r.ok) throw new Error(`Fetch ${r.status} ${r.statusText}`); return r.arrayBuffer(); });
+    const text = new TextDecoder("utf-8",{fatal:false}).decode(buf);
+    const parsed = parseCSV(text);
+    LAST_HEADERS = parsed.headers;
+    const records = parsed.rows.map(mapRecord);
+    INDEX = records.map((r,i)=>({
+      id:i, raw:r,
+      nTitle:  norm(r.title),   aTitle:  arLettersOnly(r.title),
+      nAuthor: norm(r.author),  aAuthor: arLettersOnly(r.author),
+      nSummary:norm(r.summary), aSummary:arLettersOnly(r.summary),
+      nContent:norm(r.content), aContent:arLettersOnly(r.content),
+      nSubject:norm(r.subject), aSubject:arLettersOnly(r.subject),
+      nPub:    norm(r.pubdat||""), aPub: arLettersOnly(r.pubdat||""),
+      nYear:   norm(r.year||"")
+    }));
+    STATUS.textContent = `Loaded ${INDEX.length} records · headers: ${LAST_HEADERS.join(", ")}`;
+    if (DEBUG) console.log("Headers:", LAST_HEADERS, "Sample:", records[0]);
+  }catch(err){
+    STATUS.textContent = `Load error: ${err.message}`;
+    console.error(err); showBannerError(err?.message||String(err));
+  }
 }
 
-/* ===== Heuristics: looks like person? or year? ===== */
+/* ============ Heuristics: person names & best field ============ */
 const AR_NAME_PARTS = new Set(["بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال"]);
 const EN_STOP = new Set(["the","a","an","of","and","for","on","in","to","with"]);
-function isLikelyYear(raw){ const m = String(raw).match(/\b(1[5-9]\d{2}|20\d{2})\b/); return m ? m[0] : null; } // 1500–2099
 function isLikelyPersonQuery(raw){
   const s = raw.trim(); if (!s) return false;
+  if (/^\d{4}$/.test(s)) return false; // a year, not a name
   const tokens = s.split(/\s+/).filter(Boolean);
   if (tokens.length<1 || tokens.length>5) return false;
   let letterish = 0, arPart=false;
@@ -219,7 +214,7 @@ function isLikelyPersonQuery(raw){
     if (EN_STOP.has(nt)) return false;
   }
   if (letterish !== tokens.length && letterish < tokens.length-1) return false;
-  // Light probe against author field
+
   const nQ = norm(s), aQ = arLettersOnly(s);
   let authorHit=false, sample=0;
   for (const r of INDEX){
@@ -228,51 +223,42 @@ function isLikelyPersonQuery(raw){
   }
   return arPart || authorHit || tokens.length===2;
 }
-
-/* ===== Voting → choose best single field (author/title/subject/summary/year) ===== */
 function scoreContains(textNorm, qNorm){ return (textNorm && qNorm && textNorm.includes(qNorm)) ? 1 : 0; }
 function scoreArabicLane(textA, qA){ if(!qA||!textA) return 0; return (textA.includes(qA) || subseq(textA,qA)) ? 0.6 : 0; }
 
 function chooseFieldAuto(raw){
-  const year = isLikelyYear(raw);
-  if (year) return "year";
+  const s = raw.trim();
+  if (/^\d{4}$/.test(s)) return "year"; // pure year
 
-  const nQ = norm(raw);
-  const aQ = arLettersOnly(raw);
-  const personHint = isLikelyPersonQuery(raw);
+  const nQ = norm(s);
+  const aQ = arLettersOnly(s);
+  const personHint = isLikelyPersonQuery(s);
 
-  let tot = {author:0, title:0, subject:0, summary:0};
+  let tot = {author:0, title:0, subject:0, summary:0, pub:0};
   let sample = 0;
   for (const r of INDEX){
-    if (sample>1500) break;
-    sample++;
+    if (sample>1500) break; sample++;
     tot.author  += scoreContains(r.nAuthor, nQ)  + scoreArabicLane(r.aAuthor, aQ);
     tot.title   += scoreContains(r.nTitle, nQ)   + scoreArabicLane(r.aTitle, aQ);
     tot.subject += scoreContains(r.nSubject, nQ) + scoreArabicLane(r.aSubject, aQ);
     const sumHit = scoreContains(r.nSummary, nQ) + scoreContains(r.nContent, nQ) +
                    scoreArabicLane(r.aSummary, aQ) + scoreArabicLane(r.aContent, aQ);
     tot.summary += sumHit ? Math.min(1.2, sumHit) : 0;
+    tot.pub     += scoreContains(r.nPub, nQ)     + scoreArabicLane(r.aPub, aQ); // publisher/year text
   }
 
   if (personHint && tot.author > 0) return "author";
-  const w = {
-    author:  tot.author*1.25,
-    subject: tot.subject*1.15,
-    title:   tot.title*1.00,
-    summary: tot.summary*0.90
-  };
-  let best="title", bestV=-1;
-  for (const k of ["author","subject","title","summary"]){
-    if (w[k] > bestV){ bestV = w[k]; best = k; }
-  }
+  const w = { author:tot.author*1.25, subject:tot.subject*1.15, title:tot.title, summary:tot.summary*0.90, pub:tot.pub*1.05 };
+  let best="title", bestV=-1, bestKey="title";
+  for (const k of ["author","subject","title","summary","pub"]){ if (w[k] > bestV){ bestV=w[k]; bestKey=k; } }
   if (bestV <= 0.01) return personHint ? "author" : "title";
-  return best;
+  // map "pub" to the concrete field we’ll search (year+pubdat)
+  return bestKey==="pub" ? "pub" : bestKey;
 }
 
-/* ===== Field-restricted search (strict) ===== */
+/* ============ Field-restricted search (strict) ============ */
 function searchFieldOnly(field, raw){
-  const nQ = field==="year" ? String(isLikelyYear(raw)||"") : norm(raw);
-  const aQ = field==="year" ? "" : arLettersOnly(raw);
+  const nQ = norm(raw); const aQ = arLettersOnly(raw);
   const out=[];
   for(const r of INDEX){
     let sc=0, hit=false;
@@ -286,7 +272,11 @@ function searchFieldOnly(field, raw){
       if (scoreContains(r.nSubject,nQ)) { sc+=7; hit=true; }
       if (scoreArabicLane(r.aSubject,aQ)) { sc+=1.4; hit=true; }
     } else if (field==="year"){
-      if (r.nYear && r.nYear.includes(nQ)) { sc+=7; hit=true; }
+      if (scoreContains(r.nYear,nQ)) { sc+=6; hit=true; }
+    } else if (field==="pub"){ // publications data (publisher text + embedded year)
+      if (scoreContains(r.nPub,nQ)) { sc+=6; hit=true; }
+      if (/^\d{4}$/.test(raw) && scoreContains(r.nYear,nQ)) { sc+=6; hit=true; }
+      if (scoreArabicLane(r.aPub,aQ)) { sc+=1.2; hit=true; }
     } else { // summary (abstract + content)
       let h=0;
       if (scoreContains(r.nSummary,nQ)) { h+=1; }
@@ -303,7 +293,34 @@ function searchFieldOnly(field, raw){
   return out;
 }
 
-/* ===== Render ===== */
+/* ============ Broad fallback (all fields) ============ */
+function searchBroad(raw){
+  const nQ = norm(raw); const aQ = arLettersOnly(raw);
+  const out=[];
+  for(const r of INDEX){
+    let sc=0, hit=false;
+    if (scoreContains(r.nAuthor,nQ))  { sc+=9; hit=true; }
+    if (scoreContains(r.nTitle,nQ))   { sc+=7; hit=true; }
+    if (scoreContains(r.nSubject,nQ)) { sc+=6; hit=true; }
+    if (scoreContains(r.nSummary,nQ)) { sc+=5; hit=true; }
+    if (scoreContains(r.nContent,nQ)) { sc+=3; hit=true; }
+    if (scoreContains(r.nPub,nQ))     { sc+=4; hit=true; }
+    if (/^\d{4}$/.test(raw) && scoreContains(r.nYear,nQ)) { sc+=6; hit=true; }
+    if (aQ){
+      if (scoreArabicLane(r.aAuthor,aQ))  { sc+=1.8; hit=true; }
+      if (scoreArabicLane(r.aTitle,aQ))   { sc+=1.6; hit=true; }
+      if (scoreArabicLane(r.aSubject,aQ)) { sc+=1.4; hit=true; }
+      if (scoreArabicLane(r.aSummary,aQ)) { sc+=1.2; hit=true; }
+      if (scoreArabicLane(r.aContent,aQ)) { sc+=1.0; hit=true; }
+      if (scoreArabicLane(r.aPub,aQ))     { sc+=1.0; hit=true; }
+    }
+    if (hit) out.push({sc, raw:r.raw});
+  }
+  out.sort((a,b)=>b.sc-a.sc);
+  return out;
+}
+
+/* ============ Render ============ */
 function kohaURL(title){ return BOT_CFG.KOHA_OPAC_BASE + "/cgi-bin/koha/opac-search.pl?q=" + encodeURIComponent('ti="'+(title||"")+'"'); }
 function render(items){
   const list=document.createElement("div");
@@ -313,7 +330,7 @@ function render(items){
     const url = (r.url && /^https?:\/\//i.test(r.url)) ? r.url : kohaURL(r.title||"");
     const pub = [r.publisher, r.year].filter(Boolean).join(" • ");
     const div=document.createElement("div"); div.className="row";
-    div.dir = isArabic((r.title||"")+(r.summary||"")+(r.content||"")+(r.author||"")+(r.subject||"")) ? "rtl" : "ltr";
+    div.dir = isArabic((r.title||"")+(r.summary||"")+(r.content||"")+(r.author||"")+(r.subject||"")+(r.publisher||"")) ? "rtl" : "ltr";
     div.innerHTML =
       '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">' +
         '<b style="font-size:15px;line-height:1.3">'+ String(r.title||"").replace(/</g,"&lt;") +'</b>' +
@@ -328,7 +345,7 @@ function render(items){
   return list;
 }
 
-/* ===== Paging ===== */
+/* ============ Paging ============ */
 let LAST={items:[], shown:0};
 function clearResultsArea(){ while(B.firstChild) B.removeChild(B.firstChild); }
 function appendItems(items){ B.appendChild(render(items)); }
@@ -353,26 +370,35 @@ function startNewResultSet(fullList){
   else { appendItems(LAST.items.slice(0, LAST.shown)); appendShowMoreIfNeeded(); }
 }
 
-/* ===== Run ===== */
+/* ============ Run search ============ */
 function runSearch(){
   ensureLoaded().then(()=>{
     const raw = Q.value.trim(); if (!raw || raw.length < BOT_CFG.MIN_QUERY_LEN) return;
+
     const field = chooseFieldAuto(raw);
-    const full = searchFieldOnly(field, raw);
+    let full = searchFieldOnly(field, raw);
+    let note = `Searching field: ${({"author":"author","title":"title","subject":"subject","summary":"summary","year":"year","pub":"publications data"})[field]} / حقل البحث: ${({"author":"المؤلف","title":"العنوان","subject":"الموضوع","summary":"الملخص","year":"سنة النشر","pub":"بيانات النشر"})[field]}`;
+
+    if (!full.length){
+      const broad = searchBroad(raw);
+      if (broad.length){
+        full = broad;
+        note = `No exact hits in “${field}”. Showing best matches across fields.`;
+      }
+    }
+
     startNewResultSet(full);
-    const note = document.createElement("div");
-    note.className="meta"; note.style.marginTop="6px";
-    const ar = {author:"المؤلف", title:"العنوان", subject:"الموضوع", summary:"الملخص", year:"السنة"};
-    note.textContent = `Searching field: ${field} / حقل البحث: ${ar[field]||field}`;
-    B.prepend(note);
+    const noteEl = document.createElement("div");
+    noteEl.className="meta"; noteEl.style.marginTop="6px";
+    noteEl.textContent = note;
+    B.prepend(noteEl);
   });
 }
+document.addEventListener("keydown", e => { if (e.key === "Enter" && document.activeElement===Q) runSearch(); });
 document.getElementById("go").onclick = runSearch;
-Q.onkeydown = e => { if (e.key === "Enter") runSearch(); };
 
-/* Load immediately to show diagnostics */
+/* ============ Start ============ */
 ensureLoaded();
-
 </script>
 </body>
 </html>
