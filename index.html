@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Koha TSV Search — Strict Field (AR/EN)</title>
+<title>Koha TSV Search — Strict Field (AR/EN) + Fixed Links + Author Tokens</title>
 <style>
   :root{
     --brand:#BF9849; --brandText:#fff;
@@ -65,7 +65,8 @@
 
 <script>
 /* ====== CONFIG (TSV) ====== */
-const DATA_URL = "/koha-csv/opac-catalog.tab";   // <-- your Koha .tab/.tsv path (UTF-8)
+const DATA_URL = "/koha-csv/opac-catalog.tab";            // <-- your Koha .tab/.tsv path (UTF-8)
+const KOHA_BASE = "https://library.ecssr.ae";              // <-- your OPAC origin (no trailing slash)
 
 /* ====== Errors ====== */
 addEventListener("error", e => banner("JS error: " + (e.message||e)));
@@ -93,25 +94,25 @@ function norm(s){
   if(!s) return "";
   s = clean(s).toLowerCase();
   try{s=s.normalize("NFKD");}catch(e){}
-  return s
+  s = s
     .replace(/[إأآٱ]/g,"ا")
     .replace(/[ىی]/g,"ي")
     .replace(/ة/g,"ه")
     .replace(/ک/g,"ك")
+    .replace(/\bعبد\s+ال/g,"عبدال")                // join common compound names
     .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")  // harakat+tatweel
     .replace(/[\u0660-\u0669]/g,d=>d.charCodeAt(0)-0x0660)
     .replace(/[\u06F0-\u06F9]/g,d=>d.charCodeAt(0)-0x06F0)
     .replace(/[^\p{L}\p{N}\s]/gu," ")
     .replace(/\s+/g," ").trim();
+  return s;
 }
 function isArabic(s){ return /[\u0600-\u06FF]/.test(s||""); }
 
 /* ====== TSV parser (quoted-aware) ====== */
 function parseTSV(text){
-  // Accept \t as main delimiter; also tolerate ; or , if needed.
   text = clean(String(text||"")).replace(/\r\n?/g,"\n");
   if(!text.trim()) return {headers:[], rows:[], delim:"\t"};
-  // If first line contains tabs, treat as TSV; else fall back to comma/semicolon.
   const firstNL=text.indexOf("\n");
   const headerLine = firstNL>=0 ? text.slice(0,firstNL) : text;
   const useTab = headerLine.includes("\t");
@@ -164,14 +165,13 @@ function mapRecord(k){
   const subject = pick(k, ["subjects","subject","topic","topics","الموضوعات","الموضوع","موضوع","التخصص","الكلمات المفتاحية"]);
   const pubdat  = pick(k, ["publications data","publication data","publishing data","publisher data","بيانات النشر","تاريخ النشر","سنة النشر"]);
   const url     = pick(k, ["book_url","book url","url","رابط الكتاب","رابط_الكتاب","link"]);
-  // derive year from publications data if needed
   let year = pick(k, ["year","السنة","سنة النشر","تاريخ"]);
   if(!year){
     const ym = String(pubdat).match(/(19|20)\d{2}/);
     year = ym ? ym[0] : "";
   }
   const publisher = pubdat ? String(pubdat).replace(/\b(19|20)\d{2}\b/g,"").trim() : "";
-  return {title,author,summary,content,subject,publisher,year,url,pubdat};
+  return {title,author,summary,content,subject,publisher,year,url,pubdat,book_url:url};
 }
 
 /* ====== Build index ====== */
@@ -197,6 +197,20 @@ async function ensureLoaded(){
     STATUS.textContent = `Load error: ${e.message}`;
     banner(e?.message||String(e));
   }
+}
+
+/* ====== Author token helpers (order-agnostic AND) ====== */
+function tokenizeQuery(raw){
+  const q = norm(raw);
+  if (!q) return [];
+  return q.split(/\s+/).filter(t => t.length >= 2);
+}
+function containsAllTokens(targetNorm, tokens){
+  if (!tokens.length) return false;
+  for (const t of tokens){
+    if (!targetNorm.includes(t)) return false;
+  }
+  return true;
 }
 
 /* ====== Field choice (no prefixes; strict) ====== */
@@ -235,33 +249,55 @@ function chooseField(q){
     if(r.nAuthor.includes(nq))  votes.author+=0.6;
     if(r.nPub.includes(nq))     votes.pub+=0.6;
   }
-  // small bias to subject over title when equal
   const w={author:votes.author*1.2,subject:votes.subject*1.1,title:votes.title,summary:votes.summary*0.95,pub:votes.pub};
   let best="title",bestV=-1;
   for(const k of Object.keys(w)){ if(w[k]>bestV){ best=k; bestV=w[k]; } }
-  // Map "pub" to publications data (publisher text / embedded year)
-  return best;
+  return best; // one of: author/title/subject/summary/pub
 }
 
 /* ====== STRICT field search (no broad fallback) ====== */
 function searchField(field,q){
   const nq=norm(q), out=[];
+  const tokens = field==="author" ? tokenizeQuery(q) : [];
   for(const r of INDEX){
     let hit=false, sc=0;
-    if(field==="author")   { hit = r.nAuthor.includes(nq);   if(hit) sc=10; }
-    else if(field==="title"){ hit = r.nTitle.includes(nq);    if(hit) sc=8; }
-    else if(field==="subject"){ hit = r.nSubject.includes(nq); if(hit) sc=7; }
-    else if(field==="summary"){ hit = (r.nSummary.includes(nq)||r.nContent.includes(nq)); if(hit) sc=6; }
-    else if(field==="year"){ hit = r.nYear.includes(nq);      if(hit) sc=6; }
-    else if(field==="pub"){ hit = r.nPub.includes(nq) || (/^\d{4}$/.test(q) && r.nYear.includes(nq)); if(hit) sc=5; }
+    if(field==="author"){
+      if (tokens.length ? containsAllTokens(r.nAuthor, tokens) : r.nAuthor.includes(nq)) { sc=10; hit=true; }
+    } else if(field==="title"){
+      if (r.nTitle.includes(nq)) { sc=8; hit=true; }
+    } else if(field==="subject"){
+      if (r.nSubject.includes(nq)) { sc=7; hit=true; }
+    } else if(field==="summary"){
+      if (r.nSummary.includes(nq) || r.nContent.includes(nq)) { sc=6; hit=true; }
+    } else if(field==="year"){
+      if (r.nYear.includes(nq)) { sc=6; hit=true; }
+    } else if(field==="pub"){
+      if (r.nPub.includes(nq) || (/^\d{4}$/.test(q) && r.nYear.includes(nq))) { sc=5; hit=true; }
+    }
     if(hit) out.push({sc, raw:r.raw});
   }
   out.sort((a,b)=>b.sc-a.sc);
   return out;
 }
 
+/* ====== Koha link building (fixed) ====== */
+function safeJoin(base, path){
+  if (!path) return "";
+  if (/^https?:\/\//i.test(path)) return path;
+  if (path.startsWith("/")) return base.replace(/\/+$/,"") + path;
+  return base.replace(/\/+$/,"") + "/" + path.replace(/^\/+/,"");
+}
+function kohaSearchByTitle(title){
+  const q = "ti=" + encodeURIComponent((title||"").trim());
+  return KOHA_BASE.replace(/\/+$/,"") + "/cgi-bin/koha/opac-search.pl?q=" + q;
+}
+function bestRecordURL(rec){
+  const url = rec.url || rec.book_url || rec["book url"] || "";
+  if (url) return safeJoin(KOHA_BASE, url);
+  return kohaSearchByTitle(rec.title||"");
+}
+
 /* ====== Render ====== */
-function kohaURL(title){ return location.origin + "/cgi-bin/koha/opac-search.pl?q=" + encodeURIComponent('ti="'+(title||"")+'"'); }
 function render(list, field){
   B.innerHTML="";
   const labelAR = {author:"المؤلف", title:"العنوان", subject:"الموضوع", summary:"الملخص", year:"سنة النشر", pub:"بيانات النشر"}[field] || field;
@@ -278,7 +314,7 @@ function render(list, field){
     const r=it.raw, div=document.createElement("div");
     div.className="row";
     div.dir = /[\u0600-\u06FF]/.test((r.title||"")+(r.summary||"")+(r.author||"")+(r.subject||"")+(r.publisher||"")) ? "rtl" : "ltr";
-    const openUrl = (r.url && /^https?:\/\//i.test(r.url)) ? r.url : kohaURL(r.title||"");
+    const openUrl = bestRecordURL(r);
     const pubLine = [r.publisher, r.year].filter(Boolean).join(" • ");
     div.innerHTML =
       `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
