@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Koha TSV Search — Strict Field (AR/EN) + Fixed Links + Author Tokens</title>
+<title>Koha TSV Search — AR/EN • Strict Field • Tokened Author • Fixed Links</title>
 <style>
   :root{
     --brand:#BF9849; --brandText:#fff;
     --logo-url:url("https://assets.almanhal.com/platform/shared/Product/ECSSR/middlelogo.png");
     --logo-size:130%; --fab-size:56px;
-    --box-width:480px; --box-max-h:70vh;
+    --box-width:520px; --box-max-h:72vh;
   }
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;margin:0;padding:2rem}
 
@@ -30,13 +30,15 @@
     box-shadow:0 16px 40px rgba(0,0,0,.25); display:none; flex-direction:column; overflow:hidden; z-index:9999}
   .head{background:var(--brand);color:#fff;padding:10px 14px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
   .status{font-size:12px;opacity:.85;padding:8px 12px;background:#fafafa;border-bottom:1px solid #e8eef3}
-  .body{padding:10px;overflow:auto;max-height:calc(var(--box-max-h) - 160px);font-size:14px}
+  .body{padding:10px;overflow:auto;max-height:calc(var(--box-max-h) - 172px);font-size:14px}
   .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0}
   .meta{opacity:.85;font-size:12px;margin-top:6px}
   .input{display:flex;gap:8px;padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
   .input input{flex:1;padding:10px;border-radius:10px;border:1px solid #cfd9e3}
   .input button{background:var(--brand);color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600}
   .btn{flex:0 0 auto;background:var(--brand);color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
+  .more-row{display:flex;justify-content:center;margin-top:6px}
+  .more-row button{background:var(--brand);color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:700;cursor:pointer}
   .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px}
 </style>
 </head>
@@ -64,9 +66,10 @@
   </div>
 
 <script>
-/* ====== CONFIG (TSV) ====== */
-const DATA_URL = "/koha-csv/opac-catalog.tab";            // <-- your Koha .tab/.tsv path (UTF-8)
-const KOHA_BASE = "https://library.ecssr.ae";              // <-- your OPAC origin (no trailing slash)
+/* ====== CONFIG ====== */
+const DATA_URL  = "/koha-csv/opac-catalog.tab";    // your TSV/TAB (UTF-8, Koha export)
+const KOHA_BASE = "https://library.ecssr.ae";       // your OPAC origin (no trailing slash)
+const PAGE_SIZE = 12;
 
 /* ====== Errors ====== */
 addEventListener("error", e => banner("JS error: " + (e.message||e)));
@@ -87,7 +90,7 @@ const Q=document.getElementById("q");
 fab.onclick=()=>{ box.style.display = (box.style.display==="flex"?"none":"flex"); if(box.style.display==="flex") setTimeout(()=>Q.focus(),50); };
 closeBtn.onclick=()=>{ box.style.display="none"; };
 
-/* ====== Arabic normalization (robust) ====== */
+/* ====== Arabic normalization ====== */
 function stripBidi(s){ return String(s||"").replace(/[\u200E\u200F\u202A-\u202E]/g,""); }
 function clean(s){ return stripBidi(String(s||"").replace(/^\uFEFF/,"")); }
 function norm(s){
@@ -99,8 +102,8 @@ function norm(s){
     .replace(/[ىی]/g,"ي")
     .replace(/ة/g,"ه")
     .replace(/ک/g,"ك")
-    .replace(/\bعبد\s+ال/g,"عبدال")                // join common compound names
-    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")  // harakat+tatweel
+    .replace(/\bعبد\s+ال/g,"عبدال") // join common compound names
+    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"") // harakat+tatweel
     .replace(/[\u0660-\u0669]/g,d=>d.charCodeAt(0)-0x0660)
     .replace(/[\u06F0-\u06F9]/g,d=>d.charCodeAt(0)-0x06F0)
     .replace(/[^\p{L}\p{N}\s]/gu," ")
@@ -149,7 +152,7 @@ function parseTSV(text){
   return {headers, rows:out, delim:DELIM};
 }
 
-/* ====== Header aliases (AR/EN) ====== */
+/* ====== Header aliases (incl. biblionumber) ====== */
 function pick(obj, keys){
   for(const k of keys){
     const kk=k.toLowerCase();
@@ -158,6 +161,7 @@ function pick(obj, keys){
   return "";
 }
 function mapRecord(k){
+  const biblio  = pick(k, ["biblionumber","id"]);
   const title   = pick(k, ["full title","title","العنوان","عنوان","اسم الكتاب"]);
   const author  = pick(k, ["author","authors","المؤلف","المؤلفون","كاتب","بقلم","اسم المؤلف"]);
   const summary = pick(k, ["abstract","summary","الملخص","نبذة","وصف"]);
@@ -171,7 +175,7 @@ function mapRecord(k){
     year = ym ? ym[0] : "";
   }
   const publisher = pubdat ? String(pubdat).replace(/\b(19|20)\d{2}\b/g,"").trim() : "";
-  return {title,author,summary,content,subject,publisher,year,url,pubdat,book_url:url};
+  return {biblionumber:biblio, title, author, summary, content, subject, publisher, year, url, pubdat, book_url:url};
 }
 
 /* ====== Build index ====== */
@@ -199,21 +203,21 @@ async function ensureLoaded(){
   }
 }
 
-/* ====== Author token helpers (order-agnostic AND) ====== */
+/* ====== Token helpers for author (order-agnostic) ====== */
 function tokenizeQuery(raw){
   const q = norm(raw);
   if (!q) return [];
   return q.split(/\s+/).filter(t => t.length >= 2);
 }
-function containsAllTokens(targetNorm, tokens){
-  if (!tokens.length) return false;
-  for (const t of tokens){
-    if (!targetNorm.includes(t)) return false;
-  }
-  return true;
+/* returns how many tokens are contained in target; 0 = no match */
+function matchScoreTokens(targetNorm, tokens){
+  if(!tokens.length) return 0;
+  let m = 0;
+  for(const t of tokens) if(targetNorm.includes(t)) m++;
+  return m;
 }
 
-/* ====== Field choice (no prefixes; strict) ====== */
+/* ====== Field choice (strict field) ====== */
 const AR_NAME_PARTS = new Set(["بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال"]);
 const EN_STOP = new Set(["the","a","an","of","and","for","on","in","to","with"]);
 function looksLikeYear(q){ return /^\d{4}$/.test(q.trim()); }
@@ -252,17 +256,18 @@ function chooseField(q){
   const w={author:votes.author*1.2,subject:votes.subject*1.1,title:votes.title,summary:votes.summary*0.95,pub:votes.pub};
   let best="title",bestV=-1;
   for(const k of Object.keys(w)){ if(w[k]>bestV){ best=k; bestV=w[k]; } }
-  return best; // one of: author/title/subject/summary/pub
+  return best; // author/title/subject/summary/pub/year
 }
 
-/* ====== STRICT field search (no broad fallback) ====== */
+/* ====== STRICT field search with paging ====== */
 function searchField(field,q){
   const nq=norm(q), out=[];
   const tokens = field==="author" ? tokenizeQuery(q) : [];
   for(const r of INDEX){
     let hit=false, sc=0;
     if(field==="author"){
-      if (tokens.length ? containsAllTokens(r.nAuthor, tokens) : r.nAuthor.includes(nq)) { sc=10; hit=true; }
+      const m = tokens.length ? matchScoreTokens(r.nAuthor, tokens) : (nq? (r.nAuthor.includes(nq)?1:0):0);
+      if (m>0){ sc=10*m; hit=true; }
     } else if(field==="title"){
       if (r.nTitle.includes(nq)) { sc=8; hit=true; }
     } else if(field==="subject"){
@@ -280,37 +285,34 @@ function searchField(field,q){
   return out;
 }
 
-/* ====== Koha link building (fixed) ====== */
+/* ====== Koha link building (fixed & robust) ====== */
 function safeJoin(base, path){
-  if (!path) return "";
-  if (/^https?:\/\//i.test(path)) return path;
-  if (path.startsWith("/")) return base.replace(/\/+$/,"") + path;
-  return base.replace(/\/+$/,"") + "/" + path.replace(/^\/+/,"");
+  const p = String(path||"").trim().replace(/^"+|"+$/g,"");
+  if (!p) return "";
+  if (/^https?:\/\//i.test(p)) return p;
+  if (p.startsWith("/")) return base.replace(/\/+$/,"") + p;
+  return base.replace(/\/+$/,"") + "/" + p.replace(/^\/+/,"");
+}
+function kohaDetailByBib(biblionumber){
+  return KOHA_BASE.replace(/\/+$/,"") + "/cgi-bin/koha/opac-detail.pl?biblionumber=" + encodeURIComponent(String(biblionumber||"").trim());
 }
 function kohaSearchByTitle(title){
   const q = "ti=" + encodeURIComponent((title||"").trim());
   return KOHA_BASE.replace(/\/+$/,"") + "/cgi-bin/koha/opac-search.pl?q=" + q;
 }
 function bestRecordURL(rec){
-  const url = rec.url || rec.book_url || rec["book url"] || "";
-  if (url) return safeJoin(KOHA_BASE, url);
+  const nu = String(rec.url||rec.book_url||rec["book url"]||"").trim();
+  if (nu) return safeJoin(KOHA_BASE, nu);
+  if (rec.biblionumber) return kohaDetailByBib(rec.biblionumber);
   return kohaSearchByTitle(rec.title||"");
 }
 
-/* ====== Render ====== */
-function render(list, field){
-  B.innerHTML="";
-  const labelAR = {author:"المؤلف", title:"العنوان", subject:"الموضوع", summary:"الملخص", year:"سنة النشر", pub:"بيانات النشر"}[field] || field;
-  const noteEl=document.createElement("div");
-  noteEl.className="meta";
-  noteEl.textContent=`Searching field only: ${field} / حقل البحث فقط: ${labelAR}`;
-  B.appendChild(noteEl);
-
-  if(!list.length){
-    const d=document.createElement("div"); d.className="row"; d.textContent="No results found in that field.";
-    B.appendChild(d); return;
-  }
-  for(const it of list.slice(0,30)){
+/* ====== Render + paging ====== */
+let LAST={items:[],shown:0,field:""};
+function clearResults(){ while(B.firstChild) B.removeChild(B.firstChild); }
+function renderChunk(items){
+  const frag=document.createDocumentFragment();
+  for(const it of items){
     const r=it.raw, div=document.createElement("div");
     div.className="row";
     div.dir = /[\u0600-\u06FF]/.test((r.title||"")+(r.summary||"")+(r.author||"")+(r.subject||"")+(r.publisher||"")) ? "rtl" : "ltr";
@@ -325,17 +327,47 @@ function render(list, field){
       (r.subject? `<div class="meta">${isArabic(r.subject)?'الموضوع: ':'Subject: '}${r.subject}</div>` : "") +
       (pubLine?   `<div class="meta">${pubLine}</div>` : "") +
       (r.summary? `<div style="margin-top:6px">${r.summary.length>360? r.summary.slice(0,357)+'…' : r.summary}</div>` : "");
-    B.appendChild(div);
+    frag.appendChild(div);
   }
+  B.appendChild(frag);
+}
+function addShowMoreIfNeeded(){
+  const old=document.getElementById("ka-more"); if(old) old.remove();
+  if(LAST.shown>=LAST.items.length) return;
+  const row=document.createElement("div"); row.id="ka-more"; row.className="more-row";
+  const btn=document.createElement("button");
+  const remaining=LAST.items.length-LAST.shown;
+  btn.textContent = remaining>PAGE_SIZE ? "Show more" : "Show all";
+  btn.onclick=()=>{
+    const next=Math.min(LAST.shown+PAGE_SIZE, LAST.items.length);
+    renderChunk(LAST.items.slice(LAST.shown, next));
+    LAST.shown=next; addShowMoreIfNeeded();
+  };
+  row.appendChild(btn); B.appendChild(row);
+}
+function renderAll(list, field){
+  clearResults();
+  const labelAR = {author:"المؤلف", title:"العنوان", subject:"الموضوع", summary:"الملخص", year:"سنة النشر", pub:"بيانات النشر"}[field] || field;
+  const note=document.createElement("div"); note.className="meta";
+  note.textContent=`Searching field only: ${field} / حقل البحث فقط: ${labelAR}`;
+  B.appendChild(note);
+
+  if(!list.length){
+    const d=document.createElement("div"); d.className="row"; d.textContent="No results found in that field.";
+    B.appendChild(d); return;
+  }
+  LAST.items=list; LAST.shown=Math.min(PAGE_SIZE, list.length); LAST.field=field;
+  renderChunk(list.slice(0, LAST.shown));
+  addShowMoreIfNeeded();
 }
 
 /* ====== Run ====== */
 async function run(){
   await ensureLoaded();
   const raw = Q.value.trim(); if(!raw) return;
-  const field = chooseField(raw); // author/title/subject/summary/year/pub
+  const field = chooseField(raw);
   const res = searchField(field, raw);
-  render(res, field);
+  renderAll(res, field);
 }
 document.getElementById("go").onclick=run;
 Q.addEventListener("keydown", e=>{ if(e.key==="Enter") run(); });
