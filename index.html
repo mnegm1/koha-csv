@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Koha Search (AR/EN) — FAB Widget + Robust CSV</title>
+<title>Koha TSV Search — Strict Field (AR/EN)</title>
 <style>
   :root{
     --brand:#BF9849; --brandText:#fff;
@@ -37,11 +37,11 @@
   .input input{flex:1;padding:10px;border-radius:10px;border:1px solid #cfd9e3}
   .input button{background:var(--brand);color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600}
   .btn{flex:0 0 auto;background:var(--brand);color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
-  details.diag{padding:8px 12px; background:#fffdf4; border-top:1px solid #f1e2b6; font-size:12px}
   .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px}
 </style>
 </head>
 <body>
+  <!-- Floating widget -->
   <div class="fab-wrap">
     <svg class="fab-label" viewBox="0 0 120 40"><defs><path id="ka-arc" d="M 10,34 A 50,50 0 0 1 110,34"/></defs>
       <text text-anchor="middle"><textPath href="#ka-arc" startOffset="50%">AI Assist</textPath></text>
@@ -49,16 +49,13 @@
     <button class="fab" aria-label="AI Assistant" id="fab"></button>
   </div>
 
+  <!-- Chat box -->
   <div class="box" id="box">
     <div class="head">
       <div>AI Assistant</div>
       <button id="x" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer" title="Close">×</button>
     </div>
     <div class="status" id="status">Loading…</div>
-    <details class="diag" id="diag" style="display:none">
-      <summary>Diagnostics</summary>
-      <div id="diag-body"></div>
-    </details>
     <div class="body" id="body"></div>
     <div class="input">
       <input id="q" type="text" placeholder="اكتب: اسم مؤلف / عنوان / موضوع / سنة (مثال: 2019)" dir="auto">
@@ -67,10 +64,10 @@
   </div>
 
 <script>
-/* ====== CONFIG ====== */
-const DATA_URL = "/koha-csv/opac-catalog.csv"; // same origin recommended
+/* ====== CONFIG (TSV) ====== */
+const DATA_URL = "/koha-csv/opac-catalog.tab";   // <-- your Koha .tab/.tsv path (UTF-8)
 
-/* ====== Utility: errors ====== */
+/* ====== Errors ====== */
 addEventListener("error", e => banner("JS error: " + (e.message||e)));
 addEventListener("unhandledrejection", e => banner("Promise error: " + (e.reason?.message||e.reason)));
 function banner(msg){
@@ -79,20 +76,17 @@ function banner(msg){
   el.textContent = String(msg||"Unknown error");
 }
 
-/* ====== UI open/close ====== */
+/* ====== UI ====== */
 const fab=document.getElementById("fab");
 const box=document.getElementById("box");
 const closeBtn=document.getElementById("x");
 const B=document.getElementById("body");
 const STATUS=document.getElementById("status");
-const DIAG=document.getElementById("diag");
-const DIAG_BODY=document.getElementById("diag-body");
 const Q=document.getElementById("q");
-
 fab.onclick=()=>{ box.style.display = (box.style.display==="flex"?"none":"flex"); if(box.style.display==="flex") setTimeout(()=>Q.focus(),50); };
 closeBtn.onclick=()=>{ box.style.display="none"; };
 
-/* ====== Arabic normalization ====== */
+/* ====== Arabic normalization (robust) ====== */
 function stripBidi(s){ return String(s||"").replace(/[\u200E\u200F\u202A-\u202E]/g,""); }
 function clean(s){ return stripBidi(String(s||"").replace(/^\uFEFF/,"")); }
 function norm(s){
@@ -105,29 +99,27 @@ function norm(s){
     .replace(/ة/g,"ه")
     .replace(/ک/g,"ك")
     .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")  // harakat+tatweel
-    .replace(/[\u0660-\u0669]/g,d=>d.charCodeAt(0)-0x0660)  // Arabic-Indic digits
-    .replace(/[\u06F0-\u06F9]/g,d=>d.charCodeAt(0)-0x06F0)  // Extended digits
+    .replace(/[\u0660-\u0669]/g,d=>d.charCodeAt(0)-0x0660)
+    .replace(/[\u06F0-\u06F9]/g,d=>d.charCodeAt(0)-0x06F0)
     .replace(/[^\p{L}\p{N}\s]/gu," ")
     .replace(/\s+/g," ").trim();
 }
 function isArabic(s){ return /[\u0600-\u06FF]/.test(s||""); }
 
-/* ====== Robust CSV/TSV parser ====== */
-function sniffDelimiter(headerLine){
-  const cnt = ch => (headerLine.match(new RegExp("\\"+ch,"g"))||[]).length;
-  const cand = [",",";","\t","|"].map(d=>({d,n:cnt(d)})).sort((a,b)=>b.n-a.n);
-  return cand[0].n>0 ? cand[0].d : ",";
-}
-function parseTable(text){
+/* ====== TSV parser (quoted-aware) ====== */
+function parseTSV(text){
+  // Accept \t as main delimiter; also tolerate ; or , if needed.
   text = clean(String(text||"")).replace(/\r\n?/g,"\n");
-  if(!text.trim()) return {headers:[], rows:[], delim:","};
-  const firstNL = text.indexOf("\n");
-  const firstLine = firstNL>=0 ? text.slice(0,firstNL) : text;
-  const DELIM = sniffDelimiter(firstLine);
+  if(!text.trim()) return {headers:[], rows:[], delim:"\t"};
+  // If first line contains tabs, treat as TSV; else fall back to comma/semicolon.
+  const firstNL=text.indexOf("\n");
+  const headerLine = firstNL>=0 ? text.slice(0,firstNL) : text;
+  const useTab = headerLine.includes("\t");
+  const DELIM = useTab ? "\t" : (headerLine.includes(";") ? ";" : ",");
 
   const rows=[]; let i=0, field="", row=[], inQuotes=false;
   while(i<text.length){
-    const ch = text[i];
+    const ch=text[i];
     if(inQuotes){
       if(ch==="\""){
         if(i+1<text.length && text[i+1]==="\""){ field+="\""; i+=2; continue; }
@@ -140,11 +132,10 @@ function parseTable(text){
       field+=ch; i++; continue;
     }
   }
-  row.push(field);
-  if(row.length && (row.length>1 || row[0] !== "")) rows.push(row);
+  row.push(field); if(row.length && (row.length>1 || row[0]!=="" )) rows.push(row);
 
   if(!rows.length) return {headers:[], rows:[], delim:DELIM};
-  const headers = rows[0].map(h => clean(h).toLowerCase());
+  const headers = rows[0].map(h=>clean(h).toLowerCase());
   const out=[];
   for(let r=1;r<rows.length;r++){
     const rec={}; const cols=rows[r];
@@ -157,7 +148,7 @@ function parseTable(text){
   return {headers, rows:out, delim:DELIM};
 }
 
-/* ====== Header aliases ====== */
+/* ====== Header aliases (AR/EN) ====== */
 function pick(obj, keys){
   for(const k of keys){
     const kk=k.toLowerCase();
@@ -173,6 +164,7 @@ function mapRecord(k){
   const subject = pick(k, ["subjects","subject","topic","topics","الموضوعات","الموضوع","موضوع","التخصص","الكلمات المفتاحية"]);
   const pubdat  = pick(k, ["publications data","publication data","publishing data","publisher data","بيانات النشر","تاريخ النشر","سنة النشر"]);
   const url     = pick(k, ["book_url","book url","url","رابط الكتاب","رابط_الكتاب","link"]);
+  // derive year from publications data if needed
   let year = pick(k, ["year","السنة","سنة النشر","تاريخ"]);
   if(!year){
     const ym = String(pubdat).match(/(19|20)\d{2}/);
@@ -188,7 +180,7 @@ async function ensureLoaded(){
   try{
     const buf = await fetch(DATA_URL, {cache:"reload"}).then(r=>{ if(!r.ok) throw new Error(`Fetch ${r.status} ${r.statusText}`); return r.arrayBuffer(); });
     const text = new TextDecoder("utf-8",{fatal:false}).decode(buf);
-    const parsed = parseTable(text);
+    const parsed = parseTSV(text);
     HEADERS = parsed.headers;
     const recs = parsed.rows.map(mapRecord);
 
@@ -201,23 +193,13 @@ async function ensureLoaded(){
     }));
 
     STATUS.textContent = `Loaded ${INDEX.length} records • delimiter “${parsed.delim}” • headers: ${HEADERS.join(" | ")}`;
-    // Diagnostics: show first mapped record so you see real values
-    if (recs.length){
-      DIAG.style.display="block";
-      DIAG_BODY.innerHTML =
-        `<div><b>First row (mapped):</b></div>
-         <div>Title: ${recs[0].title||"<i>empty</i>"}</div>
-         <div>Author: ${recs[0].author||"<i>empty</i>"}</div>
-         <div>Subject: ${recs[0].subject||"<i>empty</i>"}</div>
-         <div>Publications data: ${recs[0].pubdat||"<i>empty</i>"} | Year: ${recs[0].year||"<i>empty</i>"}</div>`;
-    }
   }catch(e){
     STATUS.textContent = `Load error: ${e.message}`;
     banner(e?.message||String(e));
   }
 }
 
-/* ====== Field choice ====== */
+/* ====== Field choice (no prefixes; strict) ====== */
 const AR_NAME_PARTS = new Set(["بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال"]);
 const EN_STOP = new Set(["the","a","an","of","and","for","on","in","to","with"]);
 function looksLikeYear(q){ return /^\d{4}$/.test(q.trim()); }
@@ -253,40 +235,26 @@ function chooseField(q){
     if(r.nAuthor.includes(nq))  votes.author+=0.6;
     if(r.nPub.includes(nq))     votes.pub+=0.6;
   }
+  // small bias to subject over title when equal
   const w={author:votes.author*1.2,subject:votes.subject*1.1,title:votes.title,summary:votes.summary*0.95,pub:votes.pub};
   let best="title",bestV=-1;
   for(const k of Object.keys(w)){ if(w[k]>bestV){ best=k; bestV=w[k]; } }
+  // Map "pub" to publications data (publisher text / embedded year)
   return best;
 }
 
-/* ====== Searches ====== */
+/* ====== STRICT field search (no broad fallback) ====== */
 function searchField(field,q){
   const nq=norm(q), out=[];
   for(const r of INDEX){
-    let sc=0,hit=false;
-    if(field==="author"  && r.nAuthor.includes(nq)){sc+=10;hit=true;}
-    else if(field==="title"   && r.nTitle.includes(nq)){sc+=8;hit=true;}
-    else if(field==="subject" && r.nSubject.includes(nq)){sc+=7;hit=true;}
-    else if(field==="summary" && (r.nSummary.includes(nq)||r.nContent.includes(nq))){sc+=6;hit=true;}
-    else if(field==="year"    && r.nYear.includes(nq)){sc+=6;hit=true;}
-    else if(field==="pub"     && (r.nPub.includes(nq)||r.nYear.includes(nq))){sc+=5;hit=true;}
-    if(hit) out.push({sc,raw:r.raw});
-  }
-  out.sort((a,b)=>b.sc-a.sc);
-  return out;
-}
-function searchBroad(q){
-  const nq=norm(q), out=[];
-  for(const r of INDEX){
-    let sc=0,hit=false;
-    if(r.nAuthor.includes(nq)){sc+=9;hit=true;}
-    if(r.nTitle.includes(nq)){sc+=7;hit=true;}
-    if(r.nSubject.includes(nq)){sc+=6;hit=true;}
-    if(r.nSummary.includes(nq)){sc+=5;hit=true;}
-    if(r.nContent.includes(nq)){sc+=3;hit=true;}
-    if(r.nPub.includes(nq)){sc+=3;hit=true;}
-    if(r.nYear.includes(nq)){sc+=4;hit=true;}
-    if(hit) out.push({sc,raw:r.raw});
+    let hit=false, sc=0;
+    if(field==="author")   { hit = r.nAuthor.includes(nq);   if(hit) sc=10; }
+    else if(field==="title"){ hit = r.nTitle.includes(nq);    if(hit) sc=8; }
+    else if(field==="subject"){ hit = r.nSubject.includes(nq); if(hit) sc=7; }
+    else if(field==="summary"){ hit = (r.nSummary.includes(nq)||r.nContent.includes(nq)); if(hit) sc=6; }
+    else if(field==="year"){ hit = r.nYear.includes(nq);      if(hit) sc=6; }
+    else if(field==="pub"){ hit = r.nPub.includes(nq) || (/^\d{4}$/.test(q) && r.nYear.includes(nq)); if(hit) sc=5; }
+    if(hit) out.push({sc, raw:r.raw});
   }
   out.sort((a,b)=>b.sc-a.sc);
   return out;
@@ -294,15 +262,16 @@ function searchBroad(q){
 
 /* ====== Render ====== */
 function kohaURL(title){ return location.origin + "/cgi-bin/koha/opac-search.pl?q=" + encodeURIComponent('ti="'+(title||"")+'"'); }
-function render(list, note){
+function render(list, field){
   B.innerHTML="";
+  const labelAR = {author:"المؤلف", title:"العنوان", subject:"الموضوع", summary:"الملخص", year:"سنة النشر", pub:"بيانات النشر"}[field] || field;
   const noteEl=document.createElement("div");
   noteEl.className="meta";
-  noteEl.textContent=note;
+  noteEl.textContent=`Searching field only: ${field} / حقل البحث فقط: ${labelAR}`;
   B.appendChild(noteEl);
 
   if(!list.length){
-    const d=document.createElement("div"); d.className="row"; d.textContent="No results found.";
+    const d=document.createElement("div"); d.className="row"; d.textContent="No results found in that field.";
     B.appendChild(d); return;
   }
   for(const it of list.slice(0,30)){
@@ -328,20 +297,14 @@ function render(list, note){
 async function run(){
   await ensureLoaded();
   const raw = Q.value.trim(); if(!raw) return;
-  const field = chooseField(raw);
-  let res = searchField(field, raw);
-  let labelAR = {author:"المؤلف", title:"العنوان", subject:"الموضوع", summary:"الملخص", year:"سنة النشر", pub:"بيانات النشر"}[field] || field;
-  let note = `Searching field: ${field} / حقل البحث: ${labelAR}`;
-  if(!res.length){
-    const broad = searchBroad(raw);
-    if(broad.length){ res=broad; note=`No exact hits in “${labelAR}”. Showing best matches across fields.`; }
-  }
-  render(res, note);
+  const field = chooseField(raw); // author/title/subject/summary/year/pub
+  const res = searchField(field, raw);
+  render(res, field);
 }
 document.getElementById("go").onclick=run;
 Q.addEventListener("keydown", e=>{ if(e.key==="Enter") run(); });
 
-/* Load at start so status/diagnostics appear */
+/* Load now so status shows */
 ensureLoaded();
 </script>
 </body>
