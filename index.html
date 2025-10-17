@@ -60,12 +60,12 @@
   </div>
 
 <script>
-/* ====== CONFIG (Option A) ====== */
-/* Point this to your Koha CSV report output (with book_url already built). */
+/* ====== CONFIG (your CSV) ====== */
+/* Update this path to where your CSV is hosted. */
 const DATA_URL  = "/data/opac-export.csv";
 const PAGE_SIZE = 12;
 
-/* ====== Error banner ====== */
+/* ====== Errors ====== */
 addEventListener("error", e => banner("JS error: " + (e.message||e)));
 addEventListener("unhandledrejection", e => banner("Promise error: " + (e.reason?.message||e.reason)));
 function banner(msg){
@@ -104,23 +104,18 @@ function norm(s){
 }
 function isArabic(s){ return /[\u0600-\u06FF]/.test(s||""); }
 
-/* ====== Robust CSV parser (commas/semicolons with quotes+newlines) ====== */
+/* ====== CSV (semicolon) with quotes/newlines ====== */
 function parseCSV(text){
   text = clean(String(text||"")).replace(/\r\n|\r/g,"\n");
-  if(!text.trim()) return {headers:[], rows:[], delim:","};
+  if(!text.trim()) return {headers:[], rows:[], delim:";"};
 
-  const headerLine = text.slice(0, text.indexOf("\n")) || text;
-  // Detect delimiter (prefer comma; use semicolon if commas are rare)
-  const comma = (headerLine.match(/,/g)||[]).length;
-  const semi  = (headerLine.match(/;/g)||[]).length;
-  const DELIM = comma>=semi ? "," : ";";
-
+  const DELIM = ";"; // your file is semicolon-delimited
   const rows=[]; let field="", row=[], inQuotes=false;
   for(let i=0;i<text.length;i++){
     const ch=text[i];
     if(inQuotes){
       if(ch==='\"'){
-        if(i+1<text.length && text[i+1]==='\"'){ field+='\"'; i++; }
+        if(i+1<text.length && text[i+1]==='\"'){ field+='\"'; i++; } // escaped quote
         else { inQuotes=false; }
       } else { field+=ch; }
     } else {
@@ -135,14 +130,20 @@ function parseCSV(text){
   const headers = (rows.shift()||[]).map(canonHeader);
   const out=[];
   for(const cols of rows){
+    // normalize to header length
+    const fixed = cols.length < headers.length
+      ? cols.concat(Array(headers.length - cols.length).fill(""))
+      : (cols.length > headers.length
+          ? cols.slice(0, headers.length-1).concat([cols.slice(headers.length-1).join(DELIM)])
+          : cols);
     const rec={};
-    for(let c=0;c<headers.length;c++) rec[headers[c]] = clean(cols[c] ?? "");
+    for(let c=0;c<headers.length;c++) rec[headers[c]] = clean(fixed[c] ?? "");
     out.push(rec);
   }
   return {headers, rows:out, delim:DELIM};
 }
 
-/* ====== Header mapping (CSV report) ====== */
+/* ====== Header mapping (matches your file) ====== */
 function pick(obj, keys){
   for(const k of keys){
     const kk=canonHeader(k);
@@ -151,15 +152,18 @@ function pick(obj, keys){
   return "";
 }
 function mapRecord(k){
-  const title   = pick(k, ["full title","title","العنوان"]);
-  const author  = pick(k, ["author","المؤلف"]);
-  const otherAu = pick(k, ["other authors","other author","other_authors","المؤلفون المشاركون","مؤلف مشارك"]);
-  const subjects= pick(k, ["subjects","subject","الموضوعات","الموضوع"]);
-  const abstract= pick(k, ["abstract","summary","الملخص"]);
-  const content = pick(k, ["content","contents","المحتويات"]);
-  const pubdata = pick(k, ["publications data","publications_data","بيانات النشر"]);
-  const year    = pick(k, ["year","السنة","سنة النشر"]);
-  const bookURL = pick(k, ["book url","book_url","url","الرابط"]);
+  // exact headers you have:
+  const title   = pick(k, ["full title"]);
+  const author  = pick(k, ["author"]);
+  const abstract= pick(k, ["abstract"]);
+  const pubdata = pick(k, ["publications data"]);
+  const content = pick(k, ["content"]);
+  const s1 = pick(k, ["subject1"]), s2 = pick(k, ["subject2"]), s3 = pick(k, ["subject3"]);
+  const subjects = [s1,s2,s3].filter(Boolean).join(" ؛ ");
+  const otherAu = pick(k, ["onther author","other authors","other author"]); // typo handled
+  const year    = pick(k, ["year"]);
+  const bookURL = pick(k, ["book url","book_url","book url ","bookurl","book_Url","book_Url","book url","book url","book url  ","book_url "]) || k["Book_Url"] || k["book_url"] || "";
+
   const publisher = pubdata ? String(pubdata).replace(/\b(19|20)\d{2}\b/g,"").replace(/\s*[،,:-]\s*$/,"").trim() : "";
   return {title, author, other_author:otherAu, subjects, summary:abstract, content, publisher, year, Book_Url:bookURL};
 }
@@ -171,9 +175,11 @@ async function ensureLoaded(){
     const ts=Date.now();
     const resp = await fetch(`${DATA_URL}?ts=${ts}`, {cache:"no-store"});
     if(!resp.ok) throw new Error(`Fetch ${resp.status} ${resp.statusText}`);
-    const text = await resp.text();
+    const buf  = await resp.arrayBuffer();
+    const bytes= buf.byteLength;
+    const text = new TextDecoder("utf-8",{fatal:false}).decode(buf);
     const parsed = parseCSV(text);
-    const recs = parsed.rows.map(mapRecord);
+    const recs   = parsed.rows.map(mapRecord);
 
     INDEX = recs.map((r,i)=>{
       const authorAll = [r.author, r.other_author].filter(Boolean).join(" ");
@@ -187,20 +193,19 @@ async function ensureLoaded(){
       };
     });
 
-    const delimLabel = parsed.delim === "," ? "COMMA" : "SEMICOLON";
-    document.getElementById("status").textContent =
-      `Loaded ${INDEX.length} records • delimiter “${delimLabel}” • headers: ${parsed.headers.join(" | ")}`;
+    STATUS.textContent =
+      `Loaded ${INDEX.length} records • bytes ${bytes.toLocaleString()} • delimiter “;” • headers: biblionumber | Full Title | Author | Abstract | Publications data | Content | Subject1 | Subject2 | Subject3 | Onther Author | Book_Url`;
   }catch(e){
-    document.getElementById("status").textContent = `Load error: ${e.message}`;
+    STATUS.textContent = `Load error: ${e.message}`;
     banner(e?.message||String(e));
   }
 }
 
-/* ====== Author matching (strict) ====== */
+/* ====== Author matching (strict full-name across Author + Onther Author) ====== */
 const NAME_STOPWORDS = new Set([
   "بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال",
   "","","الدكتور","دكتور","الأستاذ","استاذ",
-  "د","م","سمو","سعادة","معالي","","","",""
+  "د","م","","سعادة","معالي","","","",""
 ]);
 function tokenizeQuery(raw){
   const q = norm(raw);
@@ -224,7 +229,6 @@ function looksLikeName(q){
 function chooseField(q){
   if(looksLikeYear(q)) return "year";
   if(looksLikeName(q)) return "author";
-  // heuristic: if query appears in many titles/subjects, we’ll hit both
   return "title";
 }
 
@@ -251,7 +255,8 @@ function searchField(field,q){
       }
     } else if (field==="title"){
       if (r.nTitle.includes(nq)) { sc=80; hit=true; }
-      if (!hit && r.nSubjects.includes(nq)) { sc=70; hit=true; } // fall to subjects if title misses
+      if (!hit && r.nSubjects.includes(nq)) { sc=70; hit=true; } // also try subjects
+      if (!hit && r.nSummary.includes(nq))  { sc=60; hit=true; } // mild fallback
     } else if (field==="year"){
       if (r.nYear.includes(nq)) { sc=60; hit=true; }
     }
@@ -281,12 +286,9 @@ function renderChunk(items){
     const openUrl = recordURLFromFile(r);
     const pubLine = [r.publisher, r.year].filter(Boolean).join(" • ");
 
-    let linkHTML = "";
-    if (openUrl){
-      linkHTML = `<a class="btn" href="${openUrl}" target="_blank" rel="noopener">Open record</a>`;
-    } else {
-      linkHTML = `<button class="btn" disabled title="لا يوجد رابط في الملف / No URL in file">Open record</button>`;
-    }
+    const linkHTML = openUrl
+      ? `<a class="btn" href="${openUrl}" target="_blank" rel="noopener">Open record</a>`
+      : `<button class="btn" disabled title="لا يوجد رابط في الملف / No URL in file">Open record</button>`;
 
     div.innerHTML =
       `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
@@ -318,7 +320,7 @@ function addShowMoreIfNeeded(){
 }
 function renderAll(list, field){
   clearResults();
-  const labelAR = {author:"المؤلف + مؤلف مشارك", title:"العنوان / الموضوعات", year:"سنة النشر"}[field] || field;
+  const labelAR = {author:"المؤلف + مؤلف مشارك", title:"العنوان / الموضوعات / الملخص", year:"سنة النشر"}[field] || field;
   const note=document.createElement("div"); note.className="meta";
   const extra = (field==="author" && MATCH_NOTE) ? " • " + MATCH_NOTE : "";
   note.textContent=`Searching field only: ${labelAR}${extra}`;
@@ -343,6 +345,38 @@ async function run(){
 }
 document.getElementById("go").onclick=run;
 Q.addEventListener("keydown", e=>{ if(e.key==="Enter") run(); });
+
+/* ====== Load ====== */
+async function ensureLoaded(){
+  try{
+    const ts=Date.now();
+    const resp = await fetch(`${DATA_URL}?ts=${ts}`, {cache:"no-store"});
+    if(!resp.ok) throw new Error(`Fetch ${resp.status} ${resp.statusText}`);
+    const buf  = await resp.arrayBuffer();
+    const bytes= buf.byteLength;
+    const text = new TextDecoder("utf-8",{fatal:false}).decode(buf);
+    const parsed = parseCSV(text);
+    const recs   = parsed.rows.map(mapRecord);
+
+    INDEX = recs.map((r,i)=>{
+      const authorAll = [r.author, r.other_author].filter(Boolean).join(" ");
+      return {
+        id:i, raw:r,
+        nTitle:norm(r.title),
+        nAuthorAll:norm(authorAll),
+        nSummary:norm(r.summary), nContent:norm(r.content),
+        nSubjects:norm(r.subjects), nPub:norm(r.publisher||""),
+        nYear:norm(r.year||""),
+      };
+    });
+
+    STATUS.textContent =
+      `Loaded ${INDEX.length} records • bytes ${bytes.toLocaleString()} • delimiter “;” • headers: biblionumber | Full Title | Author | Abstract | Publications data | Content | Subject1 | Subject2 | Subject3 | Onther Author | Book_Url`;
+  }catch(e){
+    STATUS.textContent = `Load error: ${e.message}`;
+    banner(e?.message||String(e));
+  }
+}
 
 ensureLoaded();
 </script>
