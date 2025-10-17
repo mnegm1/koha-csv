@@ -62,7 +62,7 @@
 
 <script>
 /* ====== CONFIG ====== */
-const DATA_URL  = "/koha-csv/opac-catalog.tab";   // UTF-8; supports TAB or |
+const DATA_URL  = "/koha-csv/opac-catalog.tab"; // UTF-8; TAB or |
 const PAGE_SIZE = 12;
 
 /* ====== Errors ====== */
@@ -137,7 +137,6 @@ function parseTSV(text){
       else{ field+=ch; }
     }
   }
-  // push last field/row
   row.push(field); if(row.length && (row.length>1 || row[0]!=="" )) rows.push(row);
 
   if(!rows.length) return {headers:[], rows:[], delim:DELIM};
@@ -210,8 +209,14 @@ function mapRecord(k){
 let INDEX=[]; let HEADERS=[];
 async function ensureLoaded(){
   try{
-    const buf = await fetch(DATA_URL, {cache:"reload"}).then(r=>{ if(!r.ok) throw new Error(`Fetch ${r.status} ${r.statusText}`); return r.arrayBuffer(); });
+    // HARD CACHE BUST + no-store to avoid CDN/browser caches
+    const ts = Date.now();
+    const resp = await fetch(`${DATA_URL}?ts=${ts}`, {cache:"no-store"});
+    if(!resp.ok) throw new Error(`Fetch ${resp.status} ${resp.statusText}`);
+    const buf = await resp.arrayBuffer();
+    const bytes = buf.byteLength;
     const text = new TextDecoder("utf-8",{fatal:false}).decode(buf);
+
     const parsed = parseTSV(text);
     HEADERS = parsed.headers;
     const recs = parsed.rows.map(mapRecord);
@@ -230,7 +235,8 @@ async function ensureLoaded(){
     });
 
     const delimLabel = parsed.delim==="\t" ? "TAB" : parsed.delim;
-    STATUS.textContent = `Loaded ${INDEX.length} records • delimiter “${delimLabel}” • headers: ${HEADERS.join(" | ")}`;
+    // DEBUG INFO so we can verify the loaded file
+    STATUS.textContent = `Loaded ${INDEX.length} records • bytes ${bytes.toLocaleString()} • delimiter “${delimLabel}” • headers: ${HEADERS.join(" | ")}`;
   }catch(e){
     STATUS.textContent = `Load error: ${e.message}`;
     banner(e?.message||String(e));
