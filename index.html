@@ -62,7 +62,7 @@
 
 <script>
 /* ====== CONFIG ====== */
-const DATA_URL  = "/koha-csv/opac-catalog.tab";   // your export file (UTF-8; supports |, TAB, ;, ,)
+const DATA_URL  = "/koha-csv/opac-catalog.tab";   // UTF-8; supports TAB or |
 const PAGE_SIZE = 12;
 
 /* ====== Errors ====== */
@@ -87,7 +87,7 @@ closeBtn.onclick=()=>{ box.style.display="none"; };
 /* ====== Arabic normalization ====== */
 function stripBidi(s){ return String(s||"").replace(/[\u200E\u200F\u202A-\u202E]/g,""); }
 function clean(s){ return stripBidi(String(s||"").replace(/^\uFEFF/,"")); }
-/* KEY FIX: underscores → spaces so full_title == "full title" */
+/* underscores → spaces so full_title becomes "full title" etc. */
 function canonHeader(h){ return clean(h).toLowerCase().replace(/[_\s]+/g," ").trim(); }
 function norm(s){
   if(!s) return "";
@@ -106,51 +106,66 @@ function norm(s){
 function normForPhrase(s){ return norm(s).replace(/[،,;]/g," ").replace(/\s+/g," ").trim(); }
 function isArabic(s){ return /[\u0600-\u06FF]/.test(s||""); }
 
-/* ====== TSV/TAB/CSV (with | detection) ====== */
+/* ====== Robust CSV/TSV parser (handles quotes + newlines for ANY delimiter) ====== */
 function parseTSV(text){
-  text = clean(String(text||"")).replace(/\r\n?/g,"\n");
+  text = clean(String(text||"")).replace(/\r\n|\r/g, "\n");
   if(!text.trim()) return {headers:[], rows:[], delim:"\t"};
-  const firstNL = text.indexOf("\n");
-  const headerLine = firstNL >= 0 ? text.slice(0, firstNL) : text;
 
-  // KEY FIX: detect pipe as delimiter
+  // Detect delimiter (prefer TAB if present)
+  const firstNL   = text.indexOf("\n");
+  const headerRaw = firstNL>=0 ? text.slice(0,firstNL) : text;
   const DELIM =
-    headerLine.includes("\t") ? "\t" :
-    headerLine.includes("|")  ? "|"  :
-    headerLine.includes(";")  ? ";"  : ",";
+    headerRaw.includes("\t") ? "\t" :
+    headerRaw.includes("|")  ? "|"  :
+    headerRaw.includes(";")  ? ";"  : ",";
 
-  const rows=[]; let i=0, field="", row=[], inQuotes=false;
-  while(i<text.length){
+  // Generic CSV-style parsing with quoting for ALL delimiters
+  const rows=[]; let field="", row=[], inQuotes=false;
+  for(let i=0;i<text.length;i++){
     const ch=text[i];
     if(inQuotes){
-      if(ch==="\""){
-        if(i+1<text.length && text[i+1]==="\""){ field+="\""; i+=2; continue; }
-        inQuotes=false; i++; continue;
-      } else { field+=ch; i++; continue; }
-    } else {
-      if(ch==="\""){ inQuotes=true; i++; continue; }
-      if(ch===DELIM){ row.push(field); field=""; i++; continue; }
-      if(ch==="\n"){ row.push(field); field=""; rows.push(row); row=[]; i++; continue; }
-      field+=ch; i++; continue;
+      if(ch==='\"'){
+        if(i+1<text.length && text[i+1]==='\"'){ field+='\"'; i++; } // escaped quote
+        else { inQuotes=false; }
+      }else{
+        field+=ch;
+      }
+    }else{
+      if(ch==='\"'){ inQuotes=true; }
+      else if(ch===DELIM){ row.push(field); field=""; }
+      else if(ch==='\n'){ row.push(field); rows.push(row); row=[]; field=""; }
+      else{ field+=ch; }
     }
   }
+  // push last field/row
   row.push(field); if(row.length && (row.length>1 || row[0]!=="" )) rows.push(row);
 
   if(!rows.length) return {headers:[], rows:[], delim:DELIM};
+
+  // Headers
   const headers = rows[0].map(canonHeader);
+
+  // Normalize row lengths: pad short, merge extra into last column
   const out=[];
   for(let r=1;r<rows.length;r++){
-    const rec={}; const cols=rows[r];
+    let cols = rows[r];
+    if(cols.length < headers.length){
+      cols = cols.concat(Array(headers.length - cols.length).fill(""));
+    }else if(cols.length > headers.length){
+      const fixed = cols.slice(0, headers.length-1);
+      fixed.push(cols.slice(headers.length-1).join(DELIM));
+      cols = fixed;
+    }
+    const rec={};
     for(let c=0;c<headers.length;c++){
-      const key = headers[c] || ("col"+c);
-      rec[key] = clean(cols[c] ?? "");
+      rec[headers[c]] = clean(cols[c] ?? "");
     }
     out.push(rec);
   }
   return {headers, rows:out, delim:DELIM};
 }
 
-/* ====== Header aliases (Author + Other Author + subjects1..3) ====== */
+/* ====== Header aliases (Author + Other Author + subject1..3) ====== */
 function pick(obj, keys){
   for(const k of keys){
     const kk=canonHeader(k);
@@ -159,7 +174,6 @@ function pick(obj, keys){
   return "";
 }
 function mapRecord(k){
-  // title: support full_title and title
   const title   = pick(k, ["full title","title","العنوان","عنوان","اسم الكتاب"]);
   const author  = pick(k, ["author","authors","المؤلف","المؤلفون","كاتب","بقلم","اسم المؤلف"]);
   const otherAu = pick(k, [
@@ -171,19 +185,18 @@ function mapRecord(k){
   const summary = pick(k, ["abstract","summary","الملخص","نبذة","وصف"]);
   const content = pick(k, ["content","contents","المحتويات","المحتوى","نص"]);
 
-  // subjects: subjects OR subject1/2/3 → join
   let subject = pick(k, ["subjects","subject","topic","topics","الموضوعات","الموضوع","موضوع","التخصص","الكلمات المفتاحية"]);
   if(!subject){
     const parts=[];
     for(const key in k){
-      const kk = canonHeader(key);
+      const kk=canonHeader(key);
       if(/^subject\d*$/.test(kk) && k[key]) parts.push(clean(k[key]));
     }
     subject = parts.join(" ؛ ");
   }
 
-  const pubdat  = pick(k, ["publications data","publication data","publishing data","publisher data","بيانات النشر","تاريخ النشر","سنة النشر","publications_data"]);
-  const bookUrl = pick(k, ["book_url","book url","رابط الكتاب","رابط_الكتاب","link","url","book url","bookurl","book_url "]);
+  const pubdat  = pick(k, ["publications data","publication data","publishing data","publisher data","publications_data","بيانات النشر","تاريخ النشر","سنة النشر"]);
+  const bookUrl = pick(k, ["book_url","book url","book url ","bookurl","رابط الكتاب","رابط_الكتاب","link","url"]);
   let year = pick(k, ["year","السنة","سنة النشر","تاريخ"]);
   if(!year){
     const ym = String(pubdat).match(/(19|20)\d{2}/);
@@ -207,9 +220,9 @@ async function ensureLoaded(){
       const authorAll = [r.author, r.other_author].filter(Boolean).join(" ");
       return {
         id:i, raw:r,
-        nTitle:  norm(r.title),
-        nAuthorAll: norm(authorAll),
-        nAuthorAllPhrase: normForPhrase(authorAll),
+        nTitle:norm(r.title),
+        nAuthorAll:norm(authorAll),
+        nAuthorAllPhrase:normForPhrase(authorAll),
         nSummary:norm(r.summary), nContent:norm(r.content),
         nSubject:norm(r.subject), nPub:norm(r.publisher||""),
         nYear:norm(r.year||""),
@@ -269,7 +282,6 @@ function searchField(field,q){
       const main  = norm(r.raw.author || "");
       const other = norm(r.raw.other_author || "");
       const both  = r.nAuthorAll || "";
-
       if (tokens.length >= 2){
         const matchMain  = containsAllTokens(main,  tokens);
         const matchOther = containsAllTokens(other, tokens);
