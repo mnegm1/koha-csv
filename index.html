@@ -61,8 +61,8 @@
   </div>
 
 <script>
-/* ====== CONFIG: data source only ====== */
-const DATA_URL  = "/koha-csv/opac-catalog.tab";   // your Koha export file (TSV/TAB/CSV, UTF-8)
+/* ====== CONFIG ====== */
+const DATA_URL  = "/koha-csv/opac-catalog.tab";   // your export file (UTF-8; supports |, TAB, ;, ,)
 const PAGE_SIZE = 12;
 
 /* ====== Errors ====== */
@@ -87,7 +87,8 @@ closeBtn.onclick=()=>{ box.style.display="none"; };
 /* ====== Arabic normalization ====== */
 function stripBidi(s){ return String(s||"").replace(/[\u200E\u200F\u202A-\u202E]/g,""); }
 function clean(s){ return stripBidi(String(s||"").replace(/^\uFEFF/,"")); }
-function canonHeader(h){ return clean(h).toLowerCase().replace(/\s+/g," ").trim(); }
+/* KEY FIX: underscores → spaces so full_title == "full title" */
+function canonHeader(h){ return clean(h).toLowerCase().replace(/[_\s]+/g," ").trim(); }
 function norm(s){
   if(!s) return "";
   s = clean(s).toLowerCase();
@@ -105,14 +106,18 @@ function norm(s){
 function normForPhrase(s){ return norm(s).replace(/[،,;]/g," ").replace(/\s+/g," ").trim(); }
 function isArabic(s){ return /[\u0600-\u06FF]/.test(s||""); }
 
-/* ====== TSV/TAB/CSV parser ====== */
+/* ====== TSV/TAB/CSV (with | detection) ====== */
 function parseTSV(text){
   text = clean(String(text||"")).replace(/\r\n?/g,"\n");
   if(!text.trim()) return {headers:[], rows:[], delim:"\t"};
-  const firstNL=text.indexOf("\n");
-  const headerLine = firstNL>=0 ? text.slice(0,firstNL) : text;
-  const useTab = headerLine.includes("\t");
-  const DELIM = useTab ? "\t" : (headerLine.includes(";") ? ";" : ",");
+  const firstNL = text.indexOf("\n");
+  const headerLine = firstNL >= 0 ? text.slice(0, firstNL) : text;
+
+  // KEY FIX: detect pipe as delimiter
+  const DELIM =
+    headerLine.includes("\t") ? "\t" :
+    headerLine.includes("|")  ? "|"  :
+    headerLine.includes(";")  ? ";"  : ",";
 
   const rows=[]; let i=0, field="", row=[], inQuotes=false;
   while(i<text.length){
@@ -145,7 +150,7 @@ function parseTSV(text){
   return {headers, rows:out, delim:DELIM};
 }
 
-/* ====== Header aliases (Author + Other Author supported) ====== */
+/* ====== Header aliases (Author + Other Author + subjects1..3) ====== */
 function pick(obj, keys){
   for(const k of keys){
     const kk=canonHeader(k);
@@ -154,25 +159,38 @@ function pick(obj, keys){
   return "";
 }
 function mapRecord(k){
+  // title: support full_title and title
   const title   = pick(k, ["full title","title","العنوان","عنوان","اسم الكتاب"]);
   const author  = pick(k, ["author","authors","المؤلف","المؤلفون","كاتب","بقلم","اسم المؤلف"]);
   const otherAu = pick(k, [
-    "other author","other_author","other authors","contributors","additional authors",
-    "co-author","co authors","onther author","onther_author",
+    "other author","other authors","other_author","other_authors",
+    "contributors","additional authors","co-author","co authors",
+    "onther author","onther_author",
     "المؤلف الآخر","مؤلف مشارك","المؤلفون المشاركون","المشاركون"
   ]);
   const summary = pick(k, ["abstract","summary","الملخص","نبذة","وصف"]);
   const content = pick(k, ["content","contents","المحتويات","المحتوى","نص"]);
-  const subject = pick(k, ["subjects","subject","topic","topics","الموضوعات","الموضوع","موضوع","التخصص","الكلمات المفتاحية"]);
-  const pubdat  = pick(k, ["publications data","publication data","publishing data","publisher data","بيانات النشر","تاريخ النشر","سنة النشر"]);
-  const bookUrl = pick(k, ["book_url","book url","رابط الكتاب","رابط_الكتاب","link","url"]);
+
+  // subjects: subjects OR subject1/2/3 → join
+  let subject = pick(k, ["subjects","subject","topic","topics","الموضوعات","الموضوع","موضوع","التخصص","الكلمات المفتاحية"]);
+  if(!subject){
+    const parts=[];
+    for(const key in k){
+      const kk = canonHeader(key);
+      if(/^subject\d*$/.test(kk) && k[key]) parts.push(clean(k[key]));
+    }
+    subject = parts.join(" ؛ ");
+  }
+
+  const pubdat  = pick(k, ["publications data","publication data","publishing data","publisher data","بيانات النشر","تاريخ النشر","سنة النشر","publications_data"]);
+  const bookUrl = pick(k, ["book_url","book url","رابط الكتاب","رابط_الكتاب","link","url","book url","bookurl","book_url "]);
   let year = pick(k, ["year","السنة","سنة النشر","تاريخ"]);
   if(!year){
     const ym = String(pubdat).match(/(19|20)\d{2}/);
     year = ym ? ym[0] : "";
   }
   const publisher = pubdat ? String(pubdat).replace(/\b(19|20)\d{2}\b/g,"").replace(/\s*[،,:-]\s*$/,"").trim() : "";
-  return {title, author, other_author: otherAu, summary, content, subject, publisher, year, book_url:bookUrl, Book_Url:bookUrl};
+  return {title, author, other_author: otherAu, summary, content, subject, publisher, year, Book_Url:bookUrl};
 }
 
 /* ====== Build index ====== */
@@ -190,7 +208,7 @@ async function ensureLoaded(){
       return {
         id:i, raw:r,
         nTitle:  norm(r.title),
-        nAuthorAll: norm(authorAll),                 // combined author fields
+        nAuthorAll: norm(authorAll),
         nAuthorAllPhrase: normForPhrase(authorAll),
         nSummary:norm(r.summary), nContent:norm(r.content),
         nSubject:norm(r.subject), nPub:norm(r.publisher||""),
@@ -198,26 +216,25 @@ async function ensureLoaded(){
       };
     });
 
-    STATUS.textContent = `Loaded ${INDEX.length} records • delimiter “${parsed.delim === "\t" ? "TAB" : parsed.delim}” • headers: ${HEADERS.join(" | ")}`;
+    const delimLabel = parsed.delim==="\t" ? "TAB" : parsed.delim;
+    STATUS.textContent = `Loaded ${INDEX.length} records • delimiter “${delimLabel}” • headers: ${HEADERS.join(" | ")}`;
   }catch(e){
     STATUS.textContent = `Load error: ${e.message}`;
     banner(e?.message||String(e));
   }
 }
 
-/* ====== Author matching (STRICT: all core tokens must match) ====== */
-/* Titles / particles ONLY (no human names here): */
+/* ====== Author matching (STRICT: ALL tokens) ====== */
 const NAME_STOPWORDS = new Set([
   "بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال",
   "الشيخ","شيخ","الدكتور","دكتور","الأستاذ","استاذ",
   "د","م","سمو","سعادة","معالي","حاكم","ولي","أمير","امير"
 ]);
-
 function tokenizeQuery(raw){
   const q = norm(raw);
   if (!q) return [];
   const toks = q.split(/\s+/).filter(t => t.length >= 2 && !/^\d+$/.test(t));
-  return toks.filter(t => !NAME_STOPWORDS.has(t)); // remove only titles/particles
+  return toks.filter(t => !NAME_STOPWORDS.has(t));
 }
 function containsAllTokens(targetNorm, tokens){
   if (!tokens.length) return false;
@@ -225,44 +242,20 @@ function containsAllTokens(targetNorm, tokens){
   return true;
 }
 
-/* ====== Field choice (strict) ====== */
-const AR_NAME_PARTS = new Set(["بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال"]);
-const EN_STOP = new Set(["the","a","an","of","and","for","on","in","to","with"]);
+/* ====== Field choice ====== */
 function looksLikeYear(q){ return /^\d{4}$/.test(q.trim()); }
 function looksLikeName(q){
   const s=q.trim(); if(!s||looksLikeYear(s)) return false;
   const toks=s.split(/\s+/).filter(Boolean);
-  if(toks.length<1||toks.length>6) return false;
-  let ok=0, ar=false;
-  for(const t of toks){
-    const nt=norm(t);
-    if(/^[a-z\u0600-\u06FF]+$/i.test(nt)) ok++;
-    if(AR_NAME_PARTS.has(nt)) ar=true;
-    if(EN_STOP.has(nt)) return false;
-  }
-  if(ok!==toks.length && ok<toks.length-1) return false;
-  return ar || toks.length>=2;
+  return toks.length>=2;
 }
 function chooseField(q){
   if(looksLikeYear(q)) return "year";
   if(looksLikeName(q)) return "author";
-  const nq=norm(q);
-  let votes={title:0,subject:0,summary:0,author:0,pub:0};
-  for(let i=0;i<Math.min(1200,INDEX.length);i++){
-    const r=INDEX[i];
-    if(r.nTitle.includes(nq))   votes.title++;
-    if(r.nSubject.includes(nq)) votes.subject++;
-    if(r.nSummary.includes(nq)) votes.summary++;
-    if(r.nContent.includes(nq)) votes.summary+=0.6;
-    if(r.nAuthorAll.includes(nq))  votes.author+=0.6;
-    if(r.nPub.includes(nq))     votes.pub+=0.6;
-  }
-  const w={author:votes.author*1.2,subject:votes.subject*1.1,title:votes.title,summary:votes.summary*0.95,pub:votes.pub};
-  let best="title",bestV=-1; for(const k of Object.keys(w)){ if(w[k]>bestV){ best=k; bestV=w[k]; } }
-  return best;
+  return "title";
 }
 
-/* ====== STRICT field search with paging ====== */
+/* ====== Search ====== */
 let MATCH_NOTE = "";
 function searchField(field,q){
   const nq = norm(q);
@@ -278,7 +271,6 @@ function searchField(field,q){
       const both  = r.nAuthorAll || "";
 
       if (tokens.length >= 2){
-        // All core tokens must be present in either field or in the combined text
         const matchMain  = containsAllTokens(main,  tokens);
         const matchOther = containsAllTokens(other, tokens);
         const matchBoth  = containsAllTokens(both,  tokens);
@@ -288,7 +280,6 @@ function searchField(field,q){
           MATCH_NOTE = "Strict full-name match (Author + Other Author)";
         }
       } else {
-        // Single-token query (e.g., family name only)
         const tok = tokens[0] || nq;
         if (tok && (main.includes(tok) || other.includes(tok))){
           sc = 85; hit = true; MATCH_NOTE = "Single name part matched";
@@ -317,7 +308,7 @@ function searchField(field,q){
 /* ====== Record URL: file-only ====== */
 function recordURLFromFile(rec){
   const url = String(rec.Book_Url || rec.book_url || rec["book url"] || "").trim();
-  return url || ""; // exact from file; no reconstruction or search
+  return url || "";
 }
 
 /* ====== Render + paging ====== */
