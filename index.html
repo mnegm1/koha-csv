@@ -3,39 +3,38 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Koha TSV Search — File-Only • Strict Full-Name Author • AR/EN</title>
+<title>Koha CSV Search — File-Only URLs • Strict Author</title>
 <style>
   :root{
     --brand:#BF9849; --brandText:#fff;
     --logo-url:url("https://assets.almanhal.com/platform/shared/Product/ECSSR/middlelogo.png");
     --logo-size:130%; --fab-size:56px;
-    --box-width:520px; --box-max-h:72vh;
+    --box-width:540px; --box-max-h:72vh;
   }
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;margin:0;padding:2rem}
   .fab-wrap{position:fixed; right:18px; bottom:18px; z-index:9999; width:var(--fab-size); height:calc(var(--fab-size)+36px)}
   .fab-label{position:absolute; left:50%; bottom:calc(var(--fab-size)+4px); transform:translateX(-50%);
-    width:calc(var(--fab-size)+36px); height:34px; pointer-events:none;
-    filter:drop-shadow(0 1px 0 rgba(255,255,255,.65))}
+    width:calc(var(--fab-size)+36px); height:34px; pointer-events:none; filter:drop-shadow(0 1px 0 rgba(255,255,255,.65))}
   .fab-label text{ fill:var(--brand); font-weight:700; font-size:12px; letter-spacing:.5px }
   .fab{position:absolute; left:0; bottom:0; width:var(--fab-size); height:var(--fab-size);
-    background:#fff var(--logo-url) center/var(--logo-size) no-repeat; border:4px solid #BF9849;
+    background:#fff var(--logo-url) center/var(--logo-size) no-repeat; border:4px solid var(--brand);
     border-radius:50%; cursor:pointer; box-shadow:0 8px 20px rgba(0,0,0,.25)}
   .box{position:fixed; right:18px; bottom:calc(18px + var(--fab-size) + 12px);
     width:min(var(--box-width),94vw); max-height:var(--box-max-h);
     background:#fff; border-radius:14px; border:1px solid #e8eef3;
     box-shadow:0 16px 40px rgba(0,0,0,.25); display:none; flex-direction:column; overflow:hidden; z-index:9999}
-  .head{background:#BF9849;color:#fff;padding:10px 14px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+  .head{background:var(--brand);color:var(--brandText);padding:10px 14px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
   .status{font-size:12px;opacity:.85;padding:8px 12px;background:#fafafa;border-bottom:1px solid #e8eef3}
   .body{padding:10px;overflow:auto;max-height:calc(var(--box-max-h) - 172px);font-size:14px}
   .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0}
   .meta{opacity:.85;font-size:12px;margin-top:6px}
   .input{display:flex;gap:8px;padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
   .input input{flex:1;padding:10px;border-radius:10px;border:1px solid #cfd9e3}
-  .input button{background:#BF9849;color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600}
-  .btn{flex:0 0 auto;background:#BF9849;color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
+  .input button{background:var(--brand);color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600}
+  .btn{flex:0 0 auto;background:var(--brand);color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
   .btn[disabled]{opacity:.5; cursor:not-allowed}
   .more-row{display:flex;justify-content:center;margin-top:6px}
-  .more-row button{background:#BF9849;color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:700;cursor:pointer}
+  .more-row button{background:var(--brand);color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:700;cursor:pointer}
   .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px}
 </style>
 </head>
@@ -61,11 +60,12 @@
   </div>
 
 <script>
-/* ====== CONFIG ====== */
-const DATA_URL  = "/koha-csv/opac-catalog.tab"; // UTF-8; TAB or |
+/* ====== CONFIG (Option A) ====== */
+/* Point this to your Koha CSV report output (with book_url already built). */
+const DATA_URL  = "/data/opac-export.csv";
 const PAGE_SIZE = 12;
 
-/* ====== Errors ====== */
+/* ====== Error banner ====== */
 addEventListener("error", e => banner("JS error: " + (e.message||e)));
 addEventListener("unhandledrejection", e => banner("Promise error: " + (e.reason?.message||e.reason)));
 function banner(msg){
@@ -87,7 +87,6 @@ closeBtn.onclick=()=>{ box.style.display="none"; };
 /* ====== Arabic normalization ====== */
 function stripBidi(s){ return String(s||"").replace(/[\u200E\u200F\u202A-\u202E]/g,""); }
 function clean(s){ return stripBidi(String(s||"").replace(/^\uFEFF/,"")); }
-/* underscores → spaces so full_title becomes "full title" etc. */
 function canonHeader(h){ return clean(h).toLowerCase().replace(/[_\s]+/g," ").trim(); }
 function norm(s){
   if(!s) return "";
@@ -103,68 +102,47 @@ function norm(s){
     .replace(/\s+/g," ").trim();
   return s;
 }
-function normForPhrase(s){ return norm(s).replace(/[،,;]/g," ").replace(/\s+/g," ").trim(); }
 function isArabic(s){ return /[\u0600-\u06FF]/.test(s||""); }
 
-/* ====== Robust CSV/TSV parser (handles quotes + newlines for ANY delimiter) ====== */
-function parseTSV(text){
-  text = clean(String(text||"")).replace(/\r\n|\r/g, "\n");
-  if(!text.trim()) return {headers:[], rows:[], delim:"\t"};
+/* ====== Robust CSV parser (commas/semicolons with quotes+newlines) ====== */
+function parseCSV(text){
+  text = clean(String(text||"")).replace(/\r\n|\r/g,"\n");
+  if(!text.trim()) return {headers:[], rows:[], delim:","};
 
-  // Detect delimiter (prefer TAB if present)
-  const firstNL   = text.indexOf("\n");
-  const headerRaw = firstNL>=0 ? text.slice(0,firstNL) : text;
-  const DELIM =
-    headerRaw.includes("\t") ? "\t" :
-    headerRaw.includes("|")  ? "|"  :
-    headerRaw.includes(";")  ? ";"  : ",";
+  const headerLine = text.slice(0, text.indexOf("\n")) || text;
+  // Detect delimiter (prefer comma; use semicolon if commas are rare)
+  const comma = (headerLine.match(/,/g)||[]).length;
+  const semi  = (headerLine.match(/;/g)||[]).length;
+  const DELIM = comma>=semi ? "," : ";";
 
-  // Generic CSV-style parsing with quoting for ALL delimiters
   const rows=[]; let field="", row=[], inQuotes=false;
   for(let i=0;i<text.length;i++){
     const ch=text[i];
     if(inQuotes){
       if(ch==='\"'){
-        if(i+1<text.length && text[i+1]==='\"'){ field+='\"'; i++; } // escaped quote
+        if(i+1<text.length && text[i+1]==='\"'){ field+='\"'; i++; }
         else { inQuotes=false; }
-      }else{
-        field+=ch;
-      }
-    }else{
+      } else { field+=ch; }
+    } else {
       if(ch==='\"'){ inQuotes=true; }
       else if(ch===DELIM){ row.push(field); field=""; }
       else if(ch==='\n'){ row.push(field); rows.push(row); row=[]; field=""; }
-      else{ field+=ch; }
+      else { field+=ch; }
     }
   }
   row.push(field); if(row.length && (row.length>1 || row[0]!=="" )) rows.push(row);
 
-  if(!rows.length) return {headers:[], rows:[], delim:DELIM};
-
-  // Headers
-  const headers = rows[0].map(canonHeader);
-
-  // Normalize row lengths: pad short, merge extra into last column
+  const headers = (rows.shift()||[]).map(canonHeader);
   const out=[];
-  for(let r=1;r<rows.length;r++){
-    let cols = rows[r];
-    if(cols.length < headers.length){
-      cols = cols.concat(Array(headers.length - cols.length).fill(""));
-    }else if(cols.length > headers.length){
-      const fixed = cols.slice(0, headers.length-1);
-      fixed.push(cols.slice(headers.length-1).join(DELIM));
-      cols = fixed;
-    }
+  for(const cols of rows){
     const rec={};
-    for(let c=0;c<headers.length;c++){
-      rec[headers[c]] = clean(cols[c] ?? "");
-    }
+    for(let c=0;c<headers.length;c++) rec[headers[c]] = clean(cols[c] ?? "");
     out.push(rec);
   }
   return {headers, rows:out, delim:DELIM};
 }
 
-/* ====== Header aliases (Author + Other Author + subject1..3) ====== */
+/* ====== Header mapping (CSV report) ====== */
 function pick(obj, keys){
   for(const k of keys){
     const kk=canonHeader(k);
@@ -173,52 +151,28 @@ function pick(obj, keys){
   return "";
 }
 function mapRecord(k){
-  const title   = pick(k, ["full title","title","العنوان","عنوان","اسم الكتاب"]);
-  const author  = pick(k, ["author","authors","المؤلف","المؤلفون","كاتب","بقلم","اسم المؤلف"]);
-  const otherAu = pick(k, [
-    "other author","other authors","other_author","other_authors",
-    "contributors","additional authors","co-author","co authors",
-    "onther author","onther_author",
-    "المؤلف الآخر","مؤلف مشارك","المؤلفون المشاركون","المشاركون"
-  ]);
-  const summary = pick(k, ["abstract","summary","الملخص","نبذة","وصف"]);
-  const content = pick(k, ["content","contents","المحتويات","المحتوى","نص"]);
-
-  let subject = pick(k, ["subjects","subject","topic","topics","الموضوعات","الموضوع","موضوع","التخصص","الكلمات المفتاحية"]);
-  if(!subject){
-    const parts=[];
-    for(const key in k){
-      const kk=canonHeader(key);
-      if(/^subject\d*$/.test(kk) && k[key]) parts.push(clean(k[key]));
-    }
-    subject = parts.join(" ؛ ");
-  }
-
-  const pubdat  = pick(k, ["publications data","publication data","publishing data","publisher data","publications_data","بيانات النشر","تاريخ النشر","سنة النشر"]);
-  const bookUrl = pick(k, ["book_url","book url","book url ","bookurl","رابط الكتاب","رابط_الكتاب","link","url"]);
-  let year = pick(k, ["year","السنة","سنة النشر","تاريخ"]);
-  if(!year){
-    const ym = String(pubdat).match(/(19|20)\d{2}/);
-    year = ym ? ym[0] : "";
-  }
-  const publisher = pubdat ? String(pubdat).replace(/\b(19|20)\d{2}\b/g,"").replace(/\s*[،,:-]\s*$/,"").trim() : "";
-  return {title, author, other_author: otherAu, summary, content, subject, publisher, year, Book_Url:bookUrl};
+  const title   = pick(k, ["full title","title","العنوان"]);
+  const author  = pick(k, ["author","المؤلف"]);
+  const otherAu = pick(k, ["other authors","other author","other_authors","المؤلفون المشاركون","مؤلف مشارك"]);
+  const subjects= pick(k, ["subjects","subject","الموضوعات","الموضوع"]);
+  const abstract= pick(k, ["abstract","summary","الملخص"]);
+  const content = pick(k, ["content","contents","المحتويات"]);
+  const pubdata = pick(k, ["publications data","publications_data","بيانات النشر"]);
+  const year    = pick(k, ["year","السنة","سنة النشر"]);
+  const bookURL = pick(k, ["book url","book_url","url","الرابط"]);
+  const publisher = pubdata ? String(pubdata).replace(/\b(19|20)\d{2}\b/g,"").replace(/\s*[،,:-]\s*$/,"").trim() : "";
+  return {title, author, other_author:otherAu, subjects, summary:abstract, content, publisher, year, Book_Url:bookURL};
 }
 
 /* ====== Build index ====== */
-let INDEX=[]; let HEADERS=[];
+let INDEX=[];
 async function ensureLoaded(){
   try{
-    // HARD CACHE BUST + no-store to avoid CDN/browser caches
-    const ts = Date.now();
+    const ts=Date.now();
     const resp = await fetch(`${DATA_URL}?ts=${ts}`, {cache:"no-store"});
     if(!resp.ok) throw new Error(`Fetch ${resp.status} ${resp.statusText}`);
-    const buf = await resp.arrayBuffer();
-    const bytes = buf.byteLength;
-    const text = new TextDecoder("utf-8",{fatal:false}).decode(buf);
-
-    const parsed = parseTSV(text);
-    HEADERS = parsed.headers;
+    const text = await resp.text();
+    const parsed = parseCSV(text);
     const recs = parsed.rows.map(mapRecord);
 
     INDEX = recs.map((r,i)=>{
@@ -227,23 +181,22 @@ async function ensureLoaded(){
         id:i, raw:r,
         nTitle:norm(r.title),
         nAuthorAll:norm(authorAll),
-        nAuthorAllPhrase:normForPhrase(authorAll),
         nSummary:norm(r.summary), nContent:norm(r.content),
-        nSubject:norm(r.subject), nPub:norm(r.publisher||""),
+        nSubjects:norm(r.subjects), nPub:norm(r.publisher||""),
         nYear:norm(r.year||""),
       };
     });
 
-    const delimLabel = parsed.delim==="\t" ? "TAB" : parsed.delim;
-    // DEBUG INFO so we can verify the loaded file
-    STATUS.textContent = `Loaded ${INDEX.length} records • bytes ${bytes.toLocaleString()} • delimiter “${delimLabel}” • headers: ${HEADERS.join(" | ")}`;
+    const delimLabel = parsed.delim === "," ? "COMMA" : "SEMICOLON";
+    document.getElementById("status").textContent =
+      `Loaded ${INDEX.length} records • delimiter “${delimLabel}” • headers: ${parsed.headers.join(" | ")}`;
   }catch(e){
-    STATUS.textContent = `Load error: ${e.message}`;
+    document.getElementById("status").textContent = `Load error: ${e.message}`;
     banner(e?.message||String(e));
   }
 }
 
-/* ====== Author matching (STRICT: ALL tokens) ====== */
+/* ====== Author matching (strict) ====== */
 const NAME_STOPWORDS = new Set([
   "بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال",
   "الشيخ","شيخ","الدكتور","دكتور","الأستاذ","استاذ",
@@ -271,59 +224,45 @@ function looksLikeName(q){
 function chooseField(q){
   if(looksLikeYear(q)) return "year";
   if(looksLikeName(q)) return "author";
+  // heuristic: if query appears in many titles/subjects, we’ll hit both
   return "title";
 }
 
 /* ====== Search ====== */
-let MATCH_NOTE = "";
+let MATCH_NOTE="";
 function searchField(field,q){
   const nq = norm(q);
-  const out = [];
+  const out=[];
 
   for (const r of INDEX){
     let hit=false, sc=0;
 
-    if (field === "author"){
+    if (field==="author"){
       const tokens = tokenizeQuery(q);
       const main  = norm(r.raw.author || "");
       const other = norm(r.raw.other_author || "");
       const both  = r.nAuthorAll || "";
       if (tokens.length >= 2){
-        const matchMain  = containsAllTokens(main,  tokens);
-        const matchOther = containsAllTokens(other, tokens);
-        const matchBoth  = containsAllTokens(both,  tokens);
-        if (matchMain || matchOther || matchBoth){
-          sc = 100 + tokens.length;
-          hit = true;
-          MATCH_NOTE = "Strict full-name match (Author + Other Author)";
-        }
+        const ok = containsAllTokens(main,tokens) || containsAllTokens(other,tokens) || containsAllTokens(both,tokens);
+        if (ok){ sc = 100 + tokens.length; hit=true; MATCH_NOTE="Strict full-name match (Author + Other Author)"; }
       } else {
         const tok = tokens[0] || nq;
-        if (tok && (main.includes(tok) || other.includes(tok))){
-          sc = 85; hit = true; MATCH_NOTE = "Single name part matched";
-        }
+        if (tok && (main.includes(tok) || other.includes(tok))){ sc=85; hit=true; MATCH_NOTE="Single name part matched"; }
       }
-    } else if (field === "title"){
+    } else if (field==="title"){
       if (r.nTitle.includes(nq)) { sc=80; hit=true; }
-    } else if (field === "subject"){
-      if (r.nSubject.includes(nq)) { sc=70; hit=true; }
-    } else if (field === "summary"){
-      if (r.nSummary && r.nSummary.includes(nq)) { sc=60; hit=true; }
-      else if (r.nContent && r.nContent.includes(nq)) { sc=58; hit=true; }
-    } else if (field === "year"){
+      if (!hit && r.nSubjects.includes(nq)) { sc=70; hit=true; } // fall to subjects if title misses
+    } else if (field==="year"){
       if (r.nYear.includes(nq)) { sc=60; hit=true; }
-    } else if (field === "pub"){
-      if (r.nPub.includes(nq)) { sc=50; hit=true; }
     }
 
     if (hit) out.push({sc, raw:r.raw});
   }
-
   out.sort((a,b)=>b.sc-a.sc);
   return out;
 }
 
-/* ====== Record URL: file-only ====== */
+/* ====== Record URL (file-only) ====== */
 function recordURLFromFile(rec){
   const url = String(rec.Book_Url || rec.book_url || rec["book url"] || "").trim();
   return url || "";
@@ -338,7 +277,7 @@ function renderChunk(items){
   for(const it of items){
     const r=it.raw, div=document.createElement("div");
     div.className="row";
-    div.dir = /[\u0600-\u06FF]/.test((r.title||"")+(r.summary||"")+(r.author||"")+(r.other_author||"")+(r.subject||"")+(r.publisher||"")) ? "rtl" : "ltr";
+    div.dir = /[\u0600-\u06FF]/.test((r.title||"")+(r.summary||"")+(r.author||"")+(r.other_author||"")+(r.subjects||"")+(r.publisher||"")) ? "rtl" : "ltr";
     const openUrl = recordURLFromFile(r);
     const pubLine = [r.publisher, r.year].filter(Boolean).join(" • ");
 
@@ -356,7 +295,7 @@ function renderChunk(items){
        </div>` +
       (r.author?       `<div class="meta">${isArabic(r.author)?'المؤلف: ':'Author: '}${r.author}</div>` : "") +
       (r.other_author? `<div class="meta">${isArabic(r.other_author)?'مؤلف مشارك: ':'Other author: '}${r.other_author}</div>` : "") +
-      (r.subject?      `<div class="meta">${isArabic(r.subject)?'الموضوع: ':'Subject: '}${r.subject}</div>` : "") +
+      (r.subjects?     `<div class="meta">${isArabic(r.subjects)?'الموضوعات: ':'Subjects: '}${r.subjects}</div>` : "") +
       (pubLine?        `<div class="meta">${pubLine}</div>` : "") +
       (r.summary?      `<div style="margin-top:6px">${r.summary.length>360? r.summary.slice(0,357)+'…' : r.summary}</div>` : "");
     frag.appendChild(div);
@@ -379,7 +318,7 @@ function addShowMoreIfNeeded(){
 }
 function renderAll(list, field){
   clearResults();
-  const labelAR = {author:"المؤلف + مؤلف مشارك", title:"العنوان", subject:"الموضوع", summary:"الملخص", year:"سنة النشر", pub:"الناشر"}[field] || field;
+  const labelAR = {author:"المؤلف + مؤلف مشارك", title:"العنوان / الموضوعات", year:"سنة النشر"}[field] || field;
   const note=document.createElement("div"); note.className="meta";
   const extra = (field==="author" && MATCH_NOTE) ? " • " + MATCH_NOTE : "";
   note.textContent=`Searching field only: ${labelAR}${extra}`;
