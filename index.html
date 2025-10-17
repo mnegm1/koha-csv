@@ -1,34 +1,35 @@
 <!DOCTYPE html>
 <html lang="ar" dir="auto">
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Koha JSON Search — File Only</title>
-<style>
-  :root{ --brand:#BF9849; --brandText:#fff; --box-w:760px; --box-h:72vh; }
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;margin:0;padding:2rem}
-  .wrap{max-width:var(--box-w);margin:auto;background:#fff;border:1px solid #e8eef3;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.15);overflow:hidden}
-  .head{background:var(--brand);color:var(--brandText);padding:12px 16px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
-  .status{font-size:12px;opacity:.9;padding:8px 12px;background:#fafafa;border-bottom:1px solid #e8eef3}
-  .controls{display:flex;gap:8px;align-items:center;padding:10px;background:#fafafa;border-bottom:1px solid #e8eef3;flex-wrap:wrap}
-  .controls input[type="text"]{flex:1;min-width:240px;padding:10px;border:1px solid #cfd9e3;border-radius:10px}
-  .controls select{padding:9px;border:1px solid #cfd9e3;border-radius:10px;background:#fff}
-  .controls button{background:var(--brand);color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600}
-  .body{padding:10px;max-height:var(--box-h);overflow:auto}
-  .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0}
-  .meta{opacity:.85;font-size:12px;margin-top:6px}
-  .btn{background:var(--brand);color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
-  .btn[disabled]{opacity:.5;cursor:not-allowed}
-  .more{display:flex;justify-content:center;margin:10px 0}
-  .more button{background:var(--brand);color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:700;cursor:pointer}
-</style>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Koha JSON Search — File Only</title>
+  <style>
+    :root{ --brand:#BF9849; --brandText:#fff; --w: 860px; --h: 76vh; }
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;margin:0;padding:2rem}
+    .wrap{max-width:var(--w);margin:auto;background:#fff;border:1px solid #e8eef3;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.15);overflow:hidden}
+    .head{background:var(--brand);color:var(--brandText);padding:12px 16px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
+    .status{font-size:12px;opacity:.9;padding:8px 12px;background:#fafafa;border-bottom:1px solid #e8eef3}
+    .controls{display:flex;gap:8px;align-items:center;padding:10px;background:#fafafa;border-bottom:1px solid #e8eef3;flex-wrap:wrap}
+    .controls input[type="text"]{flex:1;min-width:240px;padding:10px;border:1px solid #cfd9e3;border-radius:10px}
+    .controls select{padding:9px;border:1px solid #cfd9e3;border-radius:10px;background:#fff}
+    .controls button{background:var(--brand);color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600}
+    .body{padding:10px;max-height:var(--h);overflow:auto}
+    .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0}
+    .meta{opacity:.85;font-size:12px;margin-top:6px}
+    .btn{background:var(--brand);color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
+    .btn[disabled]{opacity:.5;cursor:not-allowed}
+    .more{display:flex;justify-content:center;margin:10px 0}
+    .more button{background:var(--brand);color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:700;cursor:pointer}
+    .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px;margin:10px;border-radius:10px}
+  </style>
 </head>
 <body>
 
 <div class="wrap">
   <div class="head">
-    <div>AI Assistant</div>
-    <div id="close" style="opacity:.85;cursor:pointer">×</div>
+    <div>Koha Search (JSON)</div>
+    <div style="opacity:.85">File-only • AR/EN</div>
   </div>
 
   <div class="status" id="status">Loading…</div>
@@ -41,6 +42,7 @@
       <option value="title">العنوان</option>
       <option value="subjects">الموضوعات</option>
       <option value="summary">الملخص</option>
+      <option value="year">السنة</option>
       <option value="all">الكل</option>
     </select>
     <button id="go">Search</button>
@@ -50,10 +52,13 @@
 </div>
 
 <script>
-const DATA_URL  = "./opac-export.json"; // same folder as this HTML
+/* ========= CONFIG (edit this if your JSON is in a subfolder) ========= */
+const DATA_URL  = "./opac-export.json";  // e.g. "./data/opac-export.json"
 const PAGE_SIZE = 12;
+/* To bust cache after replacing the JSON, you can do:
+   const DATA_URL = "./opac-export.json?v=2025-10-17"; */
 
-/* --- helpers --- */
+/* ========= Helpers ========= */
 function isAR(s){ return /[\u0600-\u06FF]/.test(s||""); }
 function clean(s){ return String(s||"").replace(/^\uFEFF/,""); }
 function norm(s){
@@ -62,20 +67,21 @@ function norm(s){
   try{s = s.normalize("NFKD");}catch{}
   return s
     .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ة/g,"ه").replace(/ک/g,"ك")
-    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
+    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"") // Arabic diacritics/tatweel
     .replace(/[^\p{L}\p{N}\s]/gu," ")
     .replace(/\s+/g," ").trim();
 }
 function extYear(s){ const m=String(s||"").match(/\b(19|20)\d{2}\b/); return m?m[0]:""; }
 
-/* --- load JSON --- */
+/* ========= Load JSON ========= */
 let INDEX=[], RAW=[];
 async function ensureLoaded(){
   try{
     const r = await fetch(DATA_URL, {cache:"no-store"});
-    if(!r.ok) throw new Error(`Fetch ${r.status}`);
+    if(!r.ok) throw new Error(`Fetch ${r.status} • Check DATA_URL/path/case`);
     RAW = await r.json();
 
+    // Map known headers from your export
     const recs = RAW.map(x=>{
       const title   = x["Full Title"] || x["full title"] || x["Title"] || "";
       const author  = x["Author"] || x["author"] || "";
@@ -92,21 +98,25 @@ async function ensureLoaded(){
 
     INDEX = recs.map((r,i)=>({
       id:i, raw:r,
-      nt:norm(r.title), na:norm([r.author,r.other].filter(Boolean).join(" ")),
+      nt:norm(r.title),                    // title
+      na:norm([r.author,r.other].join(" ")),// author + other
       ns:norm(r.summary), nc:norm(r.content),
       nsub:norm(r.subjects), np:norm(r.publisher), ny:norm(r.year)
     }));
 
-    document.getElementById("status").textContent = `Loaded ${INDEX.length} records • source: JSON`;
+    document.getElementById("status").textContent =
+      `Loaded ${INDEX.length} records • source: JSON • path: ${DATA_URL}`;
   }catch(e){
-    document.getElementById("status").textContent = "Load error: " + e.message;
+    document.getElementById("status").innerHTML =
+      `<div class="error">Load error: ${e.message}<br>Tip: Keep <code>index.html</code> and <code>opac-export.json</code> in the same folder, or fix DATA_URL.</div>`;
   }
 }
 
-/* --- search --- */
+/* ========= Search ========= */
 function looksLikeYear(q){ return /^\d{4}$/.test(q.trim()); }
 function chooseFieldAuto(q){
   const nq=norm(q); if(looksLikeYear(q)) return "year";
+  // light vote over sample for speed
   let votes={title:0,author:0,subjects:0,summary:0};
   for(let i=0;i<Math.min(1000,INDEX.length);i++){
     const r=INDEX[i];
@@ -115,7 +125,7 @@ function chooseFieldAuto(q){
     if(r.nsub.includes(nq)) votes.subjects++;
     if(r.ns.includes(nq)||r.nc.includes(nq)) votes.summary++;
   }
-  const order=["author","title","subjects","summary"];
+  const order=["author","title","subjects","summary"]; // tie-break
   let best="title",max=-1; for(const k of order){ if(votes[k]>max){max=votes[k];best=k;} }
   return best;
 }
@@ -134,14 +144,16 @@ function searchNow(){
     else if(field==="subjects"){ if(r.nsub.includes(nq)){hit=true;sc=80;} }
     else if(field==="summary"){ if(r.ns.includes(nq)||r.nc.includes(nq)){hit=true;sc=70;} }
     else if(field==="year"){ if(r.ny.includes(nq)){hit=true;sc=60;} }
-    else { if(r.nt.includes(nq)||r.na.includes(nq)||r.nsub.includes(nq)||r.ns.includes(nq)||r.nc.includes(nq)){hit=true;sc=50;} }
+    else { // all
+      if(r.nt.includes(nq)||r.na.includes(nq)||r.nsub.includes(nq)||r.ns.includes(nq)||r.nc.includes(nq)){hit=true;sc=50;}
+    }
     if(hit) out.push({sc, raw:r.raw});
   }
   out.sort((a,b)=>b.sc-a.sc);
   renderAll(out, field);
 }
 
-/* --- render --- */
+/* ========= Render ========= */
 const B=document.getElementById("body");
 function clearResults(){ while(B.firstChild) B.removeChild(B.firstChild); }
 function renderChunk(items){
@@ -192,10 +204,9 @@ function renderAll(list, field){
   addMoreIfNeeded();
 }
 
-/* --- events & start --- */
+/* ========= Events & start ========= */
 document.getElementById("go").onclick = searchNow;
 document.getElementById("q").addEventListener("keydown", e=>{ if(e.key==="Enter") searchNow(); });
-document.getElementById("close").onclick = ()=>{};
 ensureLoaded();
 </script>
 </body>
