@@ -1,384 +1,80 @@
 <!DOCTYPE html>
 <html lang="ar" dir="auto">
-<head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Koha CSV Search — File-Only URLs • Strict Author</title>
+<meta charset="UTF-8">
+<title>CSV Diagnostic (Semicolon + Arabic)</title>
 <style>
-  :root{
-    --brand:#BF9849; --brandText:#fff;
-    --logo-url:url("https://assets.almanhal.com/platform/shared/Product/ECSSR/middlelogo.png");
-    --logo-size:130%; --fab-size:56px;
-    --box-width:540px; --box-max-h:72vh;
-  }
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;margin:0;padding:2rem}
-  .fab-wrap{position:fixed; right:18px; bottom:18px; z-index:9999; width:var(--fab-size); height:calc(var(--fab-size)+36px)}
-  .fab-label{position:absolute; left:50%; bottom:calc(var(--fab-size)+4px); transform:translateX(-50%);
-    width:calc(var(--fab-size)+36px); height:34px; pointer-events:none; filter:drop-shadow(0 1px 0 rgba(255,255,255,.65))}
-  .fab-label text{ fill:var(--brand); font-weight:700; font-size:12px; letter-spacing:.5px }
-  .fab{position:absolute; left:0; bottom:0; width:var(--fab-size); height:var(--fab-size);
-    background:#fff var(--logo-url) center/var(--logo-size) no-repeat; border:4px solid var(--brand);
-    border-radius:50%; cursor:pointer; box-shadow:0 8px 20px rgba(0,0,0,.25)}
-  .box{position:fixed; right:18px; bottom:calc(18px + var(--fab-size) + 12px);
-    width:min(var(--box-width),94vw); max-height:var(--box-max-h);
-    background:#fff; border-radius:14px; border:1px solid #e8eef3;
-    box-shadow:0 16px 40px rgba(0,0,0,.25); display:none; flex-direction:column; overflow:hidden; z-index:9999}
-  .head{background:var(--brand);color:var(--brandText);padding:10px 14px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
-  .status{font-size:12px;opacity:.85;padding:8px 12px;background:#fafafa;border-bottom:1px solid #e8eef3}
-  .body{padding:10px;overflow:auto;max-height:calc(var(--box-max-h) - 172px);font-size:14px}
-  .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0}
-  .meta{opacity:.85;font-size:12px;margin-top:6px}
-  .input{display:flex;gap:8px;padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
-  .input input{flex:1;padding:10px;border-radius:10px;border:1px solid #cfd9e3}
-  .input button{background:var(--brand);color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600}
-  .btn{flex:0 0 auto;background:var(--brand);color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
-  .btn[disabled]{opacity:.5; cursor:not-allowed}
-  .more-row{display:flex;justify-content:center;margin-top:6px}
-  .more-row button{background:var(--brand);color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:700;cursor:pointer}
-  .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px}
+  body{font-family:system-ui,Segoe UI,Arial;padding:2rem}
+  .box{max-width:800px;margin:auto}
+  .log{white-space:pre-wrap;background:#f6f9fc;border:1px solid #e7edf4;border-radius:8px;padding:10px}
+  input[type="file"]{display:none}
+  label{background:#BF9849;color:#fff;padding:8px 12px;border-radius:8px;cursor:pointer;font-weight:600}
+  table{border-collapse:collapse;margin-top:12px;width:100%}
+  td,th{border:1px solid #ddd;padding:6px}
 </style>
-</head>
-<body>
-  <div class="fab-wrap">
-    <svg class="fab-label" viewBox="0 0 120 40"><defs><path id="ka-arc" d="M 10,34 A 50,50 0 0 1 110,34"/></defs>
-      <text text-anchor="middle"><textPath href="#ka-arc" startOffset="50%">AI Assist</textPath></text>
-    </svg>
-    <button class="fab" aria-label="AI Assistant" id="fab"></button>
-  </div>
-
-  <div class="box" id="box">
-    <div class="head">
-      <div>AI Assistant</div>
-      <button id="x" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer" title="Close">×</button>
-    </div>
-    <div class="status" id="status">Loading…</div>
-    <div class="body" id="body"></div>
-    <div class="input">
-      <input id="q" type="text" placeholder="اكتب: اسم مؤلف / عنوان / موضوع / سنة (مثال: 2019)" dir="auto">
-      <button id="go">Search</button>
-    </div>
-  </div>
-
+<div class="box">
+  <h2>CSV Diagnostic</h2>
+  <p>Click the button and choose <code>opac-export.csv</code> from your computer.</p>
+  <label for="file">Load CSV file</label>
+  <input id="file" type="file" accept=".csv,text/csv">
+  <div id="out" class="log">Waiting…</div>
+  <div id="table"></div>
+</div>
 <script>
-/* ====== CONFIG (your CSV) ====== */
-/* Update this path to where your CSV is hosted. */
-const DATA_URL  = "/data/opac-export.csv";
-const PAGE_SIZE = 12;
-
-/* ====== Errors ====== */
-addEventListener("error", e => banner("JS error: " + (e.message||e)));
-addEventListener("unhandledrejection", e => banner("Promise error: " + (e.reason?.message||e.reason)));
-function banner(msg){
-  let el=document.getElementById("top-error");
-  if(!el){ el=document.createElement("div"); el.id="top-error"; el.className="error"; document.body.prepend(el); }
-  el.textContent = String(msg||"Unknown error");
+// --- encoding fixer ---
+function decodeBest(buf){
+  const candidates = ["utf-8","windows-1256","windows-1252","iso-8859-6"];
+  const decs = candidates.map(enc=>{
+    try{ return [enc, new TextDecoder(enc,{fatal:false}).decode(buf)] }catch{ return null }
+  }).filter(Boolean);
+  const score = s=>{
+    const arab = (s.match(/[\u0600-\u06FF]/g)||[]).length;
+    const moj  = (s.match(/[ØÙÃÂ]/g)||[]).length + ((s.match(/[ØÙÃÂ]{2,}/g)||[]).length*10);
+    const repl = (s.match(/\uFFFD/g)||[]).length*5;
+    return arab - moj - repl;
+  };
+  let best=decs[0], bestScore=-1e9;
+  for(const d of decs){ const sc=score(d[1]); if(sc>bestScore){best=d;bestScore=sc;} }
+  return {encoding:best[0], text:best[1]};
 }
-
-/* ====== UI ====== */
-const fab=document.getElementById("fab");
-const box=document.getElementById("box");
-const closeBtn=document.getElementById("x");
-const B=document.getElementById("body");
-const STATUS=document.getElementById("status");
-const Q=document.getElementById("q");
-fab.onclick=()=>{ box.style.display = (box.style.display==="flex"?"none":"flex"); if(box.style.display==="flex") setTimeout(()=>Q.focus(),50); };
-closeBtn.onclick=()=>{ box.style.display="none"; };
-
-/* ====== Arabic normalization ====== */
-function stripBidi(s){ return String(s||"").replace(/[\u200E\u200F\u202A-\u202E]/g,""); }
-function clean(s){ return stripBidi(String(s||"").replace(/^\uFEFF/,"")); }
-function canonHeader(h){ return clean(h).toLowerCase().replace(/[_\s]+/g," ").trim(); }
-function norm(s){
-  if(!s) return "";
-  s = clean(s).toLowerCase();
-  try{s=s.normalize("NFKD");}catch(e){}
-  s = s
-    .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ة/g,"ه").replace(/ک/g,"ك")
-    .replace(/\bعبد\s+ال/g,"عبدال")
-    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
-    .replace(/[\u0660-\u0669]/g,d=>d.charCodeAt(0)-0x0660)
-    .replace(/[\u06F0-\u06F9]/g,d=>d.charCodeAt(0)-0x06F0)
-    .replace(/[^\p{L}\p{N}\s]/gu," ")
-    .replace(/\s+/g," ").trim();
-  return s;
-}
-function isArabic(s){ return /[\u0600-\u06FF]/.test(s||""); }
-
-/* ====== CSV (semicolon) with quotes/newlines ====== */
+// --- semicolon CSV parser with quotes/newlines ---
 function parseCSV(text){
-  text = clean(String(text||"")).replace(/\r\n|\r/g,"\n");
-  if(!text.trim()) return {headers:[], rows:[], delim:";"};
-
-  const DELIM = ";"; // your file is semicolon-delimited
-  const rows=[]; let field="", row=[], inQuotes=false;
+  const DELIM=';';
+  const rows=[]; let field="", row=[], inQ=false;
   for(let i=0;i<text.length;i++){
     const ch=text[i];
-    if(inQuotes){
-      if(ch==='\"'){
-        if(i+1<text.length && text[i+1]==='\"'){ field+='\"'; i++; } // escaped quote
-        else { inQuotes=false; }
-      } else { field+=ch; }
-    } else {
-      if(ch==='\"'){ inQuotes=true; }
-      else if(ch===DELIM){ row.push(field); field=""; }
-      else if(ch==='\n'){ row.push(field); rows.push(row); row=[]; field=""; }
-      else { field+=ch; }
+    if(inQ){
+      if(ch=='"'){ if(i+1<text.length && text[i+1]=='"'){ field+='"'; i++; } else inQ=false; }
+      else field+=ch;
+    }else{
+      if(ch=='"') inQ=true;
+      else if(ch==DELIM){ row.push(field); field=""; }
+      else if(ch=='\n'){ row.push(field); rows.push(row); row=[]; field=""; }
+      else field+=ch;
     }
   }
   row.push(field); if(row.length && (row.length>1 || row[0]!=="" )) rows.push(row);
-
-  const headers = (rows.shift()||[]).map(canonHeader);
-  const out=[];
-  for(const cols of rows){
-    // normalize to header length
-    const fixed = cols.length < headers.length
-      ? cols.concat(Array(headers.length - cols.length).fill(""))
-      : (cols.length > headers.length
-          ? cols.slice(0, headers.length-1).concat([cols.slice(headers.length-1).join(DELIM)])
-          : cols);
-    const rec={};
-    for(let c=0;c<headers.length;c++) rec[headers[c]] = clean(fixed[c] ?? "");
-    out.push(rec);
+  const headers = rows.shift()||[];
+  const out = rows.map(r=>{
+    const o={}; for(let i=0;i<headers.length;i++) o[headers[i]] = (r[i]||"").trim(); return o;
+  });
+  return {headers, rows:out};
+}
+const OUT = document.getElementById('out');
+const TBL = document.getElementById('table');
+document.getElementById('file').onchange = async e=>{
+  const f=e.target.files?.[0]; if(!f){OUT.textContent="No file.";return;}
+  const buf = await f.arrayBuffer();
+  const {encoding, text} = decodeBest(buf);
+  const parsed = parseCSV(text.replace(/\r\n|\r/g,"\n"));
+  OUT.textContent = `Loaded ${parsed.rows.length} rows • Detected encoding: ${encoding}\nHeaders: ${parsed.headers.join(' | ')}`;
+  // show first 3 rows
+  const head = parsed.headers;
+  const rows = parsed.rows.slice(0,3);
+  let html = '<table><thead><tr>'+head.map(h=>`<th>${h}</th>`).join('')+'</tr></thead><tbody>';
+  for(const r of rows){
+    html += '<tr>'+head.map(h=>`<td>${(r[h]||'').replace(/</g,'&lt;')}</td>`).join('')+'</tr>';
   }
-  return {headers, rows:out, delim:DELIM};
-}
-
-/* ====== Header mapping (matches your file) ====== */
-function pick(obj, keys){
-  for(const k of keys){
-    const kk=canonHeader(k);
-    if (Object.prototype.hasOwnProperty.call(obj, kk) && obj[kk]) return obj[kk];
-  }
-  return "";
-}
-function mapRecord(k){
-  // exact headers you have:
-  const title   = pick(k, ["full title"]);
-  const author  = pick(k, ["author"]);
-  const abstract= pick(k, ["abstract"]);
-  const pubdata = pick(k, ["publications data"]);
-  const content = pick(k, ["content"]);
-  const s1 = pick(k, ["subject1"]), s2 = pick(k, ["subject2"]), s3 = pick(k, ["subject3"]);
-  const subjects = [s1,s2,s3].filter(Boolean).join(" ؛ ");
-  const otherAu = pick(k, ["onther author","other authors","other author"]); // typo handled
-  const year    = pick(k, ["year"]);
-  const bookURL = pick(k, ["book url","book_url","book url ","bookurl","book_Url","book_Url","book url","book url","book url  ","book_url "]) || k["Book_Url"] || k["book_url"] || "";
-
-  const publisher = pubdata ? String(pubdata).replace(/\b(19|20)\d{2}\b/g,"").replace(/\s*[،,:-]\s*$/,"").trim() : "";
-  return {title, author, other_author:otherAu, subjects, summary:abstract, content, publisher, year, Book_Url:bookURL};
-}
-
-/* ====== Build index ====== */
-let INDEX=[];
-async function ensureLoaded(){
-  try{
-    const ts=Date.now();
-    const resp = await fetch(`${DATA_URL}?ts=${ts}`, {cache:"no-store"});
-    if(!resp.ok) throw new Error(`Fetch ${resp.status} ${resp.statusText}`);
-    const buf  = await resp.arrayBuffer();
-    const bytes= buf.byteLength;
-    const text = new TextDecoder("utf-8",{fatal:false}).decode(buf);
-    const parsed = parseCSV(text);
-    const recs   = parsed.rows.map(mapRecord);
-
-    INDEX = recs.map((r,i)=>{
-      const authorAll = [r.author, r.other_author].filter(Boolean).join(" ");
-      return {
-        id:i, raw:r,
-        nTitle:norm(r.title),
-        nAuthorAll:norm(authorAll),
-        nSummary:norm(r.summary), nContent:norm(r.content),
-        nSubjects:norm(r.subjects), nPub:norm(r.publisher||""),
-        nYear:norm(r.year||""),
-      };
-    });
-
-    STATUS.textContent =
-      `Loaded ${INDEX.length} records • bytes ${bytes.toLocaleString()} • delimiter “;” • headers: biblionumber | Full Title | Author | Abstract | Publications data | Content | Subject1 | Subject2 | Subject3 | Onther Author | Book_Url`;
-  }catch(e){
-    STATUS.textContent = `Load error: ${e.message}`;
-    banner(e?.message||String(e));
-  }
-}
-
-/* ====== Author matching (strict full-name across Author + Onther Author) ====== */
-const NAME_STOPWORDS = new Set([
-  "بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال",
-  "","","الدكتور","دكتور","الأستاذ","استاذ",
-  "د","م","","سعادة","معالي","","","",""
-]);
-function tokenizeQuery(raw){
-  const q = norm(raw);
-  if (!q) return [];
-  const toks = q.split(/\s+/).filter(t => t.length >= 2 && !/^\d+$/.test(t));
-  return toks.filter(t => !NAME_STOPWORDS.has(t));
-}
-function containsAllTokens(targetNorm, tokens){
-  if (!tokens.length) return false;
-  for (const t of tokens) if (!targetNorm.includes(t)) return false;
-  return true;
-}
-
-/* ====== Field choice ====== */
-function looksLikeYear(q){ return /^\d{4}$/.test(q.trim()); }
-function looksLikeName(q){
-  const s=q.trim(); if(!s||looksLikeYear(s)) return false;
-  const toks=s.split(/\s+/).filter(Boolean);
-  return toks.length>=2;
-}
-function chooseField(q){
-  if(looksLikeYear(q)) return "year";
-  if(looksLikeName(q)) return "author";
-  return "title";
-}
-
-/* ====== Search ====== */
-let MATCH_NOTE="";
-function searchField(field,q){
-  const nq = norm(q);
-  const out=[];
-
-  for (const r of INDEX){
-    let hit=false, sc=0;
-
-    if (field==="author"){
-      const tokens = tokenizeQuery(q);
-      const main  = norm(r.raw.author || "");
-      const other = norm(r.raw.other_author || "");
-      const both  = r.nAuthorAll || "";
-      if (tokens.length >= 2){
-        const ok = containsAllTokens(main,tokens) || containsAllTokens(other,tokens) || containsAllTokens(both,tokens);
-        if (ok){ sc = 100 + tokens.length; hit=true; MATCH_NOTE="Strict full-name match (Author + Other Author)"; }
-      } else {
-        const tok = tokens[0] || nq;
-        if (tok && (main.includes(tok) || other.includes(tok))){ sc=85; hit=true; MATCH_NOTE="Single name part matched"; }
-      }
-    } else if (field==="title"){
-      if (r.nTitle.includes(nq)) { sc=80; hit=true; }
-      if (!hit && r.nSubjects.includes(nq)) { sc=70; hit=true; } // also try subjects
-      if (!hit && r.nSummary.includes(nq))  { sc=60; hit=true; } // mild fallback
-    } else if (field==="year"){
-      if (r.nYear.includes(nq)) { sc=60; hit=true; }
-    }
-
-    if (hit) out.push({sc, raw:r.raw});
-  }
-  out.sort((a,b)=>b.sc-a.sc);
-  return out;
-}
-
-/* ====== Record URL (file-only) ====== */
-function recordURLFromFile(rec){
-  const url = String(rec.Book_Url || rec.book_url || rec["book url"] || "").trim();
-  return url || "";
-}
-
-/* ====== Render + paging ====== */
-let LAST={items:[],shown:0,field:""};
-function clearResults(){ while(B.firstChild) B.removeChild(B.firstChild); }
-function titleOrPlaceholder(t){ return (t && t.trim()) ? t : "(بدون عنوان)"; }
-function renderChunk(items){
-  const frag=document.createDocumentFragment();
-  for(const it of items){
-    const r=it.raw, div=document.createElement("div");
-    div.className="row";
-    div.dir = /[\u0600-\u06FF]/.test((r.title||"")+(r.summary||"")+(r.author||"")+(r.other_author||"")+(r.subjects||"")+(r.publisher||"")) ? "rtl" : "ltr";
-    const openUrl = recordURLFromFile(r);
-    const pubLine = [r.publisher, r.year].filter(Boolean).join(" • ");
-
-    const linkHTML = openUrl
-      ? `<a class="btn" href="${openUrl}" target="_blank" rel="noopener">Open record</a>`
-      : `<button class="btn" disabled title="لا يوجد رابط في الملف / No URL in file">Open record</button>`;
-
-    div.innerHTML =
-      `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
-         <b style="font-size:15px;line-height:1.3">${titleOrPlaceholder(r.title).replace(/</g,"&lt;")}</b>
-         ${linkHTML}
-       </div>` +
-      (r.author?       `<div class="meta">${isArabic(r.author)?'المؤلف: ':'Author: '}${r.author}</div>` : "") +
-      (r.other_author? `<div class="meta">${isArabic(r.other_author)?'مؤلف مشارك: ':'Other author: '}${r.other_author}</div>` : "") +
-      (r.subjects?     `<div class="meta">${isArabic(r.subjects)?'الموضوعات: ':'Subjects: '}${r.subjects}</div>` : "") +
-      (pubLine?        `<div class="meta">${pubLine}</div>` : "") +
-      (r.summary?      `<div style="margin-top:6px">${r.summary.length>360? r.summary.slice(0,357)+'…' : r.summary}</div>` : "");
-    frag.appendChild(div);
-  }
-  B.appendChild(frag);
-}
-function addShowMoreIfNeeded(){
-  const old=document.getElementById("ka-more"); if(old) old.remove();
-  if(LAST.shown>=LAST.items.length) return;
-  const row=document.createElement("div"); row.id="ka-more"; row.className="more-row";
-  const btn=document.createElement("button");
-  const remaining=LAST.items.length-LAST.shown;
-  btn.textContent = remaining>PAGE_SIZE ? "Show more" : "Show all";
-  btn.onclick=()=>{
-    const next=Math.min(LAST.shown+PAGE_SIZE, LAST.items.length);
-    renderChunk(LAST.items.slice(LAST.shown, next));
-    LAST.shown=next; addShowMoreIfNeeded();
-  };
-  row.appendChild(btn); B.appendChild(row);
-}
-function renderAll(list, field){
-  clearResults();
-  const labelAR = {author:"المؤلف + مؤلف مشارك", title:"العنوان / الموضوعات / الملخص", year:"سنة النشر"}[field] || field;
-  const note=document.createElement("div"); note.className="meta";
-  const extra = (field==="author" && MATCH_NOTE) ? " • " + MATCH_NOTE : "";
-  note.textContent=`Searching field only: ${labelAR}${extra}`;
-  B.appendChild(note);
-
-  if(!list.length){
-    const d=document.createElement("div"); d.className="row"; d.textContent="No results found in that field.";
-    B.appendChild(d); return;
-  }
-  LAST.items=list; LAST.shown=Math.min(PAGE_SIZE, list.length); LAST.field=field;
-  renderChunk(list.slice(0, LAST.shown));
-  addShowMoreIfNeeded();
-}
-
-/* ====== Run ====== */
-async function run(){
-  await ensureLoaded();
-  const raw = Q.value.trim(); if(!raw) return;
-  const field = chooseField(raw);
-  const res = searchField(field, raw);
-  renderAll(res, field);
-}
-document.getElementById("go").onclick=run;
-Q.addEventListener("keydown", e=>{ if(e.key==="Enter") run(); });
-
-/* ====== Load ====== */
-async function ensureLoaded(){
-  try{
-    const ts=Date.now();
-    const resp = await fetch(`${DATA_URL}?ts=${ts}`, {cache:"no-store"});
-    if(!resp.ok) throw new Error(`Fetch ${resp.status} ${resp.statusText}`);
-    const buf  = await resp.arrayBuffer();
-    const bytes= buf.byteLength;
-    const text = new TextDecoder("utf-8",{fatal:false}).decode(buf);
-    const parsed = parseCSV(text);
-    const recs   = parsed.rows.map(mapRecord);
-
-    INDEX = recs.map((r,i)=>{
-      const authorAll = [r.author, r.other_author].filter(Boolean).join(" ");
-      return {
-        id:i, raw:r,
-        nTitle:norm(r.title),
-        nAuthorAll:norm(authorAll),
-        nSummary:norm(r.summary), nContent:norm(r.content),
-        nSubjects:norm(r.subjects), nPub:norm(r.publisher||""),
-        nYear:norm(r.year||""),
-      };
-    });
-
-    STATUS.textContent =
-      `Loaded ${INDEX.length} records • bytes ${bytes.toLocaleString()} • delimiter “;” • headers: biblionumber | Full Title | Author | Abstract | Publications data | Content | Subject1 | Subject2 | Subject3 | Onther Author | Book_Url`;
-  }catch(e){
-    STATUS.textContent = `Load error: ${e.message}`;
-    banner(e?.message||String(e));
-  }
-}
-
-ensureLoaded();
+  html += '</tbody></table>';
+  TBL.innerHTML = html;
+};
 </script>
-</body>
-</html>
