@@ -35,9 +35,6 @@
   .btn{flex:0 0 auto;background:#BF9849;color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
   .btn[disabled]{opacity:.5; cursor:not-allowed}
 
-  /* Old inline "Show more" row no longer used, replaced by sticky bar */
-  .more-row{display:none}
-
   .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px}
 
   /* === ECSSR spinner === */
@@ -439,7 +436,13 @@ function recordURLFromFile(rec){
 
 /* ====== Render + paging ====== */
 let LAST={items:[],shown:0,field:""};
-function clearResults(){ while(B.firstChild) B.removeChild(B.firstChild); }
+function clearResults(){
+  // keep sticky bar; remove other children
+  const kids = Array.from(B.childNodes);
+  for (const n of kids){
+    if (n !== moreBar) B.removeChild(n);
+  }
+}
 function titleOrPlaceholder(t){ return (t && t.trim()) ? t : "(بدون عنوان)"; }
 function renderChunk(items){
   const frag=document.createDocumentFragment();
@@ -470,6 +473,8 @@ function renderChunk(items){
       (r.summary?        `<div style="margin-top:6px">${r.summary.length>360? r.summary.slice(0,357)+'…' : r.summary}</div>` : "");
     frag.appendChild(div);
   }
+  // ensure moreBar is last, then insert results before it
+  if (moreBar.parentNode !== B) B.appendChild(moreBar);
   B.insertBefore(frag, moreBar);
 }
 function updateMoreUI(){
@@ -480,12 +485,12 @@ function updateMoreUI(){
   btnMore.disabled = (shown >= total);
   btnAll.disabled  = (shown >= total);
 }
-function addShowMoreIfNeeded(){
-  // kept for compatibility; now we control via sticky bar
-  updateMoreUI();
-}
 function renderAll(list, field){
   clearResults();
+  // keep the sticky bar as last child
+  if (moreBar.parentNode !== B) B.appendChild(moreBar);
+  else B.appendChild(moreBar); // move to end just in case
+
   const labelAR = {author:"المؤلف + مؤلف مشارك + هيئة", title:"العنوان", subject:"الموضوع", summary:"الملخص", year:"سنة النشر", pub:"الناشر"}[field] || field;
   const note=document.createElement("div"); note.className="meta";
   const extra = (field==="author" && MATCH_NOTE) ? " • " + MATCH_NOTE : "";
@@ -520,6 +525,7 @@ btnAll.addEventListener('click', ()=>{
 });
 
 /* ====== Run ====== */
+let MATCH_NOTE = "";
 async function run(){
   setBusy(true, "Searching…");
   try{
