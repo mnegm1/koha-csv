@@ -26,7 +26,7 @@
     box-shadow:0 16px 40px rgba(0,0,0,.25); display:none; flex-direction:column; overflow:hidden; z-index:9999}
   .head{background:#BF9849;color:#fff;padding:10px 14px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
   .status{font-size:12px;opacity:.85;padding:8px 12px;background:#fafafa;border-bottom:1px solid #e8eef3}
-  .body{position:relative;padding:10px;overflow:auto;max-height:calc(var(--box-max-h) - 210px);font-size:14px}
+  .body{padding:10px;overflow:auto;max-height:calc(var(--box-max-h) - 172px);font-size:14px}
   .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0}
   .meta{opacity:.85;font-size:12px;margin-top:6px}
   .input{display:flex;gap:8px;padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
@@ -34,7 +34,8 @@
   .input button{background:#BF9849;color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600}
   .btn{flex:0 0 auto;background:#BF9849;color:#fff;padding:6px 10px;border-radius:8px;text-decoration:none;font-weight:600}
   .btn[disabled]{opacity:.5; cursor:not-allowed}
-
+  .more-row{display:flex;justify-content:center;margin-top:6px}
+  .more-row button{background:#BF9849;color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:700;cursor:pointer}
   .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px}
 
   /* === ECSSR spinner === */
@@ -48,21 +49,6 @@
   }
   @keyframes ka-spin{to{transform:rotate(360deg)}}
   .busytext{font-weight:600;color:#555}
-
-  /* Sticky More bar */
-  .more-sticky{
-    position:sticky; bottom:0; left:0; right:0;
-    display:none; gap:8px; align-items:center; justify-content:space-between;
-    background:linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 35%);
-    padding:10px; margin-top:6px; border-top:1px solid #e8eef3;
-  }
-  .more-sticky.show{display:flex}
-  .more-actions{display:flex; gap:8px}
-  .chip{font-size:12px; padding:4px 8px; border-radius:999px; background:#f1f4f8; border:1px solid #e2e8f0}
-  .btn-more, .btn-all{
-    background:#BF9849; color:#fff; border:none; font-weight:700; cursor:pointer;
-    padding:8px 12px; border-radius:10px;
-  }
 </style>
 </head>
 <body>
@@ -86,18 +72,7 @@
     </div>
 
     <div class="status" id="status">Loading…</div>
-
-    <div class="body" id="body">
-      <!-- results go here -->
-      <div class="more-sticky" id="moreBar" aria-live="polite">
-        <div class="chip" id="moreChip">0 / 0</div>
-        <div class="more-actions">
-          <button class="btn-more" id="btnMore">Show more</button>
-          <button class="btn-all"  id="btnAll">Show all</button>
-        </div>
-      </div>
-    </div>
-
+    <div class="body" id="body"></div>
     <div class="input">
       <input id="q" type="text" placeholder="اكتب: اسم مؤلف / عنوان / موضوع / سنة (مثال: 2019)" dir="auto">
       <button id="go">Search</button>
@@ -136,11 +111,6 @@ const closeBtn=document.getElementById("x");
 const B=document.getElementById("body");
 const STATUS=document.getElementById("status");
 const Q=document.getElementById("q");
-const moreBar=document.getElementById('moreBar');
-const moreChip=document.getElementById('moreChip');
-const btnMore=document.getElementById('btnMore');
-const btnAll =document.getElementById('btnAll');
-
 fab.onclick=()=>{ 
   box.style.display = (box.style.display==="flex"?"none":"flex"); 
   if(box.style.display==="flex"){ setBusy(true,"Initializing…"); ensureLoaded().then(()=>setBusy(false)); setTimeout(()=>Q.focus(),50); }
@@ -280,11 +250,11 @@ function mapRecord(k){
   }
   const publisher = pubdat ? String(pubdat).replace(/\b(19|20)\d{2}\b/g,"").replace(/\s*[،,:-]\s*$/,"").trim() : "";
 
-  /* 710$a — Corporate Name */
+  /* NEW: 710$a — Corporate Name */
   const corp = pick(k, ["corporate name","corporate","جهة مؤسسية","اسم الهيئة","corporate_name","corporate-name","corporate/organization"]);
 
   return {title, author, other_author: otherAu, summary, content, subject, publisher, year, book_url:bookUrl, Book_Url:bookUrl,
-          corporate_name: corp};
+          corporate_name: corp}; /* NEW: include in record */
 }
 
 /* ====== Build index (streaming decode to avoid truncation) ====== */
@@ -312,6 +282,7 @@ async function ensureLoaded(){
     const recs = parsed.rows.map(mapRecord);
 
     INDEX = recs.map((r,i)=>{
+      /* NEW: include corporate_name in author-style matching */
       const authorAll = [r.author, r.other_author, r.corporate_name].filter(Boolean).join(" ");
       return {
         id:i, raw:r,
@@ -319,8 +290,8 @@ async function ensureLoaded(){
         nAuthorAll: norm(authorAll),
         nAuthorAllPhrase: normForPhrase(authorAll),
         nSummary:norm(r.summary), nContent:norm(r.content),
-        nSubject:norm(r.subject),
-        nPub:norm(((r.publisher||"") + " " + (r.corporate_name||"")).trim()),
+        /* NEW: include corp in publisher-style index too */
+        nSubject:norm(r.subject), nPub:norm(((r.publisher||"") + " " + (r.corporate_name||"")).trim()),
         nYear:norm(r.year||""),
       };
     });
@@ -335,7 +306,10 @@ async function ensureLoaded(){
 }
 
 /* ====== Author matching (STRICT: all core tokens must match) ====== */
-const NAME_STOPWORDS = new Set(["بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال","آل","بنعبدالله","بنعبد","بنعبدال","الدكتور","دكتور","الأستاذ","استاذ","د","م","سمو","سعادة","معالي"]);
+const NAME_STOPWORDS = new Set([
+  "بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال","آل","بنعبدالله","بنعبد","بنعبدال",
+  "الدكتور","دكتور","الأستاذ","استاذ","د","م","سمو","سعادة","معالي"
+]);
 function tokenizeQuery(raw){
   const q = norm(raw);
   if (!q) return [];
@@ -436,13 +410,7 @@ function recordURLFromFile(rec){
 
 /* ====== Render + paging ====== */
 let LAST={items:[],shown:0,field:""};
-function clearResults(){
-  // keep sticky bar; remove other children
-  const kids = Array.from(B.childNodes);
-  for (const n of kids){
-    if (n !== moreBar) B.removeChild(n);
-  }
-}
+function clearResults(){ while(B.firstChild) B.removeChild(B.firstChild); }
 function titleOrPlaceholder(t){ return (t && t.trim()) ? t : "(بدون عنوان)"; }
 function renderChunk(items){
   const frag=document.createDocumentFragment();
@@ -467,65 +435,46 @@ function renderChunk(items){
        </div>` +
       (r.author?         `<div class="meta">${isArabic(r.author)?'المؤلف: ':'Author: '}${r.author}</div>` : "") +
       (r.other_author?   `<div class="meta">${isArabic(r.other_author)?'مؤلف مشارك: ':'Other author: '}${r.other_author}</div>` : "") +
-      (r.corporate_name? `<div class="meta">${isArabic(r.corporate_name)?'الهيئة: ':'Corporate: '}${r.corporate_name}</div>` : "") +
+      (r.corporate_name? `<div class="meta">${isArabic(r.corporate_name)?'الهيئة: ':'Corporate: '}${r.corporate_name}</div>` : "") +  <!-- NEW: show corp -->
       (r.subject?        `<div class="meta">${isArabic(r.subject)?'الموضوع: ':'Subject: '}${r.subject}</div>` : "") +
       (pubLine?          `<div class="meta">${pubLine}</div>` : "") +
       (r.summary?        `<div style="margin-top:6px">${r.summary.length>360? r.summary.slice(0,357)+'…' : r.summary}</div>` : "");
     frag.appendChild(div);
   }
-  // ensure moreBar is last, then insert results before it
-  if (moreBar.parentNode !== B) B.appendChild(moreBar);
-  B.insertBefore(frag, moreBar);
+  B.appendChild(frag);
 }
-function updateMoreUI(){
-  const total = LAST.items.length;
-  const shown = LAST.shown;
-  moreChip.textContent = `${shown} / ${total}`;
-  moreBar.classList.toggle('show', shown < total);
-  btnMore.disabled = (shown >= total);
-  btnAll.disabled  = (shown >= total);
+function addShowMoreIfNeeded(){
+  const old=document.getElementById("ka-more"); if(old) old.remove();
+  if(LAST.shown>=LAST.items.length) return;
+  const row=document.createElement("div"); row.id="ka-more"; row.className="more-row";
+  const btn=document.createElement("button");
+  const remaining=LAST.items.length-LAST.shown;
+  btn.textContent = remaining>PAGE_SIZE ? "Show more" : "Show all";
+  btn.onclick=()=>{
+    const next=Math.min(LAST.shown+PAGE_SIZE, LAST.items.length);
+    renderChunk(LAST.items.slice(LAST.shown, next));
+    LAST.shown=next; addShowMoreIfNeeded();
+  };
+  row.appendChild(btn); B.appendChild(row);
 }
 function renderAll(list, field){
   clearResults();
-  // keep the sticky bar as last child
-  if (moreBar.parentNode !== B) B.appendChild(moreBar);
-  else B.appendChild(moreBar); // move to end just in case
-
   const labelAR = {author:"المؤلف + مؤلف مشارك + هيئة", title:"العنوان", subject:"الموضوع", summary:"الملخص", year:"سنة النشر", pub:"الناشر"}[field] || field;
   const note=document.createElement("div"); note.className="meta";
   const extra = (field==="author" && MATCH_NOTE) ? " • " + MATCH_NOTE : "";
   note.textContent=`Searching field only: ${labelAR}${extra}`;
-  B.insertBefore(note, moreBar);
+  B.appendChild(note);
 
   if(!list.length){
     const d=document.createElement("div"); d.className="row"; d.textContent="No results found in that field.";
-    B.insertBefore(d, moreBar);
-    LAST.items=list; LAST.shown=0; LAST.field=field;
-    updateMoreUI();
-    return;
+    B.appendChild(d); return;
   }
   LAST.items=list; LAST.shown=Math.min(PAGE_SIZE, list.length); LAST.field=field;
   renderChunk(list.slice(0, LAST.shown));
-  updateMoreUI();
+  addShowMoreIfNeeded();
 }
 
-/* Sticky bar actions */
-btnMore.addEventListener('click', ()=>{
-  const next=Math.min(LAST.shown+PAGE_SIZE, LAST.items.length);
-  renderChunk(LAST.items.slice(LAST.shown, next));
-  LAST.shown=next;
-  updateMoreUI();
-});
-btnAll.addEventListener('click', ()=>{
-  if(LAST.shown < LAST.items.length){
-    renderChunk(LAST.items.slice(LAST.shown, LAST.items.length));
-    LAST.shown = LAST.items.length;
-    updateMoreUI();
-  }
-});
-
 /* ====== Run ====== */
-let MATCH_NOTE = "";
 async function run(){
   setBusy(true, "Searching…");
   try{
