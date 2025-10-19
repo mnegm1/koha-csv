@@ -62,7 +62,8 @@
 
 <script>
 /* ====== CONFIG: data source only ====== */
-const DATA_URL  = "/koha-csv/opac-catalog.tab";   // your Koha export file (TSV/TAB, UTF-8)
+/* Put your file next to this HTML (e.g., docs/ on GitHub Pages) */
+const DATA_URL  = "./opac-catalog.tab";   // or .csv / .psv (pipe) — auto-detected
 const PAGE_SIZE = 12;
 
 /* ====== Errors ====== */
@@ -105,15 +106,65 @@ function norm(s){
 function normForPhrase(s){ return norm(s).replace(/[،,;]/g," ").replace(/\s+/g," ").trim(); }
 function isArabic(s){ return /[\u0600-\u06FF]/.test(s||""); }
 
-/* ====== TSV/TAB parser ====== */
+/* ====== Auto-encoding detection for AR CSV/TSV ====== */
+async function autoDecode(arrayBuf){
+  const encs = [
+    {label:"utf-8",       fatal:false},
+    {label:"windows-1256",fatal:false},
+    {label:"iso-8859-6",  fatal:false},
+    {label:"utf-16le",    fatal:false},
+  ];
+  let best = {text:"", bad:Infinity, enc:""};
+  for(const e of encs){
+    try{
+      const t = new TextDecoder(e.label, {fatal:false}).decode(arrayBuf);
+      const bad = (t.match(/\uFFFD/g)||[]).length;
+      if (bad < best.bad) best = {text:t, bad, enc:e.label};
+      if (bad === 0) return {text:t, enc:e.label};
+    }catch(_){}
+  }
+  return best;
+}
+
+/* ====== Robust TSV/CSV/PSV parser (TAB | | ; , with quotes) ====== */
 function parseTSV(text){
   text = clean(String(text||"")).replace(/\r\n?/g,"\n");
   if(!text.trim()) return {headers:[], rows:[], delim:"\t"};
-  const firstNL=text.indexOf("\n");
-  const headerLine = firstNL>=0 ? text.slice(0,firstNL) : text;
-  const useTab = headerLine.includes("\t");
-  const DELIM = useTab ? "\t" : (headerLine.includes(";") ? ";" : ",");
 
+  // Optional delimiter override via ?delim=
+  let override = null;
+  try{
+    const u = new URL(DATA_URL, location.href);
+    const d = (u.searchParams.get("delim")||"").toLowerCase();
+    if(d==="tab") override="\t";
+    if(d==="pipe") override="|";
+    if(d==="semicolon") override=";";
+    if(d==="comma") override=",";
+  }catch(_){}
+
+  // Delimiter sniff
+  const candidates = override ? [override] : ["\t","|",";",","];
+  const lines = text.split("\n").slice(0, 50);
+  function countSplits(line, delim){
+    let inQ=false, c=0;
+    for(let i=0;i<line.length;i++){
+      const ch=line[i], nx=line[i+1];
+      if(ch==="\""){
+        if(inQ && nx==="\""){ i++; continue; }
+        inQ=!inQ; continue;
+      }
+      if(!inQ && ch===delim) c++;
+    }
+    return c;
+  }
+  let bestDelim = "\t", bestScore = -1;
+  for(const d of candidates){
+    let s=0; for(const ln of lines) s += countSplits(ln, d);
+    if(s>bestScore){ bestScore=s; bestDelim=d; }
+  }
+  const DELIM = bestDelim;
+
+  // Parse with quotes
   const rows=[]; let i=0, field="", row=[], inQuotes=false;
   while(i<text.length){
     const ch=text[i];
@@ -145,7 +196,7 @@ function parseTSV(text){
   return {headers, rows:out, delim:DELIM};
 }
 
-/* ====== Header aliases (Author + Other Author supported) ====== */
+/* ====== Header aliases ====== */
 function pick(obj, keys){
   for(const k of keys){
     const kk=canonHeader(k);
@@ -175,8 +226,10 @@ function mapRecord(k){
 let INDEX=[]; let HEADERS=[];
 async function ensureLoaded(){
   try{
-    const buf = await fetch(DATA_URL, {cache:"reload"}).then(r=>{ if(!r.ok) throw new Error(`Fetch ${r.status} ${r.statusText}`); return r.arrayBuffer(); });
-    const text = new TextDecoder("utf-8",{fatal:false}).decode(buf);
+    const buf  = await fetch(DATA_URL, {cache:"reload"}).then(r=>{ if(!r.ok) throw new Error(`Fetch ${r.status} ${r.statusText}`); return r.arrayBuffer(); });
+    const dec  = await autoDecode(buf);
+    const text = dec.text;
+
     const parsed = parseTSV(text);
     HEADERS = parsed.headers;
     const recs = parsed.rows.map(mapRecord);
@@ -186,7 +239,7 @@ async function ensureLoaded(){
       return {
         id:i, raw:r,
         nTitle:  norm(r.title),
-        nAuthorAll: norm(authorAll),                 // combined author fields
+        nAuthorAll: norm(authorAll),
         nAuthorAllPhrase: normForPhrase(authorAll),
         nSummary:norm(r.summary), nContent:norm(r.content),
         nSubject:norm(r.subject), nPub:norm(r.publisher||""),
@@ -194,26 +247,19 @@ async function ensureLoaded(){
       };
     });
 
-    STATUS.textContent = `Loaded ${INDEX.length} records • delimiter “${parsed.delim === "\t" ? "TAB" : parsed.delim}” • headers: ${HEADERS.join(" | ")}`;
+    STATUS.textContent = `Loaded ${INDEX.length} records • encoding ${dec.enc||"auto"} • delimiter “${parsed.delim === "\t" ? "TAB" : parsed.delim}” • headers: ${HEADERS.join(" | ")}`;
   }catch(e){
     STATUS.textContent = `Load error: ${e.message}`;
     banner(e?.message||String(e));
   }
 }
 
-/* ====== Author matching (STRICT: all core tokens must match) ====== */
-const NAME_STOPWORDS = new Set([
-  // Arabic particles/titles
-  "بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال","آل","بنعبدالله","بنعبد","بنعبدال",
-  "","","الدكتور","دكتور","الأستاذ","استاذ","د","م","سمو","سعادة","معالي","","","","","" /* keep? we keep it as a name; so comment out if needed */
-]);
-// If you want “سلطان” treated as a real name (keep matches), remove it from stopwords above.
-
+/* ====== Author matching (STRICT) ====== */
+const NAME_STOPWORDS = new Set(["بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال","آل","بنعبدالله","بنعبد","بنعبدال","الدكتور","دكتور","الأستاذ","استاذ","د","م","","سعادة","معالي"]);
 function tokenizeQuery(raw){
   const q = norm(raw);
   if (!q) return [];
   const toks = q.split(/\s+/).filter(t => t.length >= 2 && !/^\d+$/.test(t));
-  // core tokens = remove honorifics/particles
   return toks.filter(t => !NAME_STOPWORDS.has(t));
 }
 function containsAllTokens(targetNorm, tokens){
@@ -222,7 +268,7 @@ function containsAllTokens(targetNorm, tokens){
   return true;
 }
 
-/* ====== Field choice (strict) ====== */
+/* ====== Field choice ====== */
 const AR_NAME_PARTS = new Set(["بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال"]);
 const EN_STOP = new Set(["the","a","an","of","and","for","on","in","to","with"]);
 function looksLikeYear(q){ return /^\d{4}$/.test(q.trim()); }
@@ -268,21 +314,17 @@ let MATCH_NOTE = "";
 function searchField(field,q){
   const nq = norm(q), phraseQ = normForPhrase(q);
   const out = [];
-
   for (const r of INDEX){
     let hit=false, sc=0;
-
     if (field === "author"){
       const tokens = tokenizeQuery(q);
       if (tokens.length >= 2){
-        // All core tokens must be present in combined (author + other author)
         if (containsAllTokens(r.nAuthorAll, tokens)){
           sc = 100 + tokens.length;
           hit = true;
           MATCH_NOTE = "Strict full-name in Author & Other Author (all parts matched)";
         }
       } else {
-        // Single core token (family-only, etc.)
         const tok = tokens[0] || nq;
         if (tok && r.nAuthorAll.includes(tok)){
           sc = 85; hit = true; MATCH_NOTE = "Single name part matched (author fields only)";
@@ -299,18 +341,16 @@ function searchField(field,q){
     } else if (field === "pub"){
       if (r.nPub.includes(nq)) { sc=50; hit=true; }
     }
-
     if (hit) out.push({sc, raw:r.raw});
   }
-
   out.sort((a,b)=>b.sc-a.sc);
   return out;
 }
 
-/* ====== Record URL: file-only ====== */
+/* ====== Record URL ====== */
 function recordURLFromFile(rec){
   const url = String(rec.Book_Url || rec.book_url || rec["book url"] || "").trim();
-  return url || ""; // exact from file; no reconstruction or search
+  return url || "";
 }
 
 /* ====== Render + paging ====== */
