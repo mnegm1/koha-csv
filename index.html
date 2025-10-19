@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Koha TSV Search — File-Only • Strict Full-Name Author • AR/EN</title>
+<title>Koha TSV Search — ECSSR AI Assistant (Full)</title>
 <style>
   :root{
     --brand:#BF9849; --brandText:#fff;
@@ -37,6 +37,18 @@
   .more-row{display:flex;justify-content:center;margin-top:6px}
   .more-row button{background:#BF9849;color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:700;cursor:pointer}
   .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px}
+
+  /* === ECSSR spinner === */
+  .busybar{display:none; align-items:center; gap:10px; padding:8px 12px; background:#fff; border-bottom:1px solid #e8eef3}
+  .box.busy .busybar{display:flex}
+  .spinner{
+    width:32px;height:32px;border-radius:50%;
+    background:#fff var(--logo-url) center/90% no-repeat;
+    border:3px solid rgba(0,0,0,.06); box-shadow:0 2px 8px rgba(0,0,0,.12);
+    animation:ka-spin 1s linear infinite
+  }
+  @keyframes ka-spin{to{transform:rotate(360deg)}}
+  .busytext{font-weight:600;color:#555}
 </style>
 </head>
 <body>
@@ -52,6 +64,13 @@
       <div>AI Assistant</div>
       <button id="x" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer" title="Close">×</button>
     </div>
+
+    <!-- Animated loading bar -->
+    <div class="busybar" id="busybar" aria-live="polite">
+      <div class="spinner" title="Working…"></div>
+      <div class="busytext" id="busytext">Loading…</div>
+    </div>
+
     <div class="status" id="status">Loading…</div>
     <div class="body" id="body"></div>
     <div class="input">
@@ -62,8 +81,27 @@
 
 <script>
 /* ====== CONFIG ====== */
-const DATA_URL  = "./opac-catalog.tab?delim=tab";  // force TAB mode
+/* Force TAB mode; place opac-catalog.tab beside this HTML (e.g., docs/) */
+const DATA_URL  = "./opac-catalog.tab?delim=tab";
 const PAGE_SIZE = 12;
+
+/* ====== Busy indicator ====== */
+function setBusy(on, label){
+  const bar = document.getElementById('busybar');
+  const txt = document.getElementById('busytext');
+  const btn = document.getElementById('go');
+  const Q = document.getElementById('q');
+  if(label) txt.textContent = label;
+  if(on){
+    box.classList.add('busy');
+    bar.style.display='flex';
+    btn.disabled = true; Q.disabled = true;
+  }else{
+    box.classList.remove('busy');
+    bar.style.display='none';
+    btn.disabled = false; Q.disabled = false;
+  }
+}
 
 /* ====== Errors ====== */
 addEventListener("error", e => banner("JS error: " + (e.message||e)));
@@ -81,7 +119,10 @@ const closeBtn=document.getElementById("x");
 const B=document.getElementById("body");
 const STATUS=document.getElementById("status");
 const Q=document.getElementById("q");
-fab.onclick=()=>{ box.style.display = (box.style.display==="flex"?"none":"flex"); if(box.style.display==="flex") setTimeout(()=>Q.focus(),50); };
+fab.onclick=()=>{ 
+  box.style.display = (box.style.display==="flex"?"none":"flex"); 
+  if(box.style.display==="flex"){ setBusy(true,"Initializing…"); ensureLoaded().then(()=>setBusy(false)); setTimeout(()=>Q.focus(),50); }
+};
 closeBtn.onclick=()=>{ box.style.display="none"; };
 
 /* ====== Arabic normalization ====== */
@@ -105,7 +146,7 @@ function norm(s){
 function normForPhrase(s){ return norm(s).replace(/[،,;]/g," ").replace(/\s+/g," ").trim(); }
 function isArabic(s){ return /[\u0600-\u06FF]/.test(s||""); }
 
-/* ====== Auto-encoding detection ====== */
+/* ====== Auto-encoding detection for AR CSV/TSV ====== */
 async function autoDecode(arrayBuf){
   const encs = [
     {label:"utf-8",       fatal:false},
@@ -125,12 +166,12 @@ async function autoDecode(arrayBuf){
   return best;
 }
 
-/* ====== Parser: TAB has NO quoting; others support quotes ====== */
+/* ====== Robust parser (TAB no quotes; others with quotes) ====== */
 function parseTSV(text){
   text = clean(String(text||"")).replace(/\r\n?/g,"\n");
   if(!text.trim()) return {headers:[], rows:[], delim:"\t"};
 
-  // Delimiter override via ?delim=
+  // Optional delimiter override via ?delim=
   let override = null;
   try{
     const u = new URL(DATA_URL, location.href);
@@ -141,19 +182,18 @@ function parseTSV(text){
     if(d==="comma") override=",";
   }catch(_){}
 
-  // Sniff
+  // Choose delimiter (simple header heuristic)
   const candidates = override ? [override] : ["\t","|",";",","];
   const firstNL = text.indexOf("\n");
   const headerLine = firstNL>=0 ? text.slice(0,firstNL) : text;
   let bestDelim = "\t", bestScore = -1;
   for(const d of candidates){
-    // Count splits quickly ignoring quotes (we only need a heuristic)
     const s = (headerLine.split(d).length-1);
     if(s>bestScore){ bestScore=s; bestDelim=d; }
   }
   const DELIM = bestDelim;
 
-  // --- Fast path for TAB: no quoting logic at all (prevents line swallowing)
+  // Fast path for TAB: Koha Tab exports have NO quoting; treat quotes as plain text.
   if (DELIM === "\t"){
     const lines = text.split("\n");
     const rows = lines.map(l => l.split("\t"));
@@ -172,7 +212,7 @@ function parseTSV(text){
     return {headers, rows:out, delim:DELIM};
   }
 
-  // --- CSV/PSV with quotes (RFC4180-ish)
+  // CSV/PSV with quotes (RFC4180-ish)
   const rows=[]; let i=0, field="", row=[], inQuotes=false;
   while(i<text.length){
     const ch=text[i];
@@ -204,7 +244,7 @@ function parseTSV(text){
   return {headers, rows:out, delim:DELIM};
 }
 
-/* ====== Header aliases ====== */
+/* ====== Header aliases (Author + Other Author supported) ====== */
 function pick(obj, keys){
   for(const k of keys){
     const kk=canonHeader(k);
@@ -234,13 +274,14 @@ function mapRecord(k){
 let INDEX=[]; let HEADERS=[];
 async function ensureLoaded(){
   try{
+    setBusy(true,"Loading records…");
     const buf  = await fetch(DATA_URL, {cache:"reload"}).then(r=>{ if(!r.ok) throw new Error(`Fetch ${r.status} ${r.statusText}`); return r.arrayBuffer(); });
 
-    // detect encoding but don't use dec.text; we stream-decode ourselves
+    // detect encoding but stream-decode ourselves
     const decProbe = await autoDecode(buf);
     const enc = decProbe.enc || "utf-8";
 
-    // Stream decode
+    // Stream decode to avoid large-file truncation
     const td = new TextDecoder(enc);
     const chunkSize = 1024 * 1024; // 1 MB
     let pos = 0, parts = [];
@@ -272,15 +313,21 @@ async function ensureLoaded(){
   }catch(e){
     STATUS.textContent = `Load error: ${e.message}`;
     banner(e?.message||String(e));
+  }finally{
+    setBusy(false);
   }
 }
 
-/* ====== Search logic ====== */
-const NAME_STOPWORDS = new Set(["بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال","آل","بنعبدالله","بنعبد","بنعبدال","الدكتور","دكتور","الأستاذ","استاذ","د","م","سمو","سعادة","معالي"]);
+/* ====== Author matching (STRICT: all core tokens must match) ====== */
+const NAME_STOPWORDS = new Set([
+  "بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال","آل","بنعبدالله","بنعبد","بنعبدال",
+  "الدكتور","دكتور","الأستاذ","استاذ","د","م","سمو","سعادة","معالي"
+]);
 function tokenizeQuery(raw){
   const q = norm(raw);
   if (!q) return [];
   const toks = q.split(/\s+/).filter(t => t.length >= 2 && !/^\d+$/.test(t));
+  // core tokens = remove honorifics/particles
   return toks.filter(t => !NAME_STOPWORDS.has(t));
 }
 function containsAllTokens(targetNorm, tokens){
@@ -288,6 +335,8 @@ function containsAllTokens(targetNorm, tokens){
   for (const t of tokens) if (!targetNorm.includes(t)) return false;
   return true;
 }
+
+/* ====== Field choice (heuristic) ====== */
 const AR_NAME_PARTS = new Set(["بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال"]);
 const EN_STOP = new Set(["the","a","an","of","and","for","on","in","to","with"]);
 function looksLikeYear(q){ return /^\d{4}$/.test(q.trim()); }
@@ -333,17 +382,21 @@ let MATCH_NOTE = "";
 function searchField(field,q){
   const nq = norm(q), phraseQ = normForPhrase(q);
   const out = [];
+
   for (const r of INDEX){
     let hit=false, sc=0;
+
     if (field === "author"){
       const tokens = tokenizeQuery(q);
       if (tokens.length >= 2){
+        // All core tokens must be present in combined (author + other author)
         if (containsAllTokens(r.nAuthorAll, tokens)){
           sc = 100 + tokens.length;
           hit = true;
           MATCH_NOTE = "Strict full-name in Author & Other Author (all parts matched)";
         }
       } else {
+        // Single core token (family-only, etc.)
         const tok = tokens[0] || nq;
         if (tok && r.nAuthorAll.includes(tok)){
           sc = 85; hit = true; MATCH_NOTE = "Single name part matched (author fields only)";
@@ -360,16 +413,18 @@ function searchField(field,q){
     } else if (field === "pub"){
       if (r.nPub.includes(nq)) { sc=50; hit=true; }
     }
+
     if (hit) out.push({sc, raw:r.raw});
   }
+
   out.sort((a,b)=>b.sc-a.sc);
   return out;
 }
 
-/* ====== Record URL ====== */
+/* ====== Record URL: file-only ====== */
 function recordURLFromFile(rec){
   const url = String(rec.Book_Url || rec.book_url || rec["book url"] || "").trim();
-  return url || "";
+  return url || ""; // exact from file; no reconstruction or search
 }
 
 /* ====== Render + paging ====== */
@@ -415,7 +470,7 @@ function addShowMoreIfNeeded(){
   btn.textContent = remaining>PAGE_SIZE ? "Show more" : "Show all";
   btn.onclick=()=>{
     const next=Math.min(LAST.shown+PAGE_SIZE, LAST.items.length);
-    renderChunk(LAST.items.slice(0, LAST.shown));
+    renderChunk(LAST.items.slice(LAST.shown, next));
     LAST.shown=next; addShowMoreIfNeeded();
   };
   row.appendChild(btn); B.appendChild(row);
@@ -439,15 +494,21 @@ function renderAll(list, field){
 
 /* ====== Run ====== */
 async function run(){
-  await ensureLoaded();
-  const raw = Q.value.trim(); if(!raw) return;
-  const field = chooseField(raw);
-  const res = searchField(field, raw);
-  renderAll(res, field);
+  setBusy(true, "Searching…");
+  try{
+    await ensureLoaded();
+    const raw = Q.value.trim(); if(!raw){ setBusy(false); return; }
+    const field = chooseField(raw);
+    const res = searchField(field, raw);
+    renderAll(res, field);
+  }finally{
+    setBusy(false);
+  }
 }
 document.getElementById("go").onclick=run;
 Q.addEventListener("keydown", e=>{ if(e.key==="Enter") run(); });
 
+/* Initial load (also triggered when box opens) */
 ensureLoaded();
 </script>
 </body>
