@@ -80,13 +80,17 @@
   </div>
 
 <script>
-/* ====== CONFIG (Drive with fallback) ====== */
+/* ====== CONFIG (Drive + CORS-safe fallbacks) ====== */
 const DRIVE_ID = "1ctz6U5HphC3fCl00TTWWNclIRTEl1hNf";
 const DATA_URLS = [
+  // direct Google endpoints (may be blocked by CORS in browsers)
   `https://drive.usercontent.google.com/download?id=${DRIVE_ID}&delim=tab`,
-  `https://drive.google.com/uc?export=download&id=${DRIVE_ID}&delim=tab`
+  `https://drive.google.com/uc?export=download&id=${DRIVE_ID}&delim=tab`,
+  // CORS relay (adds Access-Control-Allow-Origin:*), preserves bytes
+  `https://cors.isomorphic-git.org/https://drive.usercontent.google.com/download?id=${DRIVE_ID}&delim=tab`,
+  `https://cors.isomorphic-git.org/https://drive.google.com/uc?export=download&id=${DRIVE_ID}&delim=tab`
 ];
-const PRIMARY_URL = DATA_URLS[0];  // used to read ?delim
+const PRIMARY_URL = DATA_URLS[0];  // used only to read ?delim
 const PAGE_SIZE = 12;
 
 /* ====== Fetch with fallback ====== */
@@ -94,7 +98,7 @@ async function fetchFirstWorking(urls){
   let lastErr;
   for(const u of urls){
     try{
-      const r = await fetch(u + `&v=${Date.now()}`, {cache:"no-store"});
+      const r = await fetch(u + `&v=${Date.now()}`, {cache:"no-store", mode:"cors"});
       if(!r.ok) throw new Error(`${r.status} ${r.statusText}`);
       return await r.arrayBuffer();
     }catch(e){ lastErr = e; }
@@ -188,7 +192,6 @@ function parseTSV(text){
     if(d==="tab") override="\t"; if(d==="pipe") override="|";
     if(d==="semicolon") override=";"; if(d==="comma") override=",";
   }catch(_){}
-
   const candidates = override ? [override] : ["\t","|",";",","];
   const firstNL = text.indexOf("\n");
   const headerLine = firstNL>=0 ? text.slice(0,firstNL) : text;
@@ -214,7 +217,7 @@ function parseTSV(text){
     return {headers, rows:out, delim:DELIM};
   }
 
-  // CSV-like path (comma/semicolon/pipe with quotes)
+  // CSV-like (comma/semicolon/pipe + quotes)
   const rows=[]; let i=0, field="", row=[], inQuotes=false;
   while(i<text.length){
     const ch=text[i];
@@ -246,7 +249,7 @@ function parseTSV(text){
   return {headers, rows:out, delim:DELIM};
 }
 
-/* ====== Header aliases (Author + Other Author + Corporate) ====== */
+/* ====== Header aliases ====== */
 function pick(obj, keys){
   for(const k of keys){
     const kk=canonHeader(k);
@@ -270,7 +273,6 @@ function mapRecord(k){
   }
   const publisher = pubdat ? String(pubdat).replace(/\b(19|20)\d{2}\b/g,"").replace(/\s*[،,:-]\s*$/,"").trim() : "";
 
-  /* Corporate name (710$a) */
   const corp = pick(k, ["corporate name","corporate","جهة مؤسسية","اسم الهيئة","corporate_name","corporate-name","corporate/organization"]);
 
   return {title, author, other_author: otherAu, summary, content, subject, publisher, year, book_url:bookUrl, Book_Url:bookUrl,
@@ -280,17 +282,17 @@ function mapRecord(k){
 /* ====== Build index ====== */
 let INDEX=[]; let HEADERS=[];
 async function ensureLoaded(){
-  if (INDEX.length) return; // already loaded once
+  if (INDEX.length) return;
   try{
     setBusy(true,"Loading records…");
     const buf  = await fetchFirstWorking(DATA_URLS);
 
-    // Try to detect best encoding; if unsure, use utf-8
+    // detect best encoding
     let decProbe;
     try { decProbe = await autoDecode(buf); } catch(_) {}
     const enc = (decProbe && decProbe.enc) ? decProbe.enc : "utf-8";
 
-    // Stream decode
+    // stream decode
     const td = new TextDecoder(enc);
     const chunkSize = 1024 * 1024;
     let pos = 0, parts = [];
@@ -327,7 +329,7 @@ async function ensureLoaded(){
   }
 }
 
-/* ====== Author matching (STRICT: all core tokens must match) ====== */
+/* ====== Author matching (STRICT) ====== */
 const NAME_STOPWORDS = new Set([
   "بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال","آل","بنعبدالله","بنعبد","بنعبدال",
   "الدكتور","دكتور","الأستاذ","استاذ","د","م","سمو","سعادة","معالي"
