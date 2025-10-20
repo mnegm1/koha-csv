@@ -81,7 +81,41 @@
 
 <script>
 /* ====== CONFIG ====== */
-const DATA_URL  = "https://drive.usercontent.google.com/download?id=1gXos_3RZs_14wfZM6KBD6kRDi6dcyOp2";  /* Force TAB */
+const DATA_URLS = [
+  "./opac-catalog_1.tab?delim=tab",
+  "./opac-catalog_2.tab?delim=tab",
+  "./opac-catalog_3.tab?delim=tab",
+  "./opac-catalog_4.tab?delim=tab",
+  "./opac-catalog_5.tab?delim=tab",
+  "./opac-catalog_6.tab?delim=tab"
+];
+
+/* Utility: Load all .tab files sequentially and merge rows */
+async function loadAllTAB() {
+  let allText = "Full Title\tAuthor\tAbstract\tPublication\tContent\tBook_URL\n"; // header
+  for (const url of DATA_URLS) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Failed to load " + url);
+      const text = await res.text();
+      // remove duplicate headers if they exist
+      const cleaned = text.replace(/^.*?\n/, "");
+      allText += cleaned + "\n";
+      console.log("Loaded:", url);
+    } catch (err) {
+      console.error("Error loading", url, err);
+    }
+  }
+  return allText;
+}
+
+/* Example usage */
+(async () => {
+  const fullData = await loadAllTAB();
+  console.log("Merged data length:", fullData.length);
+  // continue your existing logic (e.g., parse TSV, search index, etc.)
+  window.DATA_TEXT = fullData;
+})();
 const PAGE_SIZE = 12;
 
 /* ====== Busy indicator ====== */
