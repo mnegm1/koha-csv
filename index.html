@@ -81,41 +81,18 @@
 
 <script>
 /* ====== CONFIG ====== */
+/* Load and merge these six parts (keep ?delim=tab): */
 const DATA_URLS = [
   "./opac-catalog_1.tab?delim=tab",
   "./opac-catalog_2.tab?delim=tab",
   "./opac-catalog_3.tab?delim=tab",
   "./opac-catalog_4.tab?delim=tab",
   "./opac-catalog_5.tab?delim=tab",
-  "./opac-catalog_6.tab?delim=tab"
+  "./opac-catalog_6.tab?delim=tab",
+  "./opac-catalog_7.tab?delim=tab"
 ];
-
-/* Utility: Load all .tab files sequentially and merge rows */
-async function loadAllTAB() {
-  let allText = "Full Title\tAuthor\tAbstract\tPublication\tContent\tBook_URL\n"; // header
-  for (const url of DATA_URLS) {
-    try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error("Failed to load " + url);
-      const text = await res.text();
-      // remove duplicate headers if they exist
-      const cleaned = text.replace(/^.*?\n/, "");
-      allText += cleaned + "\n";
-      console.log("Loaded:", url);
-    } catch (err) {
-      console.error("Error loading", url, err);
-    }
-  }
-  return allText;
-}
-
-/* Example usage */
-(async () => {
-  const fullData = await loadAllTAB();
-  console.log("Merged data length:", fullData.length);
-  // continue your existing logic (e.g., parse TSV, search index, etc.)
-  window.DATA_TEXT = fullData;
-})();
+/* PRIMARY_URL is only used to read the delim parameter in parseTSV() */
+const PRIMARY_URL = DATA_URLS[0];
 const PAGE_SIZE = 12;
 
 /* ====== Busy indicator ====== */
@@ -199,7 +176,7 @@ function parseTSV(text){
 
   let override = null;
   try{
-    const u = new URL(DATA_URL, location.href);
+    const u = new URL(PRIMARY_URL, location.href);
     const d = (u.searchParams.get("delim")||"").toLowerCase();
     if(d==="tab") override="\t"; if(d==="pipe") override="|";
     if(d==="semicolon") override=";"; if(d==="comma") override=",";
@@ -291,32 +268,52 @@ function mapRecord(k){
           corporate_name: corp}; /* NEW: include in record */
 }
 
-/* ====== Build index (streaming decode to avoid truncation) ====== */
+/* ====== Build index (streaming decode + multi-file merge) ====== */
 let INDEX=[]; let HEADERS=[];
 async function ensureLoaded(){
+  if (INDEX.length) return; // already loaded once
   try{
     setBusy(true,"Loading records…");
-    const buf  = await fetch(DATA_URL, {cache:"reload"}).then(r=>{ if(!r.ok) throw new Error(`Fetch ${r.status} ${r.statusText}`); return r.arrayBuffer(); });
 
-    const decProbe = await autoDecode(buf);
-    const enc = decProbe.enc || "utf-8";
+    let mergedText = "";
+    let encUsed = "utf-8";
+    let totalLoaded = 0;
 
-    const td = new TextDecoder(enc);
-    const chunkSize = 1024 * 1024;
-    let pos = 0, parts = [];
-    while (pos < buf.byteLength) {
-      const end = Math.min(pos + chunkSize, buf.byteLength);
-      parts.push(td.decode(buf.slice(pos, end), {stream: end < buf.byteLength}));
-      pos = end;
+    for (let i=0;i<DATA_URLS.length;i++){
+      const url = DATA_URLS[i];
+      const res = await fetch(url, {cache:"reload"});
+      if(!res.ok) throw new Error(`Fetch ${url} → ${res.status} ${res.statusText}`);
+      const buf = await res.arrayBuffer();
+
+      const decProbe = await autoDecode(buf);
+      encUsed = decProbe.enc || encUsed;
+
+      // Stream decode for big files
+      const td = new TextDecoder(encUsed);
+      const chunkSize = 1024 * 1024;
+      let pos = 0, parts = [];
+      while (pos < buf.byteLength) {
+        const end = Math.min(pos + chunkSize, buf.byteLength);
+        parts.push(td.decode(buf.slice(pos, end), {stream: end < buf.byteLength}));
+        pos = end;
+      }
+      let text = parts.join("");
+
+      // Drop header line from all but the first file
+      if (i > 0) {
+        const nl = text.indexOf("\n");
+        if (nl !== -1) text = text.slice(nl + 1);
+      }
+      mergedText += (i===0 ? "" : "\n") + text;
+      totalLoaded++;
     }
-    const text = parts.join("");
 
-    const parsed = parseTSV(text);
+    const parsed = parseTSV(mergedText);
     HEADERS = parsed.headers;
     const recs = parsed.rows.map(mapRecord);
 
     INDEX = recs.map((r,i)=>{
-      /* NEW: include corporate_name in author-style matching */
+      /* include corporate_name in author-style matching */
       const authorAll = [r.author, r.other_author, r.corporate_name].filter(Boolean).join(" ");
       return {
         id:i, raw:r,
@@ -324,13 +321,12 @@ async function ensureLoaded(){
         nAuthorAll: norm(authorAll),
         nAuthorAllPhrase: normForPhrase(authorAll),
         nSummary:norm(r.summary), nContent:norm(r.content),
-        /* NEW: include corp in publisher-style index too */
         nSubject:norm(r.subject), nPub:norm(((r.publisher||"") + " " + (r.corporate_name||"")).trim()),
         nYear:norm(r.year||""),
       };
     });
 
-    STATUS.textContent = `Loaded ${INDEX.length} records • encoding ${enc} • delimiter “${parsed.delim === "\t" ? "TAB" : parsed.delim}” • headers: ${HEADERS.join(" | ")}`;
+    STATUS.textContent = `Loaded ${INDEX.length} records from ${totalLoaded} files • encoding ${encUsed} • delimiter “${parsed.delim === "\t" ? "TAB" : parsed.delim}” • headers: ${HEADERS.join(" | ")}`;
   }catch(e){
     STATUS.textContent = `Load error: ${e.message}`;
     banner(e?.message||String(e));
