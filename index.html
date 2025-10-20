@@ -37,6 +37,8 @@
   .more-row{display:flex;justify-content:center;margin-top:6px}
   .more-row button{background:#BF9849;color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:700;cursor:pointer}
   .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px}
+
+  /* === ECSSR spinner === */
   .busybar{display:none; align-items:center; gap:10px; padding:8px 12px; background:#fff; border-bottom:1px solid #e8eef3}
   .box.busy .busybar{display:flex}
   .spinner{
@@ -63,6 +65,7 @@
       <button id="x" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer" title="Close">×</button>
     </div>
 
+    <!-- Animated loading bar -->
     <div class="busybar" id="busybar" aria-live="polite">
       <div class="spinner" title="Working…"></div>
       <div class="busytext" id="busytext">Loading…</div>
@@ -77,15 +80,16 @@
   </div>
 
 <script>
-/* ====== CONFIG ====== */
+/* ====== CONFIG (Drive with fallback) ====== */
 const DRIVE_ID = "1ctz6U5HphC3fCl00TTWWNclIRTEl1hNf";
 const DATA_URLS = [
   `https://drive.usercontent.google.com/download?id=${DRIVE_ID}&delim=tab`,
   `https://drive.google.com/uc?export=download&id=${DRIVE_ID}&delim=tab`
 ];
+const PRIMARY_URL = DATA_URLS[0];  // used to read ?delim
 const PAGE_SIZE = 12;
 
-/* ====== Fetch fallback ====== */
+/* ====== Fetch with fallback ====== */
 async function fetchFirstWorking(urls){
   let lastErr;
   for(const u of urls){
@@ -100,131 +104,415 @@ async function fetchFirstWorking(urls){
 
 /* ====== Busy indicator ====== */
 function setBusy(on, label){
-  const bar=document.getElementById('busybar');
-  const txt=document.getElementById('busytext');
-  const btn=document.getElementById('go');
-  const Q=document.getElementById('q');
-  if(label) txt.textContent=label;
-  if(on){box.classList.add('busy');bar.style.display='flex';btn.disabled=Q.disabled=true;}
-  else{box.classList.remove('busy');bar.style.display='none';btn.disabled=Q.disabled=false;}
+  const bar = document.getElementById('busybar');
+  const txt = document.getElementById('busytext');
+  const btn = document.getElementById('go');
+  const Q = document.getElementById('q');
+  if(label) txt.textContent = label;
+  if(on){ box.classList.add('busy'); bar.style.display='flex'; btn.disabled = true; Q.disabled = true; }
+  else { box.classList.remove('busy'); bar.style.display='none'; btn.disabled = false; Q.disabled = false; }
 }
 
-/* ====== Banner ====== */
+/* ====== Errors ====== */
+addEventListener("error", e => banner("JS error: " + (e.message||e)));
+addEventListener("unhandledrejection", e => banner("Promise error: " + (e.reason?.message||e.reason)));
 function banner(msg){
   let el=document.getElementById("top-error");
-  if(!el){el=document.createElement("div");el.id="top-error";el.className="error";document.body.prepend(el);}
-  el.textContent=String(msg||"Unknown error");
-}
-
-/* ====== Arabic helpers ====== */
-function stripBidi(s){return String(s||"").replace(/[\u200E\u200F\u202A-\u202E]/g,"");}
-function clean(s){return stripBidi(String(s||"").replace(/^\uFEFF/,""));}
-function norm(s){
-  if(!s)return"";s=clean(s).toLowerCase();
-  s=s.replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ة/g,"ه").replace(/ک/g,"ك")
-     .replace(/\bعبد\s+ال/g,"عبدال")
-     .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
-     .replace(/[\u0660-\u0669]/g,d=>d.charCodeAt(0)-0x0660)
-     .replace(/[\u06F0-\u06F9]/g,d=>d.charCodeAt(0)-0x06F0)
-     .replace(/[^\p{L}\p{N}\s]/gu," ").replace(/\s+/g," ").trim();
-  return s;
-}
-function normForPhrase(s){return norm(s).replace(/[،,;]/g," ").replace(/\s+/g," ").trim();}
-function isArabic(s){return /[\u0600-\u06FF]/.test(s||"");}
-
-/* ====== Loader ====== */
-let INDEX=[];
-async function ensureLoaded(){
-  if(INDEX.length) return;
-  setBusy(true,"Loading records…");
-  try{
-    const buf=await fetchFirstWorking(DATA_URLS);
-    const text=new TextDecoder("utf-8").decode(buf);
-    const lines=text.split(/\r?\n/);
-    const headers=lines[0].split("\t").map(h=>h.trim().toLowerCase());
-    INDEX=lines.slice(1).map(l=>{
-      const cols=l.split("\t");const o={};
-      headers.forEach((h,i)=>o[h]=cols[i]||"");return o;
-    });
-    STATUS.textContent=`Loaded ${INDEX.length} records`;
-  }catch(e){banner("Load error: "+e.message);STATUS.textContent="Load error";}
-  finally{setBusy(false);}
-}
-
-/* ====== Search ====== */
-function search(q){
-  const nq=norm(q);
-  if(!nq) return [];
-  return INDEX.filter(r=>Object.values(r).some(v=>norm(v).includes(nq)))
-              .map(r=>({raw:r}));
-}
-
-/* ====== Render ====== */
-const B=document.getElementById("body");
-function clearResults(){while(B.firstChild)B.removeChild(B.firstChild);}
-function renderChunk(items){
-  const frag=document.createDocumentFragment();
-  for(const it of items){
-    const r=it.raw,div=document.createElement("div");
-    div.className="row";
-    const title=r["full title"]||r.title||"(بدون عنوان)";
-    const author=r.author||r["المؤلف"]||"";
-    const abstract=r.abstract||r["الملخص"]||"";
-    div.innerHTML=`<b>${title}</b>${author?`<div class='meta'>${author}</div>`:""}<div>${abstract}</div>`;
-    frag.appendChild(div);
-  }
-  B.appendChild(frag);
-}
-
-/* ====== Show more ====== */
-let LAST={items:[],shown:0};
-function addShowMoreIfNeeded(){
-  const old=document.getElementById("ka-more");if(old)old.remove();
-  if(LAST.shown>=LAST.items.length)return;
-  const row=document.createElement("div");row.id="ka-more";row.className="more-row";
-  const btn=document.createElement("button");
-  const remaining=LAST.items.length-LAST.shown;
-  btn.textContent=remaining>PAGE_SIZE?"Show more":"Show all";
-  btn.onclick=()=>{
-    const next=Math.min(LAST.shown+PAGE_SIZE,LAST.items.length);
-    renderChunk(LAST.items.slice(LAST.shown,next));
-    LAST.shown=next;addShowMoreIfNeeded();
-  };
-  row.appendChild(btn);B.appendChild(row);
-}
-
-function renderAll(list){
-  clearResults();
-  if(!list.length){B.textContent="No results.";return;}
-  LAST.items=list;LAST.shown=Math.min(PAGE_SIZE,list.length);
-  renderChunk(list.slice(0,LAST.shown));
-  addShowMoreIfNeeded();
-}
-
-/* ====== Run ====== */
-async function run(){
-  setBusy(true,"Searching…");
-  try{
-    await ensureLoaded();
-    const raw=document.getElementById("q").value.trim();
-    if(!raw){setBusy(false);return;}
-    const res=search(raw);
-    renderAll(res);
-  }finally{setBusy(false);}
+  if(!el){ el=document.createElement("div"); el.id="top-error"; el.className="error"; document.body.prepend(el); }
+  el.textContent = String(msg||"Unknown error");
 }
 
 /* ====== UI ====== */
 const fab=document.getElementById("fab");
 const box=document.getElementById("box");
 const closeBtn=document.getElementById("x");
+const B=document.getElementById("body");
+const STATUS=document.getElementById("status");
 const Q=document.getElementById("q");
-fab.onclick=()=>{
-  box.style.display=(box.style.display==="flex"?"none":"flex");
-  if(box.style.display==="flex"){setBusy(true,"Initializing…");ensureLoaded().then(()=>setBusy(false));setTimeout(()=>Q.focus(),50);}
+fab.onclick=()=>{ 
+  box.style.display = (box.style.display==="flex"?"none":"flex"); 
+  if(box.style.display==="flex"){ setBusy(true,"Initializing…"); ensureLoaded().then(()=>setBusy(false)); setTimeout(()=>Q.focus(),50); }
 };
-closeBtn.onclick=()=>{box.style.display="none";};
+closeBtn.onclick=()=>{ box.style.display="none"; };
+
+/* ====== Arabic normalization ====== */
+function stripBidi(s){ return String(s||"").replace(/[\u200E\u200F\u202A-\u202E]/g,""); }
+function clean(s){ return stripBidi(String(s||"").replace(/^\uFEFF/,"")); }
+function canonHeader(h){ return clean(h).toLowerCase().replace(/\s+/g," ").trim(); }
+function norm(s){
+  if(!s) return "";
+  s = clean(s).toLowerCase();
+  try{s=s.normalize("NFKD");}catch(e){}
+  s = s
+    .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ة/g,"ه").replace(/ک/g,"ك")
+    .replace(/\bعبد\s+ال/g,"عبدال")
+    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
+    .replace(/[\u0660-\u0669]/g,d=>d.charCodeAt(0)-0x0660)
+    .replace(/[\u06F0-\u06F9]/g,d=>d.charCodeAt(0)-0x06F0)
+    .replace(/[^\p{L}\p{N}\s]/gu," ")
+    .replace(/\s+/g," ").trim();
+  return s;
+}
+function normForPhrase(s){ return norm(s).replace(/[،,;]/g," ").replace(/\s+/g," ").trim(); }
+function isArabic(s){ return /[\u0600-\u06FF]/.test(s||""); }
+
+/* ====== Auto-encoding detection for AR CSV/TSV ====== */
+async function autoDecode(arrayBuf){
+  const encs = [
+    {label:"utf-8",       fatal:false},
+    {label:"windows-1256",fatal:false},
+    {label:"iso-8859-6",  fatal:false},
+    {label:"utf-16le",    fatal:false},
+  ];
+  let best = {text:"", bad:Infinity, enc:""};
+  for(const e of encs){
+    try{
+      const t = new TextDecoder(e.label, {fatal:false}).decode(arrayBuf);
+      const bad = (t.match(/\uFFFD/g)||[]).length;
+      if (bad < best.bad) best = {text:t, bad, enc:e.label};
+      if (bad === 0) return {text:t, enc:e.label};
+    }catch(_){}
+  }
+  return best;
+}
+
+/* ====== Robust parser (TAB no quotes; others with quotes) ====== */
+function parseTSV(text){
+  text = clean(String(text||"")).replace(/\r\n?/g,"\n");
+  if(!text.trim()) return {headers:[], rows:[], delim:"\t"};
+
+  let override = null;
+  try{
+    const u = new URL(PRIMARY_URL, location.href);
+    const d = (u.searchParams.get("delim")||"").toLowerCase();
+    if(d==="tab") override="\t"; if(d==="pipe") override="|";
+    if(d==="semicolon") override=";"; if(d==="comma") override=",";
+  }catch(_){}
+
+  const candidates = override ? [override] : ["\t","|",";",","];
+  const firstNL = text.indexOf("\n");
+  const headerLine = firstNL>=0 ? text.slice(0,firstNL) : text;
+  let bestDelim = "\t", bestScore = -1;
+  for(const d of candidates){ const s=(headerLine.split(d).length-1); if(s>bestScore){bestScore=s;bestDelim=d;} }
+  const DELIM = bestDelim;
+
+  if (DELIM === "\t"){
+    const lines = text.split("\n");
+    const rows = lines.map(l => l.split("\t"));
+    if(!rows.length) return {headers:[], rows:[], delim:DELIM};
+    const headers = rows[0].map(canonHeader);
+    const out=[];
+    for(let r=1;r<rows.length;r++){
+      const rec={}; const cols=rows[r];
+      if(cols.length===1 && cols[0]==="") continue;
+      for(let c=0;c<headers.length;c++){
+        const key = headers[c] || ("col"+c);
+        rec[key] = clean(cols[c] ?? "");
+      }
+      out.push(rec);
+    }
+    return {headers, rows:out, delim:DELIM};
+  }
+
+  // CSV-like path (comma/semicolon/pipe with quotes)
+  const rows=[]; let i=0, field="", row=[], inQuotes=false;
+  while(i<text.length){
+    const ch=text[i];
+    if(inQuotes){
+      if(ch==="\""){
+        if(i+1<text.length && text[i+1]==="\""){ field+="\""; i+=2; continue; }
+        inQuotes=false; i++; continue;
+      } else { field+=ch; i++; continue; }
+    } else {
+      if(ch==="\""){ inQuotes=true; i++; continue; }
+      if(ch===DELIM){ row.push(field); field=""; i++; continue; }
+      if(ch==="\n"){ row.push(field); field=""; rows.push(row); row=[]; i++; continue; }
+      field+=ch; i++; continue;
+    }
+  }
+  row.push(field); if(row.length && (row.length>1 || row[0]!=="" )) rows.push(row);
+
+  if(!rows.length) return {headers:[], rows:[], delim:DELIM};
+  const headers = rows[0].map(canonHeader);
+  const out=[];
+  for(let r=1;r<rows.length;r++){
+    const rec={}; const cols=rows[r];
+    for(let c=0;c<headers.length;c++){
+      const key = headers[c] || ("col"+c);
+      rec[key] = clean(cols[c] ?? "");
+    }
+    out.push(rec);
+  }
+  return {headers, rows:out, delim:DELIM};
+}
+
+/* ====== Header aliases (Author + Other Author + Corporate) ====== */
+function pick(obj, keys){
+  for(const k of keys){
+    const kk=canonHeader(k);
+    if (Object.prototype.hasOwnProperty.call(obj, kk) && obj[kk]) return obj[kk];
+  }
+  return "";
+}
+function mapRecord(k){
+  const title   = pick(k, ["full title","title","العنوان","عنوان","اسم الكتاب"]);
+  const author  = pick(k, ["author","authors","المؤلف","المؤلفون","كاتب","بقلم","اسم المؤلف"]);
+  const otherAu = pick(k, ["other author","other authors","contributors","additional authors","co-author","co authors","المؤلف الآخر","مؤلف مشارك","المؤلفون المشاركون","المشاركون"]);
+  const summary = pick(k, ["abstract","summary","الملخص","نبذة","وصف"]);
+  const content = pick(k, ["content","contents","المحتويات","المحتوى","نص"]);
+  const subject = pick(k, ["subjects","subject","topic","topics","الموضوعات","الموضوع","موضوع","التخصص","الكلمات المفتاحية"]);
+  const pubdat  = pick(k, ["publications data","publication data","publishing data","publisher data","بيانات النشر","تاريخ النشر","سنة النشر"]);
+  const bookUrl = pick(k, ["book_url","book url","رابط الكتاب","رابط_الكتاب","link","url"]);
+  let year = pick(k, ["year","السنة","سنة النشر","تاريخ"]);
+  if(!year){
+    const ym = String(pubdat).match(/(19|20)\d{2}/);
+    year = ym ? ym[0] : "";
+  }
+  const publisher = pubdat ? String(pubdat).replace(/\b(19|20)\d{2}\b/g,"").replace(/\s*[،,:-]\s*$/,"").trim() : "";
+
+  /* Corporate name (710$a) */
+  const corp = pick(k, ["corporate name","corporate","جهة مؤسسية","اسم الهيئة","corporate_name","corporate-name","corporate/organization"]);
+
+  return {title, author, other_author: otherAu, summary, content, subject, publisher, year, book_url:bookUrl, Book_Url:bookUrl,
+          corporate_name: corp};
+}
+
+/* ====== Build index ====== */
+let INDEX=[]; let HEADERS=[];
+async function ensureLoaded(){
+  if (INDEX.length) return; // already loaded once
+  try{
+    setBusy(true,"Loading records…");
+    const buf  = await fetchFirstWorking(DATA_URLS);
+
+    // Try to detect best encoding; if unsure, use utf-8
+    let decProbe;
+    try { decProbe = await autoDecode(buf); } catch(_) {}
+    const enc = (decProbe && decProbe.enc) ? decProbe.enc : "utf-8";
+
+    // Stream decode
+    const td = new TextDecoder(enc);
+    const chunkSize = 1024 * 1024;
+    let pos = 0, parts = [];
+    while (pos < buf.byteLength) {
+      const end = Math.min(pos + chunkSize, buf.byteLength);
+      parts.push(td.decode(buf.slice(pos, end), {stream: end < buf.byteLength}));
+      pos = end;
+    }
+    const text = parts.join("");
+
+    const parsed = parseTSV(text);
+    HEADERS = parsed.headers;
+    const recs = parsed.rows.map(mapRecord);
+
+    INDEX = recs.map((r,i)=>{
+      const authorAll = [r.author, r.other_author, r.corporate_name].filter(Boolean).join(" ");
+      return {
+        id:i, raw:r,
+        nTitle:  norm(r.title),
+        nAuthorAll: norm(authorAll),
+        nAuthorAllPhrase: normForPhrase(authorAll),
+        nSummary:norm(r.summary), nContent:norm(r.content),
+        nSubject:norm(r.subject), nPub:norm(((r.publisher||"") + " " + (r.corporate_name||"")).trim()),
+        nYear:norm(r.year||""),
+      };
+    });
+
+    STATUS.textContent = `Loaded ${INDEX.length} records • encoding ${enc} • delimiter “${parsed.delim === "\t" ? "TAB" : parsed.delim}” • headers: ${HEADERS.join(" | ")}`;
+  }catch(e){
+    STATUS.textContent = `Load error: ${e.message}`;
+    banner(e?.message||String(e));
+  }finally{
+    setBusy(false);
+  }
+}
+
+/* ====== Author matching (STRICT: all core tokens must match) ====== */
+const NAME_STOPWORDS = new Set([
+  "بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال","آل","بنعبدالله","بنعبد","بنعبدال",
+  "الدكتور","دكتور","الأستاذ","استاذ","د","م","سمو","سعادة","معالي"
+]);
+function tokenizeQuery(raw){
+  const q = norm(raw);
+  if (!q) return [];
+  const toks = q.split(/\s+/).filter(t => t.length >= 2 && !/^\d+$/.test(t));
+  return toks.filter(t => !NAME_STOPWORDS.has(t));
+}
+function containsAllTokens(targetNorm, tokens){
+  if (!tokens.length) return false;
+  for (const t of tokens) if (!targetNorm.includes(t)) return false;
+  return true;
+}
+
+/* ====== Field choice (heuristic) ====== */
+const AR_NAME_PARTS = new Set(["بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال"]);
+const EN_STOP = new Set(["the","a","an","of","and","for","on","in","to","with"]);
+function looksLikeYear(q){ return /^\d{4}$/.test(q.trim()); }
+function looksLikeName(q){
+  const s=q.trim(); if(!s||looksLikeYear(s)) return false;
+  const toks=s.split(/\s+/).filter(Boolean);
+  if(toks.length<1||toks.length>6) return false;
+  let ok=0, ar=false;
+  for(const t of toks){
+    const nt=norm(t);
+    if(/^[a-z\u0600-\u06FF]+$/i.test(nt)) ok++;
+    if(AR_NAME_PARTS.has(nt)) ar=true;
+    if(EN_STOP.has(nt)) return false;
+  }
+  if(ok!==toks.length && ok<toks.length-1) return false;
+  const nq=norm(s);
+  for(let i=0;i<Math.min(400,INDEX.length);i++){
+    if(INDEX[i].nAuthorAll.includes(nq)) return true;
+  }
+  return ar || toks.length>=2;
+}
+function chooseField(q){
+  if(looksLikeYear(q)) return "year";
+  if(looksLikeName(q)) return "author";
+  const nq=norm(q);
+  let votes={title:0,subject:0,summary:0,author:0,pub:0};
+  for(let i=0;i<Math.min(1200,INDEX.length);i++){
+    const r=INDEX[i];
+    if(r.nTitle.includes(nq))   votes.title++;
+    if(r.nSubject.includes(nq)) votes.subject++;
+    if(r.nSummary.includes(nq)) votes.summary++;
+    if(r.nContent.includes(nq)) votes.summary+=0.6;
+    if(r.nAuthorAll.includes(nq))  votes.author+=0.6;
+    if(r.nPub.includes(nq))     votes.pub+=0.6;
+  }
+  const w={author:votes.author*1.2,subject:votes.subject*1.1,title:votes.title,summary:votes.summary*0.95,pub:votes.pub};
+  let best="title",bestV=-1; for(const k of Object.keys(w)){ if(w[k]>bestV){ best=k; bestV=w[k]; } }
+  return best;
+}
+
+/* ====== STRICT field search with paging ====== */
+let MATCH_NOTE = "";
+function searchField(field,q){
+  const nq = norm(q), phraseQ = normForPhrase(q);
+  const out = [];
+  for (const r of INDEX){
+    let hit=false, sc=0;
+
+    if (field === "author"){
+      const tokens = tokenizeQuery(q);
+      if (tokens.length >= 2){
+        if (containsAllTokens(r.nAuthorAll, tokens)){
+          sc = 100 + tokens.length; hit = true;
+          MATCH_NOTE = "Strict full-name in Author/Other/Corporate (all parts matched)";
+        }
+      } else {
+        const tok = tokens[0] || nq;
+        if (tok && r.nAuthorAll.includes(tok)){
+          sc = 85; hit = true; MATCH_NOTE = "Single name part matched (author fields only)";
+        }
+      }
+    } else if (field === "title"){
+      if (r.nTitle.includes(nq)) { sc=80; hit=true; }
+    } else if (field === "subject"){
+      if (r.nSubject.includes(nq)) { sc=70; hit=true; }
+    } else if (field === "summary"){
+      if (r.nSummary.includes(nq) || r.nContent.includes(nq)) { sc=60; hit=true; }
+    } else if (field === "year"){
+      if (r.nYear.includes(nq)) { sc=60; hit=true; }
+    } else if (field === "pub"){
+      if (r.nPub.includes(nq)) { sc=50; hit=true; }
+    }
+
+    if (hit) out.push({sc, raw:r.raw});
+  }
+  out.sort((a,b)=>b.sc-a.sc);
+  return out;
+}
+
+/* ====== Record URL: file-only ====== */
+function recordURLFromFile(rec){
+  const url = String(rec.Book_Url || rec.book_url || rec["book url"] || "").trim();
+  return url || "";
+}
+
+/* ====== Render + paging ====== */
+let LAST={items:[],shown:0,field:""};
+function clearResults(){ while(B.firstChild) B.removeChild(B.firstChild); }
+function titleOrPlaceholder(t){ return (t && t.trim()) ? t : "(بدون عنوان)"; }
+function renderChunk(items){
+  const frag=document.createDocumentFragment();
+  for(const it of items){
+    const r=it.raw, div=document.createElement("div");
+    div.className="row";
+    div.dir = /[\u0600-\u06FF]/.test((r.title||"")+(r.summary||"")+(r.author||"")+(r.other_author||"")+(r.subject||"")+(r.publisher||"")+(r.corporate_name||"")) ? "rtl" : "ltr";
+    const openUrl = recordURLFromFile(r);
+    const pubLine = [r.publisher, r.year].filter(Boolean).join(" • ");
+
+    let linkHTML = "";
+    if (openUrl){
+      linkHTML = `<a class="btn" href="${openUrl}" target="_blank" rel="noopener">Open record</a>`;
+    } else {
+      linkHTML = `<button class="btn" disabled title="لا يوجد رابط في الملف / No URL in file">Open record</button>`;
+    }
+
+    div.innerHTML =
+      `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+         <b style="font-size:15px;line-height:1.3">${titleOrPlaceholder(r.title).replace(/</g,"&lt;")}</b>
+         ${linkHTML}
+       </div>` +
+      (r.author?         `<div class="meta">${isArabic(r.author)?'المؤلف: ':'Author: '}${r.author}</div>` : "") +
+      (r.other_author?   `<div class="meta">${isArabic(r.other_author)?'مؤلف مشارك: ':'Other author: '}${r.other_author}</div>` : "") +
+      (r.corporate_name? `<div class="meta">${isArabic(r.corporate_name)?'الهيئة: ':'Corporate: '}${r.corporate_name}</div>` : "") +
+      (r.subject?        `<div class="meta">${isArabic(r.subject)?'الموضوع: ':'Subject: '}${r.subject}</div>` : "") +
+      (pubLine?          `<div class="meta">${pubLine}</div>` : "") +
+      (r.summary?        `<div style="margin-top:6px">${r.summary.length>360? r.summary.slice(0,357)+'…' : r.summary}</div>` : "");
+    frag.appendChild(div);
+  }
+  B.appendChild(frag);
+}
+function addShowMoreIfNeeded(){
+  const old=document.getElementById("ka-more"); if(old) old.remove();
+  if(LAST.shown>=LAST.items.length) return;
+  const row=document.createElement("div"); row.id="ka-more"; row.className="more-row";
+  const btn=document.createElement("button");
+  const remaining=LAST.items.length-LAST.shown;
+  btn.textContent = remaining>PAGE_SIZE ? "Show more" : "Show all";
+  btn.onclick=()=>{
+    const next=Math.min(LAST.shown+PAGE_SIZE, LAST.items.length);
+    renderChunk(LAST.items.slice(LAST.shown, next));
+    LAST.shown=next; addShowMoreIfNeeded();
+  };
+  row.appendChild(btn); B.appendChild(row);
+}
+function renderAll(list, field){
+  clearResults();
+  const labelAR = {author:"المؤلف + مؤلف مشارك + هيئة", title:"العنوان", subject:"الموضوع", summary:"الملخص", year:"سنة النشر", pub:"الناشر"}[field] || field;
+  const note=document.createElement("div"); note.className="meta";
+  const extra = (field==="author" && MATCH_NOTE) ? " • " + MATCH_NOTE : "";
+  note.textContent=`Searching field only: ${labelAR}${extra}`;
+  B.appendChild(note);
+
+  if(!list.length){
+    const d=document.createElement("div"); d.className="row"; d.textContent="No results found in that field.";
+    B.appendChild(d); return;
+  }
+  LAST.items=list; LAST.shown=Math.min(PAGE_SIZE, list.length); LAST.field=field;
+  renderChunk(list.slice(0, LAST.shown));
+  addShowMoreIfNeeded();
+}
+
+/* ====== Run ====== */
+async function run(){
+  setBusy(true, "Searching…");
+  try{
+    await ensureLoaded();
+    const raw = Q.value.trim(); if(!raw){ setBusy(false); return; }
+    const field = chooseField(raw);
+    const res = searchField(field, raw);
+    renderAll(res, field);
+  }finally{
+    setBusy(false);
+  }
+}
 document.getElementById("go").onclick=run;
-Q.addEventListener("keydown",e=>{if(e.key==="Enter")run();});
+Q.addEventListener("keydown", e=>{ if(e.key==="Enter") run(); });
+
+/* Initial load */
 ensureLoaded();
 </script>
 </body>
