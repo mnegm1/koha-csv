@@ -80,36 +80,9 @@
   </div>
 
 <script>
-/* ====== CONFIG (use your Cloudflare Worker) ====== */
-const DRIVE_ID = "1ctz6U5HphC3fCl00TTWWNclIRTEl1hNf";
-const WORKER   = "https://gdrive-cors.m-negm.workers.dev";
-
-/* Raw Google Drive endpoints */
-const RAW_USERCONTENT = `https://drive.usercontent.google.com/download?id=${DRIVE_ID}&delim=tab`;
-const RAW_UC_EXPORT   = `https://drive.google.com/uc?export=download&id=${DRIVE_ID}&delim=tab`;
-
-/* Always fetch through your Worker (avoid Google 403/CORS) */
-const DATA_URLS = [
-  `${WORKER}/?url=${encodeURIComponent(RAW_USERCONTENT)}`,
-  `${WORKER}/?url=${encodeURIComponent(RAW_UC_EXPORT)}`
-];
-
-/* Used only by the parser to read ?delim */
-const PRIMARY_URL = DATA_URLS[0];
+/* ====== CONFIG ====== */
+const DATA_URL  = "./opac-catalog.tab?delim=tab";  /* Force TAB */
 const PAGE_SIZE = 12;
-
-/* ====== Fetch with fallback ====== */
-async function fetchFirstWorking(urls){
-  let lastErr;
-  for(const u of urls){
-    try{
-      const r = await fetch(u + `&v=${Date.now()}`, {cache:"no-store", mode:"cors"});
-      if(!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-      return await r.arrayBuffer();
-    }catch(e){ lastErr = e; }
-  }
-  throw lastErr || new Error("All sources failed");
-}
 
 /* ====== Busy indicator ====== */
 function setBusy(on, label){
@@ -192,7 +165,7 @@ function parseTSV(text){
 
   let override = null;
   try{
-    const u = new URL(PRIMARY_URL, location.href);
+    const u = new URL(DATA_URL, location.href);
     const d = (u.searchParams.get("delim")||"").toLowerCase();
     if(d==="tab") override="\t"; if(d==="pipe") override="|";
     if(d==="semicolon") override=";"; if(d==="comma") override=",";
@@ -222,7 +195,6 @@ function parseTSV(text){
     return {headers, rows:out, delim:DELIM};
   }
 
-  // CSV-like (comma/semicolon/pipe + quotes)
   const rows=[]; let i=0, field="", row=[], inQuotes=false;
   while(i<text.length){
     const ch=text[i];
@@ -254,7 +226,7 @@ function parseTSV(text){
   return {headers, rows:out, delim:DELIM};
 }
 
-/* ====== Header aliases ====== */
+/* ====== Header aliases (Author + Other Author + Corporate) ====== */
 function pick(obj, keys){
   for(const k of keys){
     const kk=canonHeader(k);
@@ -278,26 +250,23 @@ function mapRecord(k){
   }
   const publisher = pubdat ? String(pubdat).replace(/\b(19|20)\d{2}\b/g,"").replace(/\s*[،,:-]\s*$/,"").trim() : "";
 
+  /* NEW: 710$a — Corporate Name */
   const corp = pick(k, ["corporate name","corporate","جهة مؤسسية","اسم الهيئة","corporate_name","corporate-name","corporate/organization"]);
 
   return {title, author, other_author: otherAu, summary, content, subject, publisher, year, book_url:bookUrl, Book_Url:bookUrl,
-          corporate_name: corp};
+          corporate_name: corp}; /* NEW: include in record */
 }
 
-/* ====== Build index ====== */
+/* ====== Build index (streaming decode to avoid truncation) ====== */
 let INDEX=[]; let HEADERS=[];
 async function ensureLoaded(){
-  if (INDEX.length) return;
   try{
     setBusy(true,"Loading records…");
-    const buf  = await fetchFirstWorking(DATA_URLS);
+    const buf  = await fetch(DATA_URL, {cache:"reload"}).then(r=>{ if(!r.ok) throw new Error(`Fetch ${r.status} ${r.statusText}`); return r.arrayBuffer(); });
 
-    // detect best encoding
-    let decProbe;
-    try { decProbe = await autoDecode(buf); } catch(_) {}
-    const enc = (decProbe && decProbe.enc) ? decProbe.enc : "utf-8";
+    const decProbe = await autoDecode(buf);
+    const enc = decProbe.enc || "utf-8";
 
-    // stream decode
     const td = new TextDecoder(enc);
     const chunkSize = 1024 * 1024;
     let pos = 0, parts = [];
@@ -313,6 +282,7 @@ async function ensureLoaded(){
     const recs = parsed.rows.map(mapRecord);
 
     INDEX = recs.map((r,i)=>{
+      /* NEW: include corporate_name in author-style matching */
       const authorAll = [r.author, r.other_author, r.corporate_name].filter(Boolean).join(" ");
       return {
         id:i, raw:r,
@@ -320,6 +290,7 @@ async function ensureLoaded(){
         nAuthorAll: norm(authorAll),
         nAuthorAllPhrase: normForPhrase(authorAll),
         nSummary:norm(r.summary), nContent:norm(r.content),
+        /* NEW: include corp in publisher-style index too */
         nSubject:norm(r.subject), nPub:norm(((r.publisher||"") + " " + (r.corporate_name||"")).trim()),
         nYear:norm(r.year||""),
       };
@@ -334,7 +305,7 @@ async function ensureLoaded(){
   }
 }
 
-/* ====== Author matching (STRICT) ====== */
+/* ====== Author matching (STRICT: all core tokens must match) ====== */
 const NAME_STOPWORDS = new Set([
   "بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال","آل","بنعبدالله","بنعبد","بنعبدال",
   "الدكتور","دكتور","الأستاذ","استاذ","د","م","سمو","سعادة","معالي"
@@ -464,7 +435,7 @@ function renderChunk(items){
        </div>` +
       (r.author?         `<div class="meta">${isArabic(r.author)?'المؤلف: ':'Author: '}${r.author}</div>` : "") +
       (r.other_author?   `<div class="meta">${isArabic(r.other_author)?'مؤلف مشارك: ':'Other author: '}${r.other_author}</div>` : "") +
-      (r.corporate_name? `<div class="meta">${isArabic(r.corporate_name)?'الهيئة: ':'Corporate: '}${r.corporate_name}</div>` : "") +
+      (r.corporate_name? `<div class="meta">${isArabic(r.corporate_name)?'الهيئة: ':'Corporate: '}${r.corporate_name}</div>` : "") +  <!-- NEW: show corp -->
       (r.subject?        `<div class="meta">${isArabic(r.subject)?'الموضوع: ':'Subject: '}${r.subject}</div>` : "") +
       (pubLine?          `<div class="meta">${pubLine}</div>` : "") +
       (r.summary?        `<div style="margin-top:6px">${r.summary.length>360? r.summary.slice(0,357)+'…' : r.summary}</div>` : "");
