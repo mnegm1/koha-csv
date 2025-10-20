@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Koha TSV Search — ECSSR AI Assistant (Full)</title>
+<title>UAE Federation Library AI Assistant (Full)</title>
 <style>
   :root{
     --brand:#BF9849; --brandText:#fff;
@@ -81,13 +81,7 @@
 
 <script>
 /* ====== CONFIG ====== */
-/* Load and merge these six parts (keep ?delim=tab): */
-const DATA_URLS = [
-  "./opac-catalog_1.tab?delim=tab",
-  "./opac-catalog_2.tab?delim=tab"
-];
-/* PRIMARY_URL is only used to read the delim parameter in parseTSV() */
-const PRIMARY_URL = DATA_URLS[0];
+const DATA_URL  = "https://drive.usercontent.google.com/download?id=1ctz6U5HphC3fCl00TTWWNclIRTEl1hNf&delim=tab";
 const PAGE_SIZE = 12;
 
 /* ====== Busy indicator ====== */
@@ -171,7 +165,7 @@ function parseTSV(text){
 
   let override = null;
   try{
-    const u = new URL(PRIMARY_URL, location.href);
+    const u = new URL(DATA_URL, location.href);
     const d = (u.searchParams.get("delim")||"").toLowerCase();
     if(d==="tab") override="\t"; if(d==="pipe") override="|";
     if(d==="semicolon") override=";"; if(d==="comma") override=",";
@@ -256,59 +250,38 @@ function mapRecord(k){
   }
   const publisher = pubdat ? String(pubdat).replace(/\b(19|20)\d{2}\b/g,"").replace(/\s*[،,:-]\s*$/,"").trim() : "";
 
-  /* NEW: 710$a — Corporate Name */
   const corp = pick(k, ["corporate name","corporate","جهة مؤسسية","اسم الهيئة","corporate_name","corporate-name","corporate/organization"]);
 
   return {title, author, other_author: otherAu, summary, content, subject, publisher, year, book_url:bookUrl, Book_Url:bookUrl,
-          corporate_name: corp}; /* NEW: include in record */
+          corporate_name: corp};
 }
 
-/* ====== Build index (streaming decode + multi-file merge) ====== */
+/* ====== Build index ====== */
 let INDEX=[]; let HEADERS=[];
 async function ensureLoaded(){
   if (INDEX.length) return; // already loaded once
   try{
     setBusy(true,"Loading records…");
+    const buf  = await fetch(DATA_URL, {cache:"reload"}).then(r=>{ if(!r.ok) throw new Error(`Fetch ${r.status} ${r.statusText}`); return r.arrayBuffer(); });
 
-    let mergedText = "";
-    let encUsed = "utf-8";
-    let totalLoaded = 0;
+    const decProbe = await autoDecode(buf);
+    const enc = decProbe.enc || "utf-8";
 
-    for (let i=0;i<DATA_URLS.length;i++){
-      const url = DATA_URLS[i];
-      const res = await fetch(url, {cache:"reload"});
-      if(!res.ok) throw new Error(`Fetch ${url} → ${res.status} ${res.statusText}`);
-      const buf = await res.arrayBuffer();
-
-      const decProbe = await autoDecode(buf);
-      encUsed = decProbe.enc || encUsed;
-
-      // Stream decode for big files
-      const td = new TextDecoder(encUsed);
-      const chunkSize = 1024 * 1024;
-      let pos = 0, parts = [];
-      while (pos < buf.byteLength) {
-        const end = Math.min(pos + chunkSize, buf.byteLength);
-        parts.push(td.decode(buf.slice(pos, end), {stream: end < buf.byteLength}));
-        pos = end;
-      }
-      let text = parts.join("");
-
-      // Drop header line from all but the first file
-      if (i > 0) {
-        const nl = text.indexOf("\n");
-        if (nl !== -1) text = text.slice(nl + 1);
-      }
-      mergedText += (i===0 ? "" : "\n") + text;
-      totalLoaded++;
+    const td = new TextDecoder(enc);
+    const chunkSize = 1024 * 1024;
+    let pos = 0, parts = [];
+    while (pos < buf.byteLength) {
+      const end = Math.min(pos + chunkSize, buf.byteLength);
+      parts.push(td.decode(buf.slice(pos, end), {stream: end < buf.byteLength}));
+      pos = end;
     }
+    const text = parts.join("");
 
-    const parsed = parseTSV(mergedText);
+    const parsed = parseTSV(text);
     HEADERS = parsed.headers;
     const recs = parsed.rows.map(mapRecord);
 
     INDEX = recs.map((r,i)=>{
-      /* include corporate_name in author-style matching */
       const authorAll = [r.author, r.other_author, r.corporate_name].filter(Boolean).join(" ");
       return {
         id:i, raw:r,
@@ -321,7 +294,7 @@ async function ensureLoaded(){
       };
     });
 
-    STATUS.textContent = `Loaded ${INDEX.length} records from ${totalLoaded} files • encoding ${encUsed} • delimiter “${parsed.delim === "\t" ? "TAB" : parsed.delim}” • headers: ${HEADERS.join(" | ")}`;
+    STATUS.textContent = `Loaded ${INDEX.length} records • encoding ${enc} • delimiter “${parsed.delim === "\t" ? "TAB" : parsed.delim}” • headers: ${HEADERS.join(" | ")}`;
   }catch(e){
     STATUS.textContent = `Load error: ${e.message}`;
     banner(e?.message||String(e));
@@ -460,7 +433,7 @@ function renderChunk(items){
        </div>` +
       (r.author?         `<div class="meta">${isArabic(r.author)?'المؤلف: ':'Author: '}${r.author}</div>` : "") +
       (r.other_author?   `<div class="meta">${isArabic(r.other_author)?'مؤلف مشارك: ':'Other author: '}${r.other_author}</div>` : "") +
-      (r.corporate_name? `<div class="meta">${isArabic(r.corporate_name)?'الهيئة: ':'Corporate: '}${r.corporate_name}</div>` : "") +  <!-- NEW: show corp -->
+      (r.corporate_name? `<div class="meta">${isArabic(r.corporate_name)?'الهيئة: ':'Corporate: '}${r.corporate_name}</div>` : "") +
       (r.subject?        `<div class="meta">${isArabic(r.subject)?'الموضوع: ':'Subject: '}${r.subject}</div>` : "") +
       (pubLine?          `<div class="meta">${pubLine}</div>` : "") +
       (r.summary?        `<div style="margin-top:6px">${r.summary.length>360? r.summary.slice(0,357)+'…' : r.summary}</div>` : "");
