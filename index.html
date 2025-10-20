@@ -80,17 +80,22 @@
   </div>
 
 <script>
-/* ====== CONFIG (Drive + CORS-safe fallbacks) ====== */
+/* ====== CONFIG (use your Cloudflare Worker) ====== */
 const DRIVE_ID = "1ctz6U5HphC3fCl00TTWWNclIRTEl1hNf";
+const WORKER   = "https://gdrive-cors.m-negm.workers.dev";
+
+/* Raw Google Drive endpoints */
+const RAW_USERCONTENT = `https://drive.usercontent.google.com/download?id=${DRIVE_ID}&delim=tab`;
+const RAW_UC_EXPORT   = `https://drive.google.com/uc?export=download&id=${DRIVE_ID}&delim=tab`;
+
+/* Always fetch through your Worker (avoid Google 403/CORS) */
 const DATA_URLS = [
-  // direct Google endpoints (may be blocked by CORS in browsers)
-  `https://drive.usercontent.google.com/download?id=${DRIVE_ID}&delim=tab`,
-  `https://drive.google.com/uc?export=download&id=${DRIVE_ID}&delim=tab`,
-  // CORS relay (adds Access-Control-Allow-Origin:*), preserves bytes
-  `https://cors.isomorphic-git.org/https://drive.usercontent.google.com/download?id=${DRIVE_ID}&delim=tab`,
-  `https://cors.isomorphic-git.org/https://drive.google.com/uc?export=download&id=${DRIVE_ID}&delim=tab`
+  `${WORKER}/?url=${encodeURIComponent(RAW_USERCONTENT)}`,
+  `${WORKER}/?url=${encodeURIComponent(RAW_UC_EXPORT)}`
 ];
-const PRIMARY_URL = DATA_URLS[0];  // used only to read ?delim
+
+/* Used only by the parser to read ?delim */
+const PRIMARY_URL = DATA_URLS[0];
 const PAGE_SIZE = 12;
 
 /* ====== Fetch with fallback ====== */
