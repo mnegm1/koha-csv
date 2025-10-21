@@ -1,6 +1,6 @@
 // backend/server.js
 // ECSSR AI Assistant Backend with Perplexity API
-// UPDATED: Fixed model names for October 2025
+// SAFE VERSION - Using only verified model names
 
 const express = require('express');
 const cors = require('cors');
@@ -35,8 +35,8 @@ function checkRateLimit(ip) {
   return true;
 }
 
-// Helper: Call Perplexity API with UPDATED model names (2025)
-async function callPerplexity(messages, model = 'pplx-7b-online') {
+// Helper: Call Perplexity API - USING SAFE MODEL NAMES
+async function callPerplexity(messages, model = 'sonar-pro') {
   try {
     const response = await fetch(PERPLEXITY_URL, {
       method: 'POST',
@@ -103,7 +103,7 @@ User question: ${query}`;
     const answer = await callPerplexity([
       { role: 'system', content: 'You are a library assistant for ECSSR.' },
       { role: 'user', content: contextMsg }
-    ], 'pplx-7b-online');
+    ], 'sonar-pro');
 
     const bookIds = [];
     const idMatches = answer.match(/\b(\d+)\b/g);
@@ -152,7 +152,7 @@ BOOK_IDS: [comma-separated list of relevant book IDs]`;
 
     const response = await callPerplexity([
       { role: 'user', content: prompt }
-    ], 'pplx-7b-online');
+    ], 'sonar-pro');
 
     const explanationMatch = response.match(/EXPLANATION:\s*(.+?)(?=BOOK_IDS:|$)/s);
     const idsMatch = response.match(/BOOK_IDS:\s*([\d,\s]+)/);
@@ -201,7 +201,7 @@ BOOK_IDS: [comma-separated IDs]`;
 
     const response = await callPerplexity([
       { role: 'user', content: prompt }
-    ], 'pplx-7b-online');
+    ], 'sonar-pro');
 
     const explanationMatch = response.match(/EXPLANATION:\s*(.+?)(?=BOOK_IDS:|$)/s);
     const idsMatch = response.match(/BOOK_IDS:\s*([\d,\s]+)/);
@@ -242,7 +242,7 @@ Return ONLY a comma-separated list of suggestions, nothing else.`;
 
     const response = await callPerplexity([
       { role: 'user', content: prompt }
-    ], 'pplx-7b-online');
+    ], 'sonar-pro');
 
     const suggestions = response
       .split(/[,\n]/)
@@ -264,7 +264,7 @@ app.get('/api/health', (req, res) => {
     status: 'ok', 
     message: 'ECSSR AI Assistant Backend is running',
     perplexityConfigured: !!PERPLEXITY_API_KEY && PERPLEXITY_API_KEY !== 'pplx-YOUR-API-KEY-HERE',
-    modelVersion: 'pplx-7b-online/pplx-70b-online (2025)'
+    modelVersion: 'sonar-pro'
   });
 });
 
@@ -278,7 +278,7 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`🚀 ECSSR AI Backend running on http://localhost:${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
-  console.log(`🤖 Using Perplexity models: pplx-7b-online, pplx-70b-online`);
+  console.log(`🤖 Using Perplexity model: sonar-pro`);
   
   if (!PERPLEXITY_API_KEY || PERPLEXITY_API_KEY === 'pplx-YOUR-API-KEY-HERE') {
     console.warn('⚠️  WARNING: Perplexity API key not configured!');
