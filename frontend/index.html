@@ -492,28 +492,73 @@ async function aiEnhancedChat(query){
 }
 
 async function aiEnhancedSearch(query){
-  setBusy(true, "AI is searching...");
+  setBusy(true, "Searching...");
   try {
-    const allBooks = INDEX.map(r => ({
+    // STEP 1: Frontend does basic filtering first (searches ALL 6234 books)
+    const nq = norm(query);
+    const preFiltered = [];
+    
+    for (const r of INDEX){
+      let score = 0;
+      if (r.nTitle.includes(nq)) score += 100;
+      if (r.nAuthor.includes(nq)) score += 80;
+      if (r.nSubject.includes(nq)) score += 60;
+      if (r.nSummary.includes(nq)) score += 40;
+      if (r.nContent.includes(nq)) score += 30;
+      if (r.nYear.includes(nq)) score += 20;
+      
+      if (score > 0) preFiltered.push({score, ...r});
+    }
+    
+    preFiltered.sort((a,b) => b.score - a.score);
+    
+    // If no results, show message
+    if (preFiltered.length === 0) {
+      const note = document.createElement('div');
+      note.className = 'ai-note';
+      note.textContent = 'لا توجد نتائج / No results found';
+      B.appendChild(note);
+      setBusy(false);
+      return;
+    }
+    
+    // STEP 2: Send top 200 pre-filtered results to AI for refinement
+    const top200 = preFiltered.slice(0, 200).map(r => ({
       id: r.id,
       title: r.raw.title,
       author: r.raw.author,
       subject: r.raw.subject
     }));
+    
     const response = await callAI('/search', {
       query,
-      catalog: allBooks
+      catalog: top200
     });
+    
     if (response.explanation) {
       const note = document.createElement('div');
       note.className = 'ai-note';
       note.textContent = response.explanation;
       B.appendChild(note);
     }
+    
+    // STEP 3: Show AI-refined results
     const results = response.bookIds.map(id => INDEX[id]).filter(Boolean);
-    renderSearchResults(results.map(r => ({raw: r.raw})));
+    
+    // If AI didn't find any, show top basic results
+    if (results.length === 0) {
+      const fallback = preFiltered.slice(0, 20);
+      renderSearchResults(fallback.map(r => ({raw: r.raw})));
+      const note = document.createElement('div');
+      note.className = 'ai-note';
+      note.textContent = `عرض ${fallback.length} نتيجة من ${preFiltered.length} / Showing ${fallback.length} of ${preFiltered.length} results`;
+      B.insertBefore(note, B.firstChild);
+    } else {
+      renderSearchResults(results.map(r => ({raw: r.raw})));
+    }
+    
   } catch (error) {
-    showError(`AI Search failed: ${error.message}`);
+    showError(`Search error: ${error.message}`);
   } finally {
     setBusy(false);
   }
