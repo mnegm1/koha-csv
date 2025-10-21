@@ -326,3 +326,298 @@ function parseTSV(text){
       } else { field+=ch; i++; continue; }
     } else {
       if(ch==="\""){ inQuotes=true; i++; continue; }
+      if(ch===DELIM){ row.push(field); field=""; i++; continue; }
+      if(ch==="\n"){ row.push(field); field=""; rows.push(row); row=[]; i++; continue; }
+      field+=ch; i++; continue;
+    }
+  }
+  row.push(field); if(row.length && (row.length>1 || row[0]!=="" )) rows.push(row);
+
+  if(!rows.length) return {headers:[], rows:[], delim:DELIM};
+  const headers = rows[0].map(canonHeader);
+  const out=[];
+  for(let r=1;r<rows.length;r++){
+    const rec={}; const cols=rows[r];
+    for(let c=0;c<headers.length;c++){
+      const key = headers[c] || ("col"+c);
+      rec[key] = clean(cols[c] ?? "");
+    }
+    out.push(rec);
+  }
+  return {headers, rows:out, delim:DELIM};
+}
+
+function pick(obj, keys){
+  for(const k of keys){
+    const kk=canonHeader(k);
+    if (Object.prototype.hasOwnProperty.call(obj, kk) && obj[kk]) return obj[kk];
+  }
+  return "";
+}
+function mapRecord(k){
+  const title = pick(k, ["full title","title","العنوان","عنوان"]);
+  const author = pick(k, ["author","authors","المؤلف","المؤلفون"]);
+  const otherAu = pick(k, ["other author","other authors","المؤلف الآخر"]);
+  const summary = pick(k, ["abstract","summary","الملخص","نبذة"]);
+  const content = pick(k, ["content","contents","المحتويات"]);
+  const subject = pick(k, ["subjects","subject","الموضوعات","الموضوع"]);
+  const pubdat = pick(k, ["publications data","publication data","بيانات النشر"]);
+  const bookUrl = pick(k, ["book_url","book url","رابط الكتاب"]);
+  let year = pick(k, ["year","السنة","سنة النشر"]);
+  if(!year){
+    const ym = String(pubdat).match(/(19|20)\d{2}/);
+    year = ym ? ym[0] : "";
+  }
+  const publisher = pubdat ? String(pubdat).replace(/\b(19|20)\d{2}\b/g,"").replace(/\s*[،,:-]\s*$/,"").trim() : "";
+  const corp = pick(k, ["corporate name","corporate","جهة مؤسسية"]);
+  return {title, author, other_author: otherAu, summary, content, subject, publisher, year, book_url:bookUrl, corporate_name: corp};
+}
+
+async function ensureLoaded(){
+  if (LOADED) return;
+  try{
+    setBusy(true,"Loading catalog...");
+    const resp = await fetch(DATA_URL, {cache:"reload"});
+    if(!resp.ok) throw new Error(`Fetch ${resp.status}`);
+    const buf = await resp.arrayBuffer();
+    const decProbe = await autoDecode(buf);
+    const text = decProbe.text;
+    const parsed = parseTSV(text);
+    HEADERS = parsed.headers;
+    const recs = parsed.rows.map(mapRecord);
+    INDEX = recs.map((r,i)=>({
+      id:i, raw:r,
+      nTitle: norm(r.title),
+      nAuthor: norm([r.author, r.other_author, r.corporate_name].filter(Boolean).join(" ")),
+      nSummary: norm(r.summary), 
+      nContent: norm(r.content),
+      nSubject: norm(r.subject),
+      nYear: norm(r.year||""),
+    }));
+    LOADED = true;
+    STATUS.textContent = `✅ Loaded ${INDEX.length} records • AI-Enhanced Search Ready`;
+  }catch(e){
+    STATUS.textContent = `❌ Load error: ${e.message}`;
+    showError(e?.message||String(e));
+  }finally{
+    setBusy(false);
+  }
+}
+
+async function callAI(endpoint, data){
+  try {
+    const response = await fetch(`${BACKEND_URL}${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'API request failed');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('AI API Error:', error);
+    throw error;
+  }
+}
+
+function addMessage(role, content){
+  const msg = document.createElement('div');
+  msg.className = `message ${role}`;
+  const avatar = document.createElement('div');
+  avatar.className = 'message-avatar';
+  avatar.textContent = role === 'user' ? '👤' : '🤖';
+  const msgContent = document.createElement('div');
+  msgContent.className = 'message-content';
+  msgContent.innerHTML = content;
+  msg.appendChild(avatar);
+  msg.appendChild(msgContent);
+  B.appendChild(msg);
+  B.scrollTop = B.scrollHeight;
+}
+
+function showTypingIndicator(){
+  const typing = document.createElement('div');
+  typing.className = 'message ai';
+  typing.id = 'typing-indicator';
+  typing.innerHTML = `<div class="message-avatar">🤖</div><div class="message-content"><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>`;
+  B.appendChild(typing);
+  B.scrollTop = B.scrollHeight;
+}
+
+function removeTypingIndicator(){
+  const typing = document.getElementById('typing-indicator');
+  if(typing) typing.remove();
+}
+
+async function aiEnhancedChat(query){
+  addMessage('user', query);
+  showTypingIndicator();
+  try {
+    const allBooks = INDEX.map(r => ({
+      id: r.id,
+      title: r.raw.title,
+      author: r.raw.author,
+      subject: r.raw.subject,
+      year: r.raw.year
+    }));
+    const response = await callAI('/chat', {
+      query,
+      context: {
+        totalBooks: INDEX.length,
+        sampleBooks: allBooks,
+        conversationHistory: CONVERSATION_HISTORY
+      }
+    });
+    removeTypingIndicator();
+    if (response.answer) {
+      addMessage('ai', response.answer);
+      if (response.bookIds && response.bookIds.length > 0) {
+        const books = response.bookIds.map(id => INDEX[id]).filter(Boolean);
+        renderSearchResults(books.map(b => ({raw: b.raw})));
+      }
+    }
+    CONVERSATION_HISTORY.push(
+      { role: 'user', content: query },
+      { role: 'assistant', content: response.answer }
+    );
+    if (CONVERSATION_HISTORY.length > 10) {
+      CONVERSATION_HISTORY = CONVERSATION_HISTORY.slice(-10);
+    }
+  } catch (error) {
+    removeTypingIndicator();
+    addMessage('ai', `⚠️ Error: ${error.message}`);
+  }
+}
+
+async function aiEnhancedSearch(query){
+  setBusy(true, "AI is searching...");
+  try {
+    const allBooks = INDEX.map(r => ({
+      id: r.id,
+      title: r.raw.title,
+      author: r.raw.author,
+      subject: r.raw.subject
+    }));
+    const response = await callAI('/search', {
+      query,
+      catalog: allBooks
+    });
+    if (response.explanation) {
+      const note = document.createElement('div');
+      note.className = 'ai-note';
+      note.textContent = response.explanation;
+      B.appendChild(note);
+    }
+    const results = response.bookIds.map(id => INDEX[id]).filter(Boolean);
+    renderSearchResults(results.map(r => ({raw: r.raw})));
+  } catch (error) {
+    showError(`AI Search failed: ${error.message}`);
+  } finally {
+    setBusy(false);
+  }
+}
+
+function clearResults(){ 
+  while(B.firstChild) B.removeChild(B.firstChild); 
+}
+
+function titleOrPlaceholder(t){ 
+  return (t && t.trim()) ? t : "(بدون عنوان)"; 
+}
+
+function renderSearchResults(results){
+  if (results.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'ai-note';
+    empty.textContent = 'No results found. Try different keywords.';
+    B.appendChild(empty);
+    return;
+  }
+  results.forEach(result => {
+    const r = result.raw;
+    const div = document.createElement("div");
+    div.className = "row";
+    div.dir = /[\u0600-\u06FF]/.test((r.title||"")+(r.author||"")) ? "rtl" : "ltr";
+    const openUrl = r.book_url || "";
+    const pubLine = [r.publisher, r.year].filter(Boolean).join(" • ");
+    let linkHTML = "";
+    if (openUrl){
+      linkHTML = `<a class="btn" href="${openUrl}" target="_blank" rel="noopener">Open</a>`;
+    } else {
+      linkHTML = `<button class="btn" disabled title="No URL available">Open</button>`;
+    }
+    div.innerHTML =
+      `<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;"><b style="font-size:15px;line-height:1.4">${titleOrPlaceholder(r.title).replace(/</g,"&lt;")}</b>${linkHTML}</div>` +
+      (r.author ? `<div class="meta">${isArabic(r.author)?'المؤلف: ':'Author: '}${r.author}</div>` : "") +
+      (r.other_author ? `<div class="meta">${isArabic(r.other_author)?'مؤلف مشارك: ':'Other: '}${r.other_author}</div>` : "") +
+      (r.corporate_name ? `<div class="meta">${isArabic(r.corporate_name)?'الهيئة: ':'Corporate: '}${r.corporate_name}</div>` : "") +
+      (r.subject ? `<div class="meta">${isArabic(r.subject)?'الموضوع: ':'Subject: '}${r.subject}</div>` : "") +
+      (pubLine ? `<div class="meta">${pubLine}</div>` : "") +
+      (r.summary ? `<div style="margin-top:6px;font-size:13px">${r.summary.length>300 ? r.summary.slice(0,297)+'…' : r.summary}</div>` : "");
+    B.appendChild(div);
+  });
+}
+
+let suggestionTimeout;
+Q.addEventListener('input', async (e) => {
+  const val = e.target.value.trim();
+  clearTimeout(suggestionTimeout);
+  if (val.length < 3) {
+    suggestionsEl.style.display = 'none';
+    return;
+  }
+  suggestionTimeout = setTimeout(async () => {
+    try {
+      const response = await callAI('/suggest', { partial: val });
+      if (response.suggestions && response.suggestions.length > 0) {
+        suggestionsEl.innerHTML = '';
+        response.suggestions.forEach(s => {
+          const item = document.createElement('div');
+          item.className = 'suggestion-item';
+          item.textContent = s;
+          item.onclick = () => {
+            Q.value = s;
+            suggestionsEl.style.display = 'none';
+            run();
+          };
+          suggestionsEl.appendChild(item);
+        });
+        suggestionsEl.style.display = 'block';
+      }
+    } catch (error) {
+      console.log('Suggestions failed:', error);
+    }
+  }, 500);
+});
+
+document.addEventListener('click', (e) => {
+  if (!Q.contains(e.target) && !suggestionsEl.contains(e.target)) {
+    suggestionsEl.style.display = 'none';
+  }
+});
+
+async function run(){
+  const query = Q.value.trim();
+  if (!query) return;
+  await ensureLoaded();
+  if (CURRENT_MODE === 'chat') {
+    await aiEnhancedChat(query);
+  } else if (CURRENT_MODE === 'search') {
+    clearResults();
+    await aiEnhancedSearch(query);
+  }
+  Q.value = '';
+  suggestionsEl.style.display = 'none';
+}
+
+goBtn.onclick = run;
+Q.addEventListener("keydown", e => { 
+  if(e.key === "Enter") run(); 
+});
+
+ensureLoaded();
+</script>
+</body>
+</html>
