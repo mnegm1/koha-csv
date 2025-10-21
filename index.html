@@ -128,9 +128,9 @@ function norm(s){
   s = s
     .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ة/g,"ه").replace(/ک/g,"ك")
     .replace(/\bعبد\s+ال/g,"عبدال")
-    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")        /* diacritics + tatweel */
-    .replace(/[\u0660-\u0669]/g,d=>d.charCodeAt(0)-0x0660)                         /* Arabic-Indic digits */
-    .replace(/[\u06F0-\u06F9]/g,d=>d.charCodeAt(0)-0x06F0)                         /* Extended digits */
+    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
+    .replace(/[\u0660-\u0669]/g,d=>d.charCodeAt(0)-0x0660)
+    .replace(/[\u06F0-\u06F9]/g,d=>d.charCodeAt(0)-0x06F0)
     .replace(/[^\p{L}\p{N}\s]/gu," ")
     .replace(/\s+/g," ").trim();
   return s;
@@ -138,24 +138,57 @@ function norm(s){
 function normForPhrase(s){ return norm(s).replace(/[،,;]/g," ").replace(/\s+/g," ").trim(); }
 function isArabic(s){ return /[\u0600-\u06FF]/.test(s||""); }
 
-/* ====== Auto-encoding detection for AR CSV/TSV ====== */
+/* ====== UTF-8-first robust auto-decoder (fixes large-file Arabic) ====== */
+function countArabic(s){ return (s.match(/[\u0600-\u06FF]/g)||[]).length; }
+function hasLikelyHeaders(s){
+  const h = s.slice(0, 4096).toLowerCase();
+  return /full title|author|abstract|subjects|publication|book[_\s]?url|العنوان|المؤلف|الملخص|الموضوع|بيانات النشر/.test(h);
+}
 async function autoDecode(arrayBuf){
-  const encs = [
-    {label:"utf-8",       fatal:false},
-    {label:"windows-1256",fatal:false},
-    {label:"iso-8859-6",  fatal:false},
-    {label:"utf-16le",    fatal:false},
-  ];
-  let best = {text:"", bad:Infinity, enc:""};
-  for(const e of encs){
-    try{
-      const t = new TextDecoder(e.label, {fatal:false}).decode(arrayBuf);
-      const bad = (t.match(/\uFFFD/g)||[]).length;
-      if (bad < best.bad) best = {text:t, bad, enc:e.label};
-      if (bad === 0) return {text:t, enc:e.label};
-    }catch(_){}
+  const tryEnc = (label) => {
+    try {
+      const td = new TextDecoder(label, { fatal:false });
+      const u8 = new Uint8Array(arrayBuf);
+      const step = 1024*1024;
+      let out = "", pos = 0;
+      while (pos < u8.length){
+        const end = Math.min(pos+step, u8.length);
+        out += td.decode(u8.subarray(pos, end), {stream: end < u8.length});
+        pos = end;
+      }
+      out += td.decode();
+      const bad = (out.match(/\uFFFD/g)||[]).length;
+      return { text: out, bad };
+    } catch { return { text:"", bad: 1e9 }; }
+  };
+
+  const u8 = new Uint8Array(arrayBuf);
+  if (u8.length >= 3 && u8[0]===0xEF && u8[1]===0xBB && u8[2]===0xBF){
+    const {text} = tryEnc("utf-8");
+    return { text, enc:"utf-8" };
   }
-  return best;
+
+  const utf8 = tryEnc("utf-8");
+  const utf8Ar = countArabic(utf8.text);
+  const utf8Hdr = hasLikelyHeaders(utf8.text);
+
+  if (utf8.bad === 0 || utf8Ar >= 10 || utf8Hdr){
+    return { text:utf8.text, enc:"utf-8" };
+  }
+
+  const candLabels = ["windows-1256","iso-8859-6","utf-16le"];
+  let best = {score:-1e15, text:"", enc:""};
+  for (const lab of candLabels){
+    const r = tryEnc(lab);
+    const ar = countArabic(r.text);
+    const hdr = hasLikelyHeaders(r.text);
+    const score = (-r.bad*1e6) + (ar*5) + (hdr?800:0) + (lab==="windows-1256"?30:0);
+    if (score > best.score) best = {score, text:r.text, enc:lab};
+  }
+
+  const utf8Score = (-utf8.bad*1e6) + (utf8Ar*5) + (utf8Hdr?800:0) + 200; // bias to UTF-8
+  if (utf8Score >= best.score) return { text:utf8.text, enc:"utf-8" };
+  return { text:best.text, enc:best.enc };
 }
 
 /* ====== Robust parser (TAB no quotes; others with quotes) ====== */
@@ -171,6 +204,7 @@ function parseTSV(text){
     if(d==="semicolon") override=";"; if(d==="comma") override=",";
   }catch(_){}
   const candidates = override ? [override] : ["\t","|",";",","];
+
   const firstNL = text.indexOf("\n");
   const headerLine = firstNL>=0 ? text.slice(0,firstNL) : text;
   let bestDelim = "\t", bestScore = -1;
@@ -195,6 +229,7 @@ function parseTSV(text){
     return {headers, rows:out, delim:DELIM};
   }
 
+  // CSV-like
   const rows=[]; let i=0, field="", row=[], inQuotes=false;
   while(i<text.length){
     const ch=text[i];
@@ -250,33 +285,38 @@ function mapRecord(k){
   }
   const publisher = pubdat ? String(pubdat).replace(/\b(19|20)\d{2}\b/g,"").replace(/\s*[،,:-]\s*$/,"").trim() : "";
 
-  /* Corporate / 710$a */
   const corp = pick(k, ["corporate name","corporate","جهة مؤسسية","اسم الهيئة","corporate_name","corporate-name","corporate/organization"]);
 
   return {title, author, other_author: otherAu, summary, content, subject, publisher, year, book_url:bookUrl, Book_Url:bookUrl,
           corporate_name: corp};
 }
 
-/* ====== Build index (streaming decode) ====== */
-let INDEX=[]; let HEADERS=[];
+/* ====== Build index (with cache, no re-decode each time) ====== */
+let INDEX=[]; let HEADERS=[]; let LOADED=false; let LAST_SRC_SIG="";
+
+function srcSignature(u8){
+  // quick signature based on first 64KB to avoid full hashing
+  let sum=0; const n=Math.min(65536, u8.length);
+  for(let i=0;i<n;i++){ sum = (sum*131 + u8[i]) >>> 0; }
+  return `${u8.length}-${sum}`;
+}
+
 async function ensureLoaded(){
-  if (INDEX.length) return;
+  if (LOADED) return; // already loaded once
   try{
     setBusy(true,"Loading records…");
-    const buf  = await fetch(DATA_URL, {cache:"reload"}).then(r=>{ if(!r.ok) throw new Error(`Fetch ${r.status} ${r.statusText}`); return r.arrayBuffer(); });
+    const resp = await fetch(DATA_URL, {cache:"reload"});
+    if(!resp.ok) throw new Error(`Fetch ${resp.status} ${resp.statusText}`);
+    const buf  = await resp.arrayBuffer();
+
+    // avoid redundant work if same file
+    const sig = srcSignature(new Uint8Array(buf));
+    if (sig === LAST_SRC_SIG && INDEX.length){ LOADED=true; setBusy(false); return; }
+    LAST_SRC_SIG = sig;
 
     const decProbe = await autoDecode(buf);
     const enc = decProbe.enc || "utf-8";
-
-    const td = new TextDecoder(enc);
-    const chunkSize = 1024 * 1024;
-    let pos = 0, parts = [];
-    while (pos < buf.byteLength) {
-      const end = Math.min(pos + chunkSize, buf.byteLength);
-      parts.push(td.decode(buf.slice(pos, end), {stream: end < buf.byteLength}));
-      pos = end;
-    }
-    const text = parts.join("");
+    const text = decProbe.text; // already streamed & decoded correctly
 
     const parsed = parseTSV(text);
     HEADERS = parsed.headers;
@@ -290,12 +330,12 @@ async function ensureLoaded(){
         nAuthorAll: norm(authorAll),
         nAuthorAllPhrase: normForPhrase(authorAll),
         nSummary:norm(r.summary), nContent:norm(r.content),
-        nSubject:norm(r.subject),
-        nPub:norm(((r.publisher||"") + " " + (r.corporate_name||"")).trim()),
+        nSubject:norm(r.subject), nPub:norm(((r.publisher||"") + " " + (r.corporate_name||"")).trim()),
         nYear:norm(r.year||""),
       };
     });
 
+    LOADED = true;
     STATUS.textContent = `Loaded ${INDEX.length} records • encoding ${enc} • delimiter “${parsed.delim === "\t" ? "TAB" : parsed.delim}” • headers: ${HEADERS.join(" | ")}`;
   }catch(e){
     STATUS.textContent = `Load error: ${e.message}`;
