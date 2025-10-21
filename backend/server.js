@@ -1,7 +1,6 @@
 // backend/server.js
-// ECSSR AI Assistant Backend with Perplexity API
-// FINAL VERSION - Based on your working code
-// Changes: Search ALL books, No recommend, No AI hallucinations
+// ECSSR AI Assistant Backend - FIXED VERSION
+// Solution: Frontend pre-filters, backend refines with AI
 
 const express = require('express');
 const cors = require('cors');
@@ -13,11 +12,9 @@ const PORT = process.env.PORT || 3000;
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY || 'pplx-YOUR-API-KEY-HERE';
 const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
 
-// Middleware
 app.use(cors());
-app.use(express.json({ limit: '50mb' })); // CHANGED: Increased from 10mb for large catalogs
+app.use(express.json({ limit: '10mb' }));
 
-// Rate limiting
 const requestCounts = new Map();
 const RATE_LIMIT = 100;
 const RATE_WINDOW = 60 * 60 * 1000;
@@ -36,7 +33,6 @@ function checkRateLimit(ip) {
   return true;
 }
 
-// Helper: Call Perplexity API
 async function callPerplexity(messages, model = 'sonar-pro') {
   try {
     const response = await fetch(PERPLEXITY_URL, {
@@ -48,8 +44,8 @@ async function callPerplexity(messages, model = 'sonar-pro') {
       body: JSON.stringify({
         model: model,
         messages: messages,
-        temperature: 0.1, // CHANGED: Lower from 0.2 for more accuracy
-        max_tokens: 1000
+        temperature: 0.1,
+        max_tokens: 800
       })
     });
 
@@ -66,9 +62,7 @@ async function callPerplexity(messages, model = 'sonar-pro') {
   }
 }
 
-// ====== ENDPOINTS ======
-
-// 1. Chat endpoint - UPDATED: Uses ALL books
+// 1. Chat endpoint - Works with pre-filtered results
 app.post('/api/chat', async (req, res) => {
   const ip = req.ip;
   
@@ -83,43 +77,33 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: 'Query is required' });
     }
 
-    // CHANGED: Use ALL books from catalog (frontend sends all)
-    const allBooks = context.sampleBooks || [];
+    // Use reasonable sample (max 100 books to avoid token limit)
+    const sampleBooks = (context.sampleBooks || []).slice(0, 100);
 
-    // CHANGED: Added strict instructions to prevent hallucinations
-    const contextMsg = `You are a helpful library assistant for ECSSR (Emirates Center for Strategic Studies and Research).
+    const contextMsg = `You are a library assistant for ECSSR with ${context.totalBooks} books total.
 
-CRITICAL RULES:
-- ONLY answer using the catalog books listed below
-- DO NOT use your general knowledge about books or authors
-- If a book/author is not in the list below, say "لا أجد هذا في كتالوج المكتبة / Not found in our catalog"
-- When mentioning books, include their ID number
+RULES:
+- Answer based on these sample books from our catalog
+- Be helpful and concise
+- Support Arabic and English
+- If asked about books not in sample, say "يمكنني البحث عن المزيد / I can search for more"
 
-COMPLETE CATALOG (${context.totalBooks} books):
-${JSON.stringify(allBooks)}
+SAMPLE FROM CATALOG (100 of ${context.totalBooks} books):
+${JSON.stringify(sampleBooks)}
 
 Previous conversation: ${JSON.stringify(context.conversationHistory || [])}
 
-Instructions:
-- Help users find relevant books
-- Answer questions about the catalog
-- Be concise and helpful
-- Support both Arabic and English
-- If recommending books, mention their IDs from the sample
-
-User question: ${query}
-
-Answer ONLY based on the catalog above.`;
+User question: ${query}`;
 
     const answer = await callPerplexity([
-      { role: 'system', content: 'You are a library assistant for ECSSR. ONLY use provided catalog data.' },
+      { role: 'system', content: 'You are a library assistant for ECSSR.' },
       { role: 'user', content: contextMsg }
     ], 'sonar-pro');
 
     const bookIds = [];
     const idMatches = answer.match(/\b(\d+)\b/g);
     if (idMatches) {
-      bookIds.push(...idMatches.slice(0, 20).map(Number)); // CHANGED: Up to 20 results
+      bookIds.push(...idMatches.slice(0, 10).map(Number));
     }
 
     res.json({ answer, bookIds });
@@ -130,7 +114,7 @@ Answer ONLY based on the catalog above.`;
   }
 });
 
-// 2. Search endpoint - UPDATED: Searches ALL books
+// 2. Search endpoint - Frontend sends PRE-FILTERED results only
 app.post('/api/search', async (req, res) => {
   const ip = req.ip;
   
@@ -145,47 +129,46 @@ app.post('/api/search', async (req, res) => {
       return res.status(400).json({ error: 'Query is required' });
     }
 
-    // CHANGED: Use ALL books (no limit!)
-    const allBooks = catalog || [];
+    // Frontend already filtered - we receive only matching books (max 200)
+    const preFiltered = (catalog || []).slice(0, 200);
 
-    // CHANGED: Updated prompt to search ALL books
-    const prompt = `You are analyzing a search query for a library catalog.
+    if (preFiltered.length === 0) {
+      return res.json({ 
+        explanation: 'لا توجد نتائج / No results found', 
+        bookIds: [] 
+      });
+    }
 
-CRITICAL RULES:
-- ONLY identify books from the exact catalog below
-- DO NOT invent book IDs or suggest books not in this list
-- Search thoroughly through ALL books
+    const prompt = `Refine search results for library catalog.
 
-Query: "${query}"
+User searched for: "${query}"
 
-COMPLETE CATALOG (${allBooks.length} books):
-${JSON.stringify(allBooks)}
+PRE-FILTERED RESULTS (${preFiltered.length} books):
+${JSON.stringify(preFiltered)}
 
 Task:
-1. Find ALL books matching the query from the catalog above
-2. Identify the most relevant books by their exact IDs
-3. Explain your reasoning briefly
+1. Rank these books by relevance to the query
+2. Select the MOST relevant ones
+3. Explain briefly
 
-If no matches: say "لا توجد نتائج / No results found"
-
-Format your response as:
-EXPLANATION: [brief explanation]
-BOOK_IDS: [comma-separated list of relevant book IDs from catalog]`;
+Format:
+EXPLANATION: [brief reasoning in same language as query]
+BOOK_IDS: [top 20 most relevant IDs from list above]`;
 
     const response = await callPerplexity([
-      { role: 'system', content: 'Only identify books from provided catalog. Never invent IDs.' },
+      { role: 'system', content: 'Rank provided books by relevance. Use only IDs from the list.' },
       { role: 'user', content: prompt }
     ], 'sonar-pro');
 
     const explanationMatch = response.match(/EXPLANATION:\s*(.+?)(?=BOOK_IDS:|$)/s);
     const idsMatch = response.match(/BOOK_IDS:\s*([\d,\s]+)/);
 
-    const explanation = explanationMatch ? explanationMatch[1].trim() : 'Found relevant results';
+    const explanation = explanationMatch ? explanationMatch[1].trim() : 'وجدت نتائج ذات صلة / Found relevant results';
     const bookIds = idsMatch 
       ? idsMatch[1].split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id))
       : [];
 
-    res.json({ explanation, bookIds: bookIds.slice(0, 50) }); // CHANGED: Return up to 50 results
+    res.json({ explanation, bookIds: bookIds.slice(0, 30) });
 
   } catch (error) {
     console.error('Search error:', error);
@@ -193,10 +176,7 @@ BOOK_IDS: [comma-separated list of relevant book IDs from catalog]`;
   }
 });
 
-// REMOVED: Recommendations endpoint (lines 197-241 deleted)
-// You said you don't need recommendations, so this entire section is removed
-
-// 3. Auto-suggestions endpoint (same as before)
+// 3. Auto-suggestions
 app.post('/api/suggest', async (req, res) => {
   const ip = req.ip;
   
@@ -213,9 +193,9 @@ app.post('/api/suggest', async (req, res) => {
 
     const prompt = `User typed: "${partial}"
 
-Generate 5 complete search queries for a library catalog. Mix Arabic and English suggestions based on the input language.
+Generate 5 search queries for a library. Same language as input.
 
-Return ONLY a comma-separated list of suggestions, nothing else.`;
+Return ONLY comma-separated queries.`;
 
     const response = await callPerplexity([
       { role: 'user', content: prompt }
@@ -235,33 +215,29 @@ Return ONLY a comma-separated list of suggestions, nothing else.`;
   }
 });
 
-// Health check - UPDATED
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     message: 'ECSSR AI Assistant Backend is running',
     perplexityConfigured: !!PERPLEXITY_API_KEY && PERPLEXITY_API_KEY !== 'pplx-YOUR-API-KEY-HERE',
     modelVersion: 'sonar-pro',
-    features: 'Search ALL books, Chat & Search only, No hallucinations' // CHANGED
+    features: 'Smart search with pre-filtering (no token limits)'
   });
 });
 
-// Error handling
 app.use((err, req, res, next) => {
   console.error('Server error:', err);
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// Start server - UPDATED
 app.listen(PORT, () => {
   console.log(`🚀 ECSSR AI Backend running on http://localhost:${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
-  console.log(`🤖 Using Perplexity model: sonar-pro`);
-  console.log(`📚 NEW: Searches ALL books, No recommend endpoint`); // CHANGED
+  console.log(`🤖 Model: sonar-pro`);
+  console.log(`📚 Smart search: Frontend filters → AI refines`);
   
   if (!PERPLEXITY_API_KEY || PERPLEXITY_API_KEY === 'pplx-YOUR-API-KEY-HERE') {
     console.warn('⚠️  WARNING: Perplexity API key not configured!');
-    console.warn('   Set PERPLEXITY_API_KEY environment variable');
   } else {
     console.log('✅ Perplexity API key configured');
   }
