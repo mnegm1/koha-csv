@@ -128,9 +128,9 @@ function norm(s){
   s = s
     .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ة/g,"ه").replace(/ک/g,"ك")
     .replace(/\bعبد\s+ال/g,"عبدال")
-    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
-    .replace(/[\u0660-\u0669]/g,d=>d.charCodeAt(0)-0x0660)
-    .replace(/[\u06F0-\u06F9]/g,d=>d.charCodeAt(0)-0x06F0)
+    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")        /* diacritics + tatweel */
+    .replace(/[\u0660-\u0669]/g,d=>d.charCodeAt(0)-0x0660)                         /* Arabic-Indic digits */
+    .replace(/[\u06F0-\u06F9]/g,d=>d.charCodeAt(0)-0x06F0)                         /* Extended digits */
     .replace(/[^\p{L}\p{N}\s]/gu," ")
     .replace(/\s+/g," ").trim();
   return s;
@@ -250,16 +250,17 @@ function mapRecord(k){
   }
   const publisher = pubdat ? String(pubdat).replace(/\b(19|20)\d{2}\b/g,"").replace(/\s*[،,:-]\s*$/,"").trim() : "";
 
-  /* NEW: 710$a — Corporate Name */
+  /* Corporate / 710$a */
   const corp = pick(k, ["corporate name","corporate","جهة مؤسسية","اسم الهيئة","corporate_name","corporate-name","corporate/organization"]);
 
   return {title, author, other_author: otherAu, summary, content, subject, publisher, year, book_url:bookUrl, Book_Url:bookUrl,
-          corporate_name: corp}; /* NEW: include in record */
+          corporate_name: corp};
 }
 
-/* ====== Build index (streaming decode to avoid truncation) ====== */
+/* ====== Build index (streaming decode) ====== */
 let INDEX=[]; let HEADERS=[];
 async function ensureLoaded(){
+  if (INDEX.length) return;
   try{
     setBusy(true,"Loading records…");
     const buf  = await fetch(DATA_URL, {cache:"reload"}).then(r=>{ if(!r.ok) throw new Error(`Fetch ${r.status} ${r.statusText}`); return r.arrayBuffer(); });
@@ -282,7 +283,6 @@ async function ensureLoaded(){
     const recs = parsed.rows.map(mapRecord);
 
     INDEX = recs.map((r,i)=>{
-      /* NEW: include corporate_name in author-style matching */
       const authorAll = [r.author, r.other_author, r.corporate_name].filter(Boolean).join(" ");
       return {
         id:i, raw:r,
@@ -290,8 +290,8 @@ async function ensureLoaded(){
         nAuthorAll: norm(authorAll),
         nAuthorAllPhrase: normForPhrase(authorAll),
         nSummary:norm(r.summary), nContent:norm(r.content),
-        /* NEW: include corp in publisher-style index too */
-        nSubject:norm(r.subject), nPub:norm(((r.publisher||"") + " " + (r.corporate_name||"")).trim()),
+        nSubject:norm(r.subject),
+        nPub:norm(((r.publisher||"") + " " + (r.corporate_name||"")).trim()),
         nYear:norm(r.year||""),
       };
     });
@@ -435,7 +435,7 @@ function renderChunk(items){
        </div>` +
       (r.author?         `<div class="meta">${isArabic(r.author)?'المؤلف: ':'Author: '}${r.author}</div>` : "") +
       (r.other_author?   `<div class="meta">${isArabic(r.other_author)?'مؤلف مشارك: ':'Other author: '}${r.other_author}</div>` : "") +
-      (r.corporate_name? `<div class="meta">${isArabic(r.corporate_name)?'الهيئة: ':'Corporate: '}${r.corporate_name}</div>` : "") +  <!-- NEW: show corp -->
+      (r.corporate_name? `<div class="meta">${isArabic(r.corporate_name)?'الهيئة: ':'Corporate: '}${r.corporate_name}</div>` : "") +
       (r.subject?        `<div class="meta">${isArabic(r.subject)?'الموضوع: ':'Subject: '}${r.subject}</div>` : "") +
       (pubLine?          `<div class="meta">${pubLine}</div>` : "") +
       (r.summary?        `<div style="margin-top:6px">${r.summary.length>360? r.summary.slice(0,357)+'…' : r.summary}</div>` : "");
