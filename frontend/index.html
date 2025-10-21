@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>ECSSR Search - Simple & Accurate</title>
+<title>ECSSR AI Assistant</title>
 <style>
   :root{
     --brand:#BF9849;
@@ -27,16 +27,20 @@
   .status{font-size:12px;padding:8px 12px;background:#fafafa;border-bottom:1px solid #e8eef3}
   .body{padding:10px;overflow:auto;flex:1}
   
-  .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0}
+  .mode-toggle{display:flex;gap:6px;padding:8px;background:#fff;border-bottom:1px solid #e8eef3}
+  .mode-btn{flex:1;padding:8px;border:none;background:transparent;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;color:#666}
+  .mode-btn.active{background:#BF9849;color:#fff}
+  
+  .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0;position:relative}
   .row:hover{box-shadow:0 4px 12px rgba(0,0,0,0.08);border-color:#BF9849}
   .meta{opacity:.85;font-size:12px;margin-top:6px}
   
+  .translate-icon{position:absolute;top:12px;right:12px;background:#fff;border:1px solid #e0e0e0;
+    border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;transition:all 0.2s}
+  .translate-icon:hover{background:#BF9849;color:#fff;border-color:#BF9849}
+  .translated{background:#e8f4f8;padding:8px;margin-top:8px;border-radius:6px;font-size:13px;border-left:3px solid #BF9849}
+  
   .input-wrap{padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
-  .translate-row{display:flex;gap:8px;margin-bottom:8px;align-items:center}
-  .translate-btn{padding:6px 12px;background:#fff;border:1px solid #cfd9e3;border-radius:8px;cursor:pointer;font-size:12px;transition:all 0.2s}
-  .translate-btn:hover{background:#f0f0f0}
-  .translate-btn.active{background:#BF9849;color:#fff;border-color:#BF9849}
-  .translate-note{flex:1;font-size:11px;color:#666;text-align:right}
   .input{display:flex;gap:8px}
   .input input{flex:1;padding:10px 12px;border-radius:10px;border:1px solid #cfd9e3}
   .input button{background:#BF9849;color:#fff;border:none;border-radius:10px;padding:10px 16px;
@@ -44,11 +48,19 @@
   .input button:disabled{opacity:.5}
   
   .btn{background:#BF9849;color:#fff;padding:6px 12px;border-radius:8px;text-decoration:none;
-    font-weight:600;font-size:12px}
+    font-weight:600;font-size:12px;display:inline-block}
   .btn:hover{background:#D4AB5E}
   .btn[disabled]{opacity:.5;cursor:not-allowed}
   
   .info{background:#e8f4f8;border-left:4px solid #BF9849;padding:10px;margin:10px 0;border-radius:8px;font-size:13px}
+  .message{margin:12px 0;display:flex;gap:10px}
+  .message.user{flex-direction:row-reverse}
+  .message-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px}
+  .message.user .message-avatar{background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff}
+  .message.ai .message-avatar{background:#f0f0f0;color:#666}
+  .message-content{max-width:80%;padding:10px 14px;border-radius:12px;line-height:1.5;font-size:14px}
+  .message.user .message-content{background:#BF9849;color:#fff;border-bottom-right-radius:4px}
+  .message.ai .message-content{background:#f6f9fc;color:#333;border-bottom-left-radius:4px}
 </style>
 </head>
 <body>
@@ -58,26 +70,22 @@
 
   <div class="box" id="box">
     <div class="head">
-      <div>ECSSR Catalog Search</div>
+      <div>ECSSR AI Assistant</div>
       <button class="close" id="close">×</button>
     </div>
+    
+    <div class="mode-toggle">
+      <button class="mode-btn" data-mode="chat">💬 Ask Library</button>
+      <button class="mode-btn active" data-mode="search">🔍 Search</button>
+    </div>
+    
     <div class="status" id="status">Loading...</div>
     <div class="body" id="body"></div>
+    
     <div class="input-wrap">
-      <div class="translate-row">
-        <button class="translate-btn" id="translateBtn" title="Translate query">🌐 Translate</button>
-        <select id="translateLang" style="padding:6px;border:1px solid #cfd9e3;border-radius:8px;font-size:12px">
-          <option value="">Select language...</option>
-          <option value="ar">Arabic (العربية)</option>
-          <option value="en">English</option>
-          <option value="fr">French</option>
-          <option value="es">Spanish</option>
-        </select>
-        <span class="translate-note" id="translateNote"></span>
-      </div>
       <div class="input">
         <input id="q" type="text" placeholder="ابحث: مؤلف، عنوان، موضوع / Search: author, title, subject" dir="auto">
-        <button id="go">Search</button>
+        <button id="go">Send</button>
       </div>
     </div>
   </div>
@@ -86,6 +94,8 @@
 const DATA_URL = "./opac-catalog.tab";
 let INDEX = [];
 let LOADED = false;
+let CURRENT_MODE = 'search';
+let CHAT_FAQS = []; // Will hold FAQs later
 
 const fab = document.getElementById("fab");
 const box = document.getElementById("box");
@@ -94,9 +104,23 @@ const body = document.getElementById("body");
 const status = document.getElementById("status");
 const q = document.getElementById("q");
 const go = document.getElementById("go");
-const translateBtn = document.getElementById("translateBtn");
-const translateLang = document.getElementById("translateLang");
-const translateNote = document.getElementById("translateNote");
+
+// Mode switching
+document.querySelectorAll('.mode-btn').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    CURRENT_MODE = btn.dataset.mode;
+    body.innerHTML = "";
+    
+    if(CURRENT_MODE === 'chat') {
+      q.placeholder = "اسأل أي سؤال / Ask any question...";
+      showChatWelcome();
+    } else {
+      q.placeholder = "ابحث: مؤلف، عنوان، موضوع / Search: author, title, subject";
+    }
+  };
+});
 
 fab.onclick = () => { 
   box.style.display = box.style.display === "flex" ? "none" : "flex";
@@ -110,85 +134,40 @@ close.onclick = () => box.style.display = "none";
 function setBusy(busy) {
   go.disabled = busy;
   q.disabled = busy;
-  translateBtn.disabled = busy;
-  status.textContent = busy ? "Searching..." : `${INDEX.length} books loaded`;
+  status.textContent = busy ? "Searching..." : `✅ ${INDEX.length} books loaded`;
 }
 
-// Translation using MyMemory API (free, no key needed)
-async function translateText(text, targetLang) {
-  if(!text || !targetLang) return null;
-  
-  try {
-    translateNote.textContent = "Translating...";
-    translateBtn.disabled = true;
-    
-    // Detect source language
-    const sourceLang = /[\u0600-\u06FF]/.test(text) ? 'ar' : 'en';
-    
-    // Use MyMemory Translation API (free, no registration)
-    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceLang}|${targetLang}`;
-    
-    const response = await fetch(url);
-    const data = await response.json();
-    
-    if(data.responseStatus === 200 || data.responseData.translatedText) {
-      const translated = data.responseData.translatedText;
-      translateNote.textContent = `✓ Translated from ${sourceLang.toUpperCase()} to ${targetLang.toUpperCase()}`;
-      translateBtn.disabled = false;
-      return translated;
-    } else {
-      throw new Error("Translation failed");
-    }
-  } catch(error) {
-    translateNote.textContent = "❌ Translation failed";
-    translateBtn.disabled = false;
-    console.error("Translation error:", error);
-    return null;
-  }
-}
-
-// Translate button click
-translateBtn.onclick = async () => {
-  const text = q.value.trim();
-  const targetLang = translateLang.value;
-  
-  if(!text) {
-    alert("اكتب نص أولاً / Enter text first");
-    return;
-  }
-  
-  if(!targetLang) {
-    alert("اختر اللغة / Select language");
-    return;
-  }
-  
-  const translated = await translateText(text, targetLang);
-  if(translated) {
-    q.value = translated;
-    translateNote.textContent += " - Click Search to find books";
-  }
-};
-
-// Arabic normalization
+// Arabic normalization (IMPROVED)
 function norm(s){
   if(!s) return "";
-  s = String(s).toLowerCase();
+  s = String(s).toLowerCase().trim();
+  
+  // Remove BOM and control characters
+  s = s.replace(/^\uFEFF/, "").replace(/[\u200E\u200F\u202A-\u202E]/g, "");
+  
   try{s=s.normalize("NFKD");}catch(e){}
-  return s
+  
+  // Arabic normalization
+  s = s
     .replace(/[إأآٱ]/g,"ا")
-    .replace(/[ىی]/g,"ي")
+    .replace(/[ىیئ]/g,"ي")
     .replace(/ة/g,"ه")
     .replace(/ک/g,"ك")
-    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
-    .replace(/[\u0660-\u0669]/g,d=>d.charCodeAt(0)-0x0660)
-    .replace(/[\u06F0-\u06F9]/g,d=>d.charCodeAt(0)-0x06F0)
-    .replace(/[^\p{L}\p{N}\s]/gu," ")
-    .replace(/\s+/g," ").trim();
+    .replace(/ؤ/g,"و")
+    .replace(/\bعبد\s+ال/g,"عبدال")
+    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"") // Remove diacritics
+    .replace(/[\u0660-\u0669]/g,d=>String(d.charCodeAt(0)-0x0660)) // Arabic to Western digits
+    .replace(/[\u06F0-\u06F9]/g,d=>String(d.charCodeAt(0)-0x06F0)) // Persian to Western digits
+    .replace(/[^\p{L}\p{N}\s]/gu," ") // Keep only letters, numbers, spaces
+    .replace(/\s+/g," ") // Normalize spaces
+    .trim();
+  
+  return s;
 }
 
 function isArabic(s){ return /[\u0600-\u06FF]/.test(s||""); }
 
-// Load catalog
+// Load catalog (FIXED - correct counting)
 async function ensureLoaded(){
   if(LOADED) return;
   try{
@@ -197,16 +176,19 @@ async function ensureLoaded(){
     if(!resp.ok) throw new Error(`Error ${resp.status}`);
     const text = await resp.text();
     
-    const lines = text.split("\n");
+    const lines = text.split(/\r?\n/).filter(line => line.trim()); // FIXED: Filter empty lines
+    if(lines.length < 2) throw new Error("Empty catalog");
+    
     const headers = lines[0].split("\t").map(h => h.toLowerCase().trim());
     
+    // FIXED: Start from 1, not 0 (skip header)
     for(let i=1; i<lines.length; i++){
       const cols = lines[i].split("\t");
-      if(cols.length < 2) continue;
+      if(cols.length < 2) continue; // Skip invalid rows
       
       const rec = {};
       headers.forEach((h, idx) => {
-        rec[h] = cols[idx] || "";
+        rec[h] = (cols[idx] || "").trim();
       });
       
       // Extract fields
@@ -216,19 +198,21 @@ async function ensureLoaded(){
       const corporate = rec["corporate name"] || rec["جهة مؤسسية"] || "";
       const subject = rec["subjects"] || rec["subject"] || rec["الموضوعات"] || "";
       const summary = rec["abstract"] || rec["summary"] || rec["الملخص"] || "";
+      const content = rec["content"] || rec["contents"] || rec["المحتويات"] || "";
       const pubData = rec["publications data"] || rec["بيانات النشر"] || "";
       const bookUrl = rec["book_url"] || rec["book url"] || rec["رابط الكتاب"] || "";
       const year = rec["year"] || rec["السنة"] || (pubData.match(/(19|20)\d{2}/)||[""])[0];
       const publisher = pubData.replace(/\b(19|20)\d{2}\b/g,"").replace(/[،,:-]\s*$/,"").trim();
       
       INDEX.push({
-        id: i-1,
+        id: INDEX.length, // FIXED: Use INDEX.length, not i-1
         title,
         author,
         otherAuthor,
         corporate,
         subject,
         summary,
+        content,
         publisher,
         year,
         bookUrl,
@@ -236,21 +220,89 @@ async function ensureLoaded(){
         nTitle: norm(title),
         nAuthor: norm(author + " " + otherAuthor + " " + corporate),
         nSubject: norm(subject),
-        nSummary: norm(summary),
-        nYear: norm(year)
+        nSummary: norm(summary + " " + content),
+        nYear: norm(year),
+        nPublisher: norm(publisher)
       });
     }
     
     LOADED = true;
-    status.textContent = `✅ ${INDEX.length} books loaded - Ready to search`;
+    status.textContent = `✅ ${INDEX.length} books loaded`;
   }catch(e){
     status.textContent = `❌ Error: ${e.message}`;
+    console.error(e);
   }finally{
     setBusy(false);
   }
 }
 
-// Simple accurate search
+// Translation function (free API)
+async function translateText(text, targetLang) {
+  try {
+    const sourceLang = isArabic(text) ? 'ar' : 'en';
+    if(sourceLang === targetLang) return text; // No need to translate
+    
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceLang}|${targetLang}`;
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if(data.responseData && data.responseData.translatedText) {
+      return data.responseData.translatedText;
+    }
+    throw new Error("Translation failed");
+  } catch(error) {
+    console.error("Translation error:", error);
+    return null;
+  }
+}
+
+// Add translate button to each record
+async function translateRecord(recordId, field, button) {
+  const book = INDEX.find(b => b.id === recordId);
+  if(!book) return;
+  
+  const text = book[field];
+  if(!text) return;
+  
+  button.textContent = "⏳ Translating...";
+  button.disabled = true;
+  
+  const targetLang = isArabic(text) ? 'en' : 'ar';
+  const translated = await translateText(text, targetLang);
+  
+  if(translated) {
+    const translatedDiv = document.createElement('div');
+    translatedDiv.className = 'translated';
+    translatedDiv.innerHTML = `<strong>${isArabic(translated) ? 'الترجمة:' : 'Translation:'}</strong> ${translated}`;
+    button.parentElement.appendChild(translatedDiv);
+    button.remove();
+  } else {
+    button.textContent = "🌐 Translate";
+    button.disabled = false;
+    alert("Translation failed. Please try again.");
+  }
+}
+
+// Show chat welcome (for FAQs feature)
+function showChatWelcome() {
+  body.innerHTML = `
+    <div class="message ai">
+      <div class="message-avatar">🤖</div>
+      <div class="message-content">
+        مرحباً! يمكنني مساعدتك في:<br>
+        • البحث عن الكتب<br>
+        • الإجابة على الأسئلة الشائعة<br>
+        • تقديم معلومات عن المكتبة<br><br>
+        Hello! I can help you with:<br>
+        • Finding books<br>
+        • Answering FAQs<br>
+        • Library information
+      </div>
+    </div>
+  `;
+}
+
+// Search function (IMPROVED)
 function search(query){
   body.innerHTML = "";
   setBusy(true);
@@ -261,20 +313,31 @@ function search(query){
     return;
   }
   
-  // Search ALL books
+  console.log("Normalized query:", nq); // Debug
+  
+  // Search ALL books with improved matching
   const results = [];
   for(const book of INDEX){
     let score = 0;
-    if(book.nTitle.includes(nq)) score += 100;
-    if(book.nAuthor.includes(nq)) score += 80;
+    
+    // Exact match = higher score
+    if(book.nTitle === nq) score += 200;
+    else if(book.nTitle.includes(nq)) score += 100;
+    
+    if(book.nAuthor === nq) score += 160;
+    else if(book.nAuthor.includes(nq)) score += 80;
+    
     if(book.nSubject.includes(nq)) score += 60;
     if(book.nSummary.includes(nq)) score += 40;
-    if(book.nYear.includes(nq)) score += 20;
+    if(book.nYear === nq) score += 50;
+    if(book.nPublisher.includes(nq)) score += 30;
     
     if(score > 0) results.push({score, book});
   }
   
   results.sort((a,b) => b.score - a.score);
+  
+  console.log("Found results:", results.length); // Debug
   
   // Show results
   if(results.length === 0){
@@ -297,8 +360,15 @@ function search(query){
       const authors = [b.author, b.otherAuthor, b.corporate].filter(Boolean).join(" • ");
       const pubLine = [b.publisher, b.year].filter(Boolean).join(" • ");
       
+      // Determine what to translate
+      const mainText = b.title || b.summary;
+      const translateTo = isArabic(mainText) ? 'EN' : 'AR';
+      
       div.innerHTML = `
-        <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">
+        <button class="translate-icon" onclick="translateRecord(${b.id}, 'title', this)" title="Translate to ${translateTo}">
+          🌐 ${translateTo}
+        </button>
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;padding-right:60px;">
           <b style="font-size:15px;line-height:1.4">${b.title || "(No title)"}</b>
           ${b.bookUrl ? `<a class="btn" href="${b.bookUrl}" target="_blank">Open</a>` : `<button class="btn" disabled>No URL</button>`}
         </div>
@@ -321,8 +391,52 @@ function search(query){
   setBusy(false);
 }
 
-go.onclick = () => search(q.value);
-q.onkeydown = (e) => { if(e.key === "Enter") search(q.value); };
+// Handle chat mode
+function handleChat(query) {
+  // Add user message
+  const userMsg = document.createElement('div');
+  userMsg.className = 'message user';
+  userMsg.innerHTML = `
+    <div class="message-avatar">👤</div>
+    <div class="message-content">${query}</div>
+  `;
+  body.appendChild(userMsg);
+  
+  // Simple FAQ matching (you'll add FAQs later)
+  const aiMsg = document.createElement('div');
+  aiMsg.className = 'message ai';
+  aiMsg.innerHTML = `
+    <div class="message-avatar">🤖</div>
+    <div class="message-content">
+      شكراً لسؤالك. حالياً يمكنني مساعدتك في البحث عن الكتب. استخدم تبويب "🔍 Search" للبحث في ${INDEX.length} كتاب.<br><br>
+      Thank you for your question. Currently I can help you search for books. Use the "🔍 Search" tab to search ${INDEX.length} books.<br><br>
+      <em>(FAQs feature coming soon - you can add FAQ file later)</em>
+    </div>
+  `;
+  body.appendChild(aiMsg);
+  body.scrollTop = body.scrollHeight;
+}
+
+// Main handler
+go.onclick = () => {
+  const query = q.value.trim();
+  if(!query) return;
+  
+  if(CURRENT_MODE === 'search') {
+    search(query);
+  } else if(CURRENT_MODE === 'chat') {
+    handleChat(query);
+  }
+  
+  q.value = '';
+};
+
+q.onkeydown = (e) => { 
+  if(e.key === "Enter") go.onclick(); 
+};
+
+// Make translateRecord global
+window.translateRecord = translateRecord;
 
 ensureLoaded();
 </script>
