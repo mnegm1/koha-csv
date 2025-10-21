@@ -1,5 +1,6 @@
 // backend/server.js
 // ECSSR AI Assistant Backend with Perplexity API
+// UPDATED: Fixed model names for 2025
 
 const express = require('express');
 const cors = require('cors');
@@ -8,7 +9,6 @@ const fetch = require('node-fetch');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ⚠️ IMPORTANT: Get this from environment variable
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY || 'pplx-YOUR-API-KEY-HERE';
 const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
 
@@ -16,10 +16,10 @@ const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// Rate limiting (simple in-memory)
+// Rate limiting
 const requestCounts = new Map();
-const RATE_LIMIT = 100; // requests per hour per IP
-const RATE_WINDOW = 60 * 60 * 1000; // 1 hour
+const RATE_LIMIT = 100;
+const RATE_WINDOW = 60 * 60 * 1000;
 
 function checkRateLimit(ip) {
   const now = Date.now();
@@ -35,8 +35,8 @@ function checkRateLimit(ip) {
   return true;
 }
 
-// Helper: Call Perplexity API
-async function callPerplexity(messages, model = 'llama-3.1-sonar-large-128k-online') {
+// Helper: Call Perplexity API with UPDATED model names
+async function callPerplexity(messages, model = 'sonar') {
   try {
     const response = await fetch(PERPLEXITY_URL, {
       method: 'POST',
@@ -67,7 +67,7 @@ async function callPerplexity(messages, model = 'llama-3.1-sonar-large-128k-onli
 
 // ====== ENDPOINTS ======
 
-// 1. Chat endpoint (conversational)
+// 1. Chat endpoint
 app.post('/api/chat', async (req, res) => {
   const ip = req.ip;
   
@@ -82,7 +82,6 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: 'Query is required' });
     }
 
-    // Build context message
     const contextMsg = `You are a helpful library assistant for ECSSR (Emirates Center for Strategic Studies and Research).
 
 Catalog Information:
@@ -104,9 +103,8 @@ User question: ${query}`;
     const answer = await callPerplexity([
       { role: 'system', content: 'You are a library assistant for ECSSR.' },
       { role: 'user', content: contextMsg }
-    ]);
+    ], 'sonar');
 
-    // Try to extract book IDs from response
     const bookIds = [];
     const idMatches = answer.match(/\b(\d+)\b/g);
     if (idMatches) {
@@ -121,7 +119,7 @@ User question: ${query}`;
   }
 });
 
-// 2. Search endpoint (intelligent query understanding)
+// 2. Search endpoint
 app.post('/api/search', async (req, res) => {
   const ip = req.ip;
   
@@ -154,9 +152,8 @@ BOOK_IDS: [comma-separated list of relevant book IDs]`;
 
     const response = await callPerplexity([
       { role: 'user', content: prompt }
-    ], 'llama-3.1-sonar-small-128k-online'); // Use smaller model for cost
+    ], 'sonar-small');
 
-    // Parse response
     const explanationMatch = response.match(/EXPLANATION:\s*(.+?)(?=BOOK_IDS:|$)/s);
     const idsMatch = response.match(/BOOK_IDS:\s*([\d,\s]+)/);
 
@@ -204,7 +201,7 @@ BOOK_IDS: [comma-separated IDs]`;
 
     const response = await callPerplexity([
       { role: 'user', content: prompt }
-    ], 'llama-3.1-sonar-small-128k-online');
+    ], 'sonar-small');
 
     const explanationMatch = response.match(/EXPLANATION:\s*(.+?)(?=BOOK_IDS:|$)/s);
     const idsMatch = response.match(/BOOK_IDS:\s*([\d,\s]+)/);
@@ -245,7 +242,7 @@ Return ONLY a comma-separated list of suggestions, nothing else.`;
 
     const response = await callPerplexity([
       { role: 'user', content: prompt }
-    ], 'llama-3.1-sonar-small-128k-online');
+    ], 'sonar-small');
 
     const suggestions = response
       .split(/[,\n]/)
@@ -257,7 +254,7 @@ Return ONLY a comma-separated list of suggestions, nothing else.`;
 
   } catch (error) {
     console.error('Suggest error:', error);
-    res.json({ suggestions: [] }); // Fail silently for suggestions
+    res.json({ suggestions: [] });
   }
 });
 
@@ -266,7 +263,8 @@ app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     message: 'ECSSR AI Assistant Backend is running',
-    perplexityConfigured: !!PERPLEXITY_API_KEY && PERPLEXITY_API_KEY !== 'pplx-YOUR-API-KEY-HERE'
+    perplexityConfigured: !!PERPLEXITY_API_KEY && PERPLEXITY_API_KEY !== 'pplx-YOUR-API-KEY-HERE',
+    modelVersion: 'sonar/sonar-small (2025)'
   });
 });
 
@@ -280,6 +278,7 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`🚀 ECSSR AI Backend running on http://localhost:${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
+  console.log(`🤖 Using Perplexity models: sonar, sonar-small`);
   
   if (!PERPLEXITY_API_KEY || PERPLEXITY_API_KEY === 'pplx-YOUR-API-KEY-HERE') {
     console.warn('⚠️  WARNING: Perplexity API key not configured!');
