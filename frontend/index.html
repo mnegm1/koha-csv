@@ -3,664 +3,326 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>ECSSR AI Assistant - Enhanced</title>
+<title>ECSSR Search - Simple & Accurate</title>
 <style>
   :root{
-    --brand:#BF9849; --brandText:#fff;
+    --brand:#BF9849;
     --logo-url:url("https://assets.almanhal.com/platform/shared/Product/ECSSR/middlelogo.png");
-    --logo-size:130%; --fab-size:56px;
-    --box-width:620px; --box-max-h:85vh;
+    --fab-size:56px;
   }
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;margin:0;padding:2rem}
   
-  .fab-wrap{position:fixed; right:18px; bottom:18px; z-index:9999; width:var(--fab-size); height:calc(var(--fab-size)+36px)}
-  .fab-label{position:absolute; left:50%; bottom:calc(var(--fab-size)+4px); transform:translateX(-50%);
-    width:calc(var(--fab-size)+36px); height:34px; pointer-events:none;
-    filter:drop-shadow(0 1px 0 rgba(255,255,255,.65))}
-  .fab-label text{ fill:var(--brand); font-weight:700; font-size:12px; letter-spacing:.5px }
-  .fab{position:absolute; left:0; bottom:0; width:var(--fab-size); height:var(--fab-size);
-    background:#fff var(--logo-url) center/var(--logo-size) no-repeat; border:4px solid #BF9849;
-    border-radius:50%; cursor:pointer; box-shadow:0 8px 20px rgba(0,0,0,.25); transition:transform 0.2s}
-  .fab:hover{transform:scale(1.05)}
+  .fab-wrap{position:fixed;right:18px;bottom:18px;z-index:9999}
+  .fab{width:var(--fab-size);height:var(--fab-size);background:#fff var(--logo-url) center/130% no-repeat;
+    border:4px solid #BF9849;border-radius:50%;cursor:pointer;box-shadow:0 8px 20px rgba(0,0,0,.25)}
   
-  .box{position:fixed; right:18px; bottom:calc(18px + var(--fab-size) + 12px);
-    width:min(var(--box-width),94vw); max-height:var(--box-max-h);
-    background:#fff; border-radius:14px; border:1px solid #e8eef3;
-    box-shadow:0 16px 40px rgba(0,0,0,.25); display:none; flex-direction:column; overflow:hidden; z-index:9999}
+  .box{position:fixed;right:18px;bottom:calc(18px + var(--fab-size) + 12px);
+    width:min(620px,94vw);max-height:85vh;background:#fff;border-radius:14px;
+    box-shadow:0 16px 40px rgba(0,0,0,.25);display:none;flex-direction:column;overflow:hidden;z-index:9999}
   
-  .head{background:linear-gradient(135deg, #BF9849 0%, #D4AB5E 100%);color:#fff;padding:12px 16px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
-  .head-title{display:flex;align-items:center;gap:8px}
-  .ai-badge{background:rgba(255,255,255,0.2);padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;letter-spacing:0.5px}
+  .head{background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;padding:12px 16px;font-weight:600;
+    display:flex;justify-content:space-between;align-items:center}
+  .close{background:none;border:none;color:#fff;font-size:20px;cursor:pointer}
   
-  .status{font-size:12px;opacity:.85;padding:8px 12px;background:#fafafa;border-bottom:1px solid #e8eef3}
-  .body{padding:10px;overflow:auto;max-height:calc(var(--box-max-h) - 200px);font-size:14px}
+  .status{font-size:12px;padding:8px 12px;background:#fafafa;border-bottom:1px solid #e8eef3}
+  .body{padding:10px;overflow:auto;flex:1}
   
-  .message{margin:12px 0;display:flex;gap:10px;animation:fadeIn 0.3s}
-  .message.user{flex-direction:row-reverse}
-  .message.ai{flex-direction:row}
-  .message-avatar{width:32px;height:32px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px}
-  .message.user .message-avatar{background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff}
-  .message.ai .message-avatar{background:#f0f0f0;color:#666}
-  .message-content{max-width:80%;padding:10px 14px;border-radius:12px;line-height:1.5}
-  .message.user .message-content{background:#BF9849;color:#fff;border-bottom-right-radius:4px}
-  .message.ai .message-content{background:#f6f9fc;color:#333;border-bottom-left-radius:4px}
-  
-  .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0;transition:all 0.2s}
+  .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0}
   .row:hover{box-shadow:0 4px 12px rgba(0,0,0,0.08);border-color:#BF9849}
   .meta{opacity:.85;font-size:12px;margin-top:6px}
   
-  .input-wrap{background:#fafafa;border-top:1px solid #e8eef3;padding:10px}
-  .mode-toggle{display:flex;gap:6px;margin-bottom:8px;padding:4px;background:#fff;border-radius:8px}
-  .mode-btn{flex:1;padding:6px;border:none;background:transparent;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;transition:all 0.2s;color:#666}
-  .mode-btn.active{background:#BF9849;color:#fff}
+  .input-wrap{padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
+  .translate-row{display:flex;gap:8px;margin-bottom:8px;align-items:center}
+  .translate-btn{padding:6px 12px;background:#fff;border:1px solid #cfd9e3;border-radius:8px;cursor:pointer;font-size:12px;transition:all 0.2s}
+  .translate-btn:hover{background:#f0f0f0}
+  .translate-btn.active{background:#BF9849;color:#fff;border-color:#BF9849}
+  .translate-note{flex:1;font-size:11px;color:#666;text-align:right}
   .input{display:flex;gap:8px}
-  .input input{flex:1;padding:10px 12px;border-radius:10px;border:1px solid #cfd9e3;font-size:14px}
-  .input button{background:#BF9849;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-weight:600;cursor:pointer;transition:all 0.2s}
-  .input button:hover:not(:disabled){background:#D4AB5E;transform:translateY(-1px)}
-  .input button:disabled{opacity:.5;cursor:not-allowed}
+  .input input{flex:1;padding:10px 12px;border-radius:10px;border:1px solid #cfd9e3}
+  .input button{background:#BF9849;color:#fff;border:none;border-radius:10px;padding:10px 16px;
+    font-weight:600;cursor:pointer}
+  .input button:disabled{opacity:.5}
   
-  .suggestions{display:none;background:#fff;border:1px solid #e8eef3;border-radius:8px;margin-top:6px;padding:4px;max-height:150px;overflow-y:auto}
-  .suggestion-item{padding:8px 10px;cursor:pointer;border-radius:6px;font-size:13px;transition:background 0.2s}
-  .suggestion-item:hover{background:#f6f9fc}
+  .btn{background:#BF9849;color:#fff;padding:6px 12px;border-radius:8px;text-decoration:none;
+    font-weight:600;font-size:12px}
+  .btn:hover{background:#D4AB5E}
+  .btn[disabled]{opacity:.5;cursor:not-allowed}
   
-  .btn{flex:0 0 auto;background:#BF9849;color:#fff;padding:6px 12px;border-radius:8px;text-decoration:none;font-weight:600;font-size:12px;transition:all 0.2s;display:inline-block}
-  .btn:hover{background:#D4AB5E;transform:translateY(-1px)}
-  .btn[disabled]{opacity:.5; cursor:not-allowed;transform:none}
-  
-  .error{background:#fff0f0;border:1px solid #f5b5b5;color:#900;padding:10px;border-radius:8px;margin:10px 0}
-  
-  .busybar{display:none; align-items:center; gap:10px; padding:8px 12px; background:#fff; border-bottom:1px solid #e8eef3}
-  .box.busy .busybar{display:flex}
-  .spinner{
-    width:32px;height:32px;border-radius:50%;
-    background:#fff var(--logo-url) center/90% no-repeat;
-    border:3px solid rgba(0,0,0,.06); box-shadow:0 2px 8px rgba(0,0,0,.12);
-    animation:ka-spin 1s linear infinite
-  }
-  @keyframes ka-spin{to{transform:rotate(360deg)}}
-  @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-  .busytext{font-weight:600;color:#555}
-  
-  .ai-note{background:linear-gradient(135deg,#f6f9fc,#e8f4f8);border-left:4px solid #BF9849;padding:10px;margin:10px 0;border-radius:8px;font-size:13px}
-  .ai-note::before{content:"🤖 ";margin-right:4px}
-  
-  .typing-indicator{display:flex;gap:4px;padding:10px}
-  .typing-dot{width:8px;height:8px;border-radius:50%;background:#BF9849;animation:typing 1.4s infinite}
-  .typing-dot:nth-child(2){animation-delay:0.2s}
-  .typing-dot:nth-child(3){animation-delay:0.4s}
-  @keyframes typing{0%,60%,100%{opacity:0.3}30%{opacity:1}}
+  .info{background:#e8f4f8;border-left:4px solid #BF9849;padding:10px;margin:10px 0;border-radius:8px;font-size:13px}
 </style>
 </head>
 <body>
   <div class="fab-wrap">
-    <svg class="fab-label" viewBox="0 0 120 40"><defs><path id="ka-arc" d="M 10,34 A 50,50 0 0 1 110,34"/></defs>
-      <text text-anchor="middle"><textPath href="#ka-arc" startOffset="50%">AI Assist</textPath></text>
-    </svg>
-    <button class="fab" aria-label="AI Assistant" id="fab"></button>
+    <button class="fab" id="fab"></button>
   </div>
 
   <div class="box" id="box">
     <div class="head">
-      <div class="head-title">
-        <div>ECSSR AI Assistant</div>
-        <div class="ai-badge">ENHANCED</div>
-      </div>
-      <button id="x" style="background:none;border:none;color:#fff;font-size:20px;cursor:pointer;padding:0 4px" title="Close">×</button>
+      <div>ECSSR Catalog Search</div>
+      <button class="close" id="close">×</button>
     </div>
-
-    <div class="busybar" id="busybar" aria-live="polite">
-      <div class="spinner" title="Working…"></div>
-      <div class="busytext" id="busytext">Loading…</div>
-    </div>
-
-    <div class="status" id="status">Loading catalog...</div>
+    <div class="status" id="status">Loading...</div>
     <div class="body" id="body"></div>
-    
     <div class="input-wrap">
-      <div class="mode-toggle">
-        <button class="mode-btn active" data-mode="chat">💬 Chat</button>
-        <button class="mode-btn" data-mode="search">🔍 Search</button>
+      <div class="translate-row">
+        <button class="translate-btn" id="translateBtn" title="Translate query">🌐 Translate</button>
+        <select id="translateLang" style="padding:6px;border:1px solid #cfd9e3;border-radius:8px;font-size:12px">
+          <option value="">Select language...</option>
+          <option value="ar">Arabic (العربية)</option>
+          <option value="en">English</option>
+          <option value="fr">French</option>
+          <option value="es">Spanish</option>
+        </select>
+        <span class="translate-note" id="translateNote"></span>
       </div>
-      <div class="suggestions" id="suggestions"></div>
       <div class="input">
-        <input id="q" type="text" placeholder="اسأل أي سؤال عن المكتبة... / Ask anything about the catalog..." dir="auto">
-        <button id="go">Send</button>
+        <input id="q" type="text" placeholder="ابحث: مؤلف، عنوان، موضوع / Search: author, title, subject" dir="auto">
+        <button id="go">Search</button>
       </div>
     </div>
   </div>
 
 <script>
-/* ====== CONFIG ====== */
-const DATA_URL = "./opac-catalog.tab?delim=tab";
-const BACKEND_URL = "https://ecssr-ai-assistant.onrender.com/api";
-
-/* ====== State ====== */
+const DATA_URL = "./opac-catalog.tab";
 let INDEX = [];
-let HEADERS = [];
 let LOADED = false;
-let CONVERSATION_HISTORY = [];
-let CURRENT_MODE = 'chat';
 
-/* ====== UI Elements ====== */
 const fab = document.getElementById("fab");
 const box = document.getElementById("box");
-const closeBtn = document.getElementById("x");
-const B = document.getElementById("body");
-const STATUS = document.getElementById("status");
-const Q = document.getElementById("q");
-const goBtn = document.getElementById("go");
-const suggestionsEl = document.getElementById("suggestions");
+const close = document.getElementById("close");
+const body = document.getElementById("body");
+const status = document.getElementById("status");
+const q = document.getElementById("q");
+const go = document.getElementById("go");
+const translateBtn = document.getElementById("translateBtn");
+const translateLang = document.getElementById("translateLang");
+const translateNote = document.getElementById("translateNote");
 
-/* ====== Busy indicator ====== */
-function setBusy(on, label){
-  const bar = document.getElementById('busybar');
-  const txt = document.getElementById('busytext');
-  if(label) txt.textContent = label;
-  if(on){ 
-    box.classList.add('busy'); 
-    bar.style.display='flex'; 
-    goBtn.disabled = true; 
-    Q.disabled = true; 
-  } else { 
-    box.classList.remove('busy'); 
-    bar.style.display='none'; 
-    goBtn.disabled = false; 
-    Q.disabled = false; 
-  }
-}
-
-/* ====== Error handling ====== */
-addEventListener("error", e => showError("JS error: " + (e.message||e)));
-addEventListener("unhandledrejection", e => showError("Promise error: " + (e.reason?.message||e.reason)));
-
-function showError(msg){
-  const div = document.createElement("div");
-  div.className = "error";
-  div.textContent = String(msg||"Unknown error");
-  B.appendChild(div);
-}
-
-/* ====== UI Controls ====== */
 fab.onclick = () => { 
-  box.style.display = (box.style.display==="flex"?"none":"flex"); 
-  if(box.style.display==="flex"){ 
-    setBusy(true,"Initializing…"); 
-    ensureLoaded().then(()=>setBusy(false)); 
-    setTimeout(()=>Q.focus(),50); 
+  box.style.display = box.style.display === "flex" ? "none" : "flex";
+  if(box.style.display === "flex") {
+    ensureLoaded();
+    setTimeout(() => q.focus(), 50);
   }
 };
-closeBtn.onclick = () => { box.style.display="none"; };
+close.onclick = () => box.style.display = "none";
 
-document.querySelectorAll('.mode-btn').forEach(btn => {
-  btn.onclick = () => {
-    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    CURRENT_MODE = btn.dataset.mode;
+function setBusy(busy) {
+  go.disabled = busy;
+  q.disabled = busy;
+  translateBtn.disabled = busy;
+  status.textContent = busy ? "Searching..." : `${INDEX.length} books loaded`;
+}
+
+// Translation using MyMemory API (free, no key needed)
+async function translateText(text, targetLang) {
+  if(!text || !targetLang) return null;
+  
+  try {
+    translateNote.textContent = "Translating...";
+    translateBtn.disabled = true;
     
-    const placeholders = {
-      chat: "اسأل أي سؤال عن المكتبة... / Ask anything about the catalog...",
-      search: "ابحث عن: مؤلف، عنوان، موضوع... / Search: author, title, subject..."
-    };
-    Q.placeholder = placeholders[CURRENT_MODE];
-  };
-});
+    // Detect source language
+    const sourceLang = /[\u0600-\u06FF]/.test(text) ? 'ar' : 'en';
+    
+    // Use MyMemory Translation API (free, no registration)
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceLang}|${targetLang}`;
+    
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if(data.responseStatus === 200 || data.responseData.translatedText) {
+      const translated = data.responseData.translatedText;
+      translateNote.textContent = `✓ Translated from ${sourceLang.toUpperCase()} to ${targetLang.toUpperCase()}`;
+      translateBtn.disabled = false;
+      return translated;
+    } else {
+      throw new Error("Translation failed");
+    }
+  } catch(error) {
+    translateNote.textContent = "❌ Translation failed";
+    translateBtn.disabled = false;
+    console.error("Translation error:", error);
+    return null;
+  }
+}
 
-/* ====== Arabic normalization ====== */
-function stripBidi(s){ return String(s||"").replace(/[\u200E\u200F\u202A-\u202E]/g,""); }
-function clean(s){ return stripBidi(String(s||"").replace(/^\uFEFF/,"")); }
-function canonHeader(h){ return clean(h).toLowerCase().replace(/\s+/g," ").trim(); }
+// Translate button click
+translateBtn.onclick = async () => {
+  const text = q.value.trim();
+  const targetLang = translateLang.value;
+  
+  if(!text) {
+    alert("اكتب نص أولاً / Enter text first");
+    return;
+  }
+  
+  if(!targetLang) {
+    alert("اختر اللغة / Select language");
+    return;
+  }
+  
+  const translated = await translateText(text, targetLang);
+  if(translated) {
+    q.value = translated;
+    translateNote.textContent += " - Click Search to find books";
+  }
+};
+
+// Arabic normalization
 function norm(s){
   if(!s) return "";
-  s = clean(s).toLowerCase();
+  s = String(s).toLowerCase();
   try{s=s.normalize("NFKD");}catch(e){}
-  s = s
-    .replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ة/g,"ه").replace(/ک/g,"ك")
-    .replace(/\bعبد\s+ال/g,"عبدال")
+  return s
+    .replace(/[إأآٱ]/g,"ا")
+    .replace(/[ىی]/g,"ي")
+    .replace(/ة/g,"ه")
+    .replace(/ک/g,"ك")
     .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
     .replace(/[\u0660-\u0669]/g,d=>d.charCodeAt(0)-0x0660)
     .replace(/[\u06F0-\u06F9]/g,d=>d.charCodeAt(0)-0x06F0)
     .replace(/[^\p{L}\p{N}\s]/gu," ")
     .replace(/\s+/g," ").trim();
-  return s;
 }
+
 function isArabic(s){ return /[\u0600-\u06FF]/.test(s||""); }
 
-/* ====== UTF-8 decoder ====== */
-function countArabic(s){ return (s.match(/[\u0600-\u06FF]/g)||[]).length; }
-function hasLikelyHeaders(s){
-  const h = s.slice(0, 4096).toLowerCase();
-  return /full title|author|abstract|subjects|publication|book[_\s]?url|العنوان|المؤلف|الملخص|الموضوع|بيانات النشر/.test(h);
-}
-async function autoDecode(arrayBuf){
-  const tryEnc = (label) => {
-    try {
-      const td = new TextDecoder(label, { fatal:false });
-      const u8 = new Uint8Array(arrayBuf);
-      const step = 1024*1024;
-      let out = "", pos = 0;
-      while (pos < u8.length){
-        const end = Math.min(pos+step, u8.length);
-        out += td.decode(u8.subarray(pos, end), {stream: end < u8.length});
-        pos = end;
-      }
-      out += td.decode();
-      const bad = (out.match(/\uFFFD/g)||[]).length;
-      return { text: out, bad };
-    } catch { return { text:"", bad: 1e9 }; }
-  };
-
-  const u8 = new Uint8Array(arrayBuf);
-  if (u8.length >= 3 && u8[0]===0xEF && u8[1]===0xBB && u8[2]===0xBF){
-    const {text} = tryEnc("utf-8");
-    return { text, enc:"utf-8" };
-  }
-
-  const utf8 = tryEnc("utf-8");
-  const utf8Ar = countArabic(utf8.text);
-  const utf8Hdr = hasLikelyHeaders(utf8.text);
-
-  if (utf8.bad === 0 || utf8Ar >= 10 || utf8Hdr){
-    return { text:utf8.text, enc:"utf-8" };
-  }
-
-  const candLabels = ["windows-1256","iso-8859-6","utf-16le"];
-  let best = {score:-1e15, text:"", enc:""};
-  for (const lab of candLabels){
-    const r = tryEnc(lab);
-    const ar = countArabic(r.text);
-    const hdr = hasLikelyHeaders(r.text);
-    const score = (-r.bad*1e6) + (ar*5) + (hdr?800:0) + (lab==="windows-1256"?30:0);
-    if (score > best.score) best = {score, text:r.text, enc:lab};
-  }
-
-  const utf8Score = (-utf8.bad*1e6) + (utf8Ar*5) + (utf8Hdr?800:0) + 200;
-  if (utf8Score >= best.score) return { text:utf8.text, enc:"utf-8" };
-  return { text:best.text, enc:best.enc };
-}
-
-/* ====== Parser ====== */
-function parseTSV(text){
-  text = clean(String(text||"")).replace(/\r\n?/g,"\n");
-  if(!text.trim()) return {headers:[], rows:[], delim:"\t"};
-
-  let override = null;
-  try{
-    const u = new URL(DATA_URL, location.href);
-    const d = (u.searchParams.get("delim")||"").toLowerCase();
-    if(d==="tab") override="\t"; if(d==="pipe") override="|";
-    if(d==="semicolon") override=";"; if(d==="comma") override=",";
-  }catch(_){}
-  const candidates = override ? [override] : ["\t","|",";",","];
-
-  const firstNL = text.indexOf("\n");
-  const headerLine = firstNL>=0 ? text.slice(0,firstNL) : text;
-  let bestDelim = "\t", bestScore = -1;
-  for(const d of candidates){ const s=(headerLine.split(d).length-1); if(s>bestScore){bestScore=s;bestDelim=d;} }
-  const DELIM = bestDelim;
-
-  if (DELIM === "\t"){
-    const lines = text.split("\n");
-    const rows = lines.map(l => l.split("\t"));
-    if(!rows.length) return {headers:[], rows:[], delim:DELIM};
-    const headers = rows[0].map(canonHeader);
-    const out=[];
-    for(let r=1;r<rows.length;r++){
-      const rec={}; const cols=rows[r];
-      if(cols.length===1 && cols[0]==="") continue;
-      for(let c=0;c<headers.length;c++){
-        const key = headers[c] || ("col"+c);
-        rec[key] = clean(cols[c] ?? "");
-      }
-      out.push(rec);
-    }
-    return {headers, rows:out, delim:DELIM};
-  }
-
-  const rows=[]; let i=0, field="", row=[], inQuotes=false;
-  while(i<text.length){
-    const ch=text[i];
-    if(inQuotes){
-      if(ch==="\""){
-        if(i+1<text.length && text[i+1]==="\""){ field+="\""; i+=2; continue; }
-        inQuotes=false; i++; continue;
-      } else { field+=ch; i++; continue; }
-    } else {
-      if(ch==="\""){ inQuotes=true; i++; continue; }
-      if(ch===DELIM){ row.push(field); field=""; i++; continue; }
-      if(ch==="\n"){ row.push(field); field=""; rows.push(row); row=[]; i++; continue; }
-      field+=ch; i++; continue;
-    }
-  }
-  row.push(field); if(row.length && (row.length>1 || row[0]!=="" )) rows.push(row);
-
-  if(!rows.length) return {headers:[], rows:[], delim:DELIM};
-  const headers = rows[0].map(canonHeader);
-  const out=[];
-  for(let r=1;r<rows.length;r++){
-    const rec={}; const cols=rows[r];
-    for(let c=0;c<headers.length;c++){
-      const key = headers[c] || ("col"+c);
-      rec[key] = clean(cols[c] ?? "");
-    }
-    out.push(rec);
-  }
-  return {headers, rows:out, delim:DELIM};
-}
-
-function pick(obj, keys){
-  for(const k of keys){
-    const kk=canonHeader(k);
-    if (Object.prototype.hasOwnProperty.call(obj, kk) && obj[kk]) return obj[kk];
-  }
-  return "";
-}
-function mapRecord(k){
-  const title = pick(k, ["full title","title","العنوان","عنوان"]);
-  const author = pick(k, ["author","authors","المؤلف","المؤلفون"]);
-  const otherAu = pick(k, ["other author","other authors","المؤلف الآخر"]);
-  const summary = pick(k, ["abstract","summary","الملخص","نبذة"]);
-  const content = pick(k, ["content","contents","المحتويات"]);
-  const subject = pick(k, ["subjects","subject","الموضوعات","الموضوع"]);
-  const pubdat = pick(k, ["publications data","publication data","بيانات النشر"]);
-  const bookUrl = pick(k, ["book_url","book url","رابط الكتاب"]);
-  let year = pick(k, ["year","السنة","سنة النشر"]);
-  if(!year){
-    const ym = String(pubdat).match(/(19|20)\d{2}/);
-    year = ym ? ym[0] : "";
-  }
-  const publisher = pubdat ? String(pubdat).replace(/\b(19|20)\d{2}\b/g,"").replace(/\s*[،,:-]\s*$/,"").trim() : "";
-  const corp = pick(k, ["corporate name","corporate","جهة مؤسسية"]);
-  return {title, author, other_author: otherAu, summary, content, subject, publisher, year, book_url:bookUrl, corporate_name: corp};
-}
-
+// Load catalog
 async function ensureLoaded(){
-  if (LOADED) return;
+  if(LOADED) return;
   try{
-    setBusy(true,"Loading catalog...");
-    const resp = await fetch(DATA_URL, {cache:"reload"});
-    if(!resp.ok) throw new Error(`Fetch ${resp.status}`);
-    const buf = await resp.arrayBuffer();
-    const decProbe = await autoDecode(buf);
-    const text = decProbe.text;
-    const parsed = parseTSV(text);
-    HEADERS = parsed.headers;
-    const recs = parsed.rows.map(mapRecord);
-    INDEX = recs.map((r,i)=>({
-      id:i, raw:r,
-      nTitle: norm(r.title),
-      nAuthor: norm([r.author, r.other_author, r.corporate_name].filter(Boolean).join(" ")),
-      nSummary: norm(r.summary), 
-      nContent: norm(r.content),
-      nSubject: norm(r.subject),
-      nYear: norm(r.year||""),
-    }));
+    setBusy(true);
+    const resp = await fetch(DATA_URL);
+    if(!resp.ok) throw new Error(`Error ${resp.status}`);
+    const text = await resp.text();
+    
+    const lines = text.split("\n");
+    const headers = lines[0].split("\t").map(h => h.toLowerCase().trim());
+    
+    for(let i=1; i<lines.length; i++){
+      const cols = lines[i].split("\t");
+      if(cols.length < 2) continue;
+      
+      const rec = {};
+      headers.forEach((h, idx) => {
+        rec[h] = cols[idx] || "";
+      });
+      
+      // Extract fields
+      const title = rec["full title"] || rec["title"] || rec["العنوان"] || "";
+      const author = rec["author"] || rec["المؤلف"] || "";
+      const otherAuthor = rec["other author"] || rec["المؤلف الآخر"] || "";
+      const corporate = rec["corporate name"] || rec["جهة مؤسسية"] || "";
+      const subject = rec["subjects"] || rec["subject"] || rec["الموضوعات"] || "";
+      const summary = rec["abstract"] || rec["summary"] || rec["الملخص"] || "";
+      const pubData = rec["publications data"] || rec["بيانات النشر"] || "";
+      const bookUrl = rec["book_url"] || rec["book url"] || rec["رابط الكتاب"] || "";
+      const year = rec["year"] || rec["السنة"] || (pubData.match(/(19|20)\d{2}/)||[""])[0];
+      const publisher = pubData.replace(/\b(19|20)\d{2}\b/g,"").replace(/[،,:-]\s*$/,"").trim();
+      
+      INDEX.push({
+        id: i-1,
+        title,
+        author,
+        otherAuthor,
+        corporate,
+        subject,
+        summary,
+        publisher,
+        year,
+        bookUrl,
+        // Normalized for search
+        nTitle: norm(title),
+        nAuthor: norm(author + " " + otherAuthor + " " + corporate),
+        nSubject: norm(subject),
+        nSummary: norm(summary),
+        nYear: norm(year)
+      });
+    }
+    
     LOADED = true;
-    STATUS.textContent = `✅ Loaded ${INDEX.length} records • AI-Enhanced Search Ready`;
+    status.textContent = `✅ ${INDEX.length} books loaded - Ready to search`;
   }catch(e){
-    STATUS.textContent = `❌ Load error: ${e.message}`;
-    showError(e?.message||String(e));
+    status.textContent = `❌ Error: ${e.message}`;
   }finally{
     setBusy(false);
   }
 }
 
-async function callAI(endpoint, data){
-  try {
-    const response = await fetch(`${BACKEND_URL}${endpoint}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'API request failed');
-    }
-    return await response.json();
-  } catch (error) {
-    console.error('AI API Error:', error);
-    throw error;
-  }
-}
-
-function addMessage(role, content){
-  const msg = document.createElement('div');
-  msg.className = `message ${role}`;
-  const avatar = document.createElement('div');
-  avatar.className = 'message-avatar';
-  avatar.textContent = role === 'user' ? '👤' : '🤖';
-  const msgContent = document.createElement('div');
-  msgContent.className = 'message-content';
-  msgContent.innerHTML = content;
-  msg.appendChild(avatar);
-  msg.appendChild(msgContent);
-  B.appendChild(msg);
-  B.scrollTop = B.scrollHeight;
-}
-
-function showTypingIndicator(){
-  const typing = document.createElement('div');
-  typing.className = 'message ai';
-  typing.id = 'typing-indicator';
-  typing.innerHTML = `<div class="message-avatar">🤖</div><div class="message-content"><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>`;
-  B.appendChild(typing);
-  B.scrollTop = B.scrollHeight;
-}
-
-function removeTypingIndicator(){
-  const typing = document.getElementById('typing-indicator');
-  if(typing) typing.remove();
-}
-
-async function aiEnhancedChat(query){
-  addMessage('user', query);
-  showTypingIndicator();
-  try {
-    const allBooks = INDEX.map(r => ({
-      id: r.id,
-      title: r.raw.title,
-      author: r.raw.author,
-      subject: r.raw.subject,
-      year: r.raw.year
-    }));
-    const response = await callAI('/chat', {
-      query,
-      context: {
-        totalBooks: INDEX.length,
-        sampleBooks: allBooks,
-        conversationHistory: CONVERSATION_HISTORY
-      }
-    });
-    removeTypingIndicator();
-    if (response.answer) {
-      addMessage('ai', response.answer);
-      if (response.bookIds && response.bookIds.length > 0) {
-        const books = response.bookIds.map(id => INDEX[id]).filter(Boolean);
-        renderSearchResults(books.map(b => ({raw: b.raw})));
-      }
-    }
-    CONVERSATION_HISTORY.push(
-      { role: 'user', content: query },
-      { role: 'assistant', content: response.answer }
-    );
-    if (CONVERSATION_HISTORY.length > 10) {
-      CONVERSATION_HISTORY = CONVERSATION_HISTORY.slice(-10);
-    }
-  } catch (error) {
-    removeTypingIndicator();
-    addMessage('ai', `⚠️ Error: ${error.message}`);
-  }
-}
-
-async function aiEnhancedSearch(query){
-  setBusy(true, "Searching...");
-  try {
-    // STEP 1: Frontend does basic filtering first (searches ALL 6234 books)
-    const nq = norm(query);
-    const preFiltered = [];
-    
-    for (const r of INDEX){
-      let score = 0;
-      if (r.nTitle.includes(nq)) score += 100;
-      if (r.nAuthor.includes(nq)) score += 80;
-      if (r.nSubject.includes(nq)) score += 60;
-      if (r.nSummary.includes(nq)) score += 40;
-      if (r.nContent.includes(nq)) score += 30;
-      if (r.nYear.includes(nq)) score += 20;
-      
-      if (score > 0) preFiltered.push({score, ...r});
-    }
-    
-    preFiltered.sort((a,b) => b.score - a.score);
-    
-    // If no results, show message
-    if (preFiltered.length === 0) {
-      const note = document.createElement('div');
-      note.className = 'ai-note';
-      note.textContent = 'لا توجد نتائج / No results found';
-      B.appendChild(note);
-      setBusy(false);
-      return;
-    }
-    
-    // STEP 2: Send top 200 pre-filtered results to AI for refinement
-    const top200 = preFiltered.slice(0, 200).map(r => ({
-      id: r.id,
-      title: r.raw.title,
-      author: r.raw.author,
-      subject: r.raw.subject
-    }));
-    
-    const response = await callAI('/search', {
-      query,
-      catalog: top200
-    });
-    
-    if (response.explanation) {
-      const note = document.createElement('div');
-      note.className = 'ai-note';
-      note.textContent = response.explanation;
-      B.appendChild(note);
-    }
-    
-    // STEP 3: Show AI-refined results
-    const results = response.bookIds.map(id => INDEX[id]).filter(Boolean);
-    
-    // If AI didn't find any, show top basic results
-    if (results.length === 0) {
-      const fallback = preFiltered.slice(0, 20);
-      renderSearchResults(fallback.map(r => ({raw: r.raw})));
-      const note = document.createElement('div');
-      note.className = 'ai-note';
-      note.textContent = `عرض ${fallback.length} نتيجة من ${preFiltered.length} / Showing ${fallback.length} of ${preFiltered.length} results`;
-      B.insertBefore(note, B.firstChild);
-    } else {
-      renderSearchResults(results.map(r => ({raw: r.raw})));
-    }
-    
-  } catch (error) {
-    showError(`Search error: ${error.message}`);
-  } finally {
+// Simple accurate search
+function search(query){
+  body.innerHTML = "";
+  setBusy(true);
+  
+  const nq = norm(query);
+  if(!nq){
     setBusy(false);
-  }
-}
-
-function clearResults(){ 
-  while(B.firstChild) B.removeChild(B.firstChild); 
-}
-
-function titleOrPlaceholder(t){ 
-  return (t && t.trim()) ? t : "(بدون عنوان)"; 
-}
-
-function renderSearchResults(results){
-  if (results.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'ai-note';
-    empty.textContent = 'No results found. Try different keywords.';
-    B.appendChild(empty);
     return;
   }
-  results.forEach(result => {
-    const r = result.raw;
+  
+  // Search ALL books
+  const results = [];
+  for(const book of INDEX){
+    let score = 0;
+    if(book.nTitle.includes(nq)) score += 100;
+    if(book.nAuthor.includes(nq)) score += 80;
+    if(book.nSubject.includes(nq)) score += 60;
+    if(book.nSummary.includes(nq)) score += 40;
+    if(book.nYear.includes(nq)) score += 20;
+    
+    if(score > 0) results.push({score, book});
+  }
+  
+  results.sort((a,b) => b.score - a.score);
+  
+  // Show results
+  if(results.length === 0){
     const div = document.createElement("div");
-    div.className = "row";
-    div.dir = /[\u0600-\u06FF]/.test((r.title||"")+(r.author||"")) ? "rtl" : "ltr";
-    const openUrl = r.book_url || "";
-    const pubLine = [r.publisher, r.year].filter(Boolean).join(" • ");
-    let linkHTML = "";
-    if (openUrl){
-      linkHTML = `<a class="btn" href="${openUrl}" target="_blank" rel="noopener">Open</a>`;
-    } else {
-      linkHTML = `<button class="btn" disabled title="No URL available">Open</button>`;
+    div.className = "info";
+    div.textContent = "لا توجد نتائج / No results found";
+    body.appendChild(div);
+  } else {
+    const info = document.createElement("div");
+    info.className = "info";
+    info.textContent = `وجدت ${results.length} نتيجة / Found ${results.length} results`;
+    body.appendChild(info);
+    
+    results.slice(0, 50).forEach(r => {
+      const b = r.book;
+      const div = document.createElement("div");
+      div.className = "row";
+      div.dir = isArabic(b.title || b.author) ? "rtl" : "ltr";
+      
+      const authors = [b.author, b.otherAuthor, b.corporate].filter(Boolean).join(" • ");
+      const pubLine = [b.publisher, b.year].filter(Boolean).join(" • ");
+      
+      div.innerHTML = `
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">
+          <b style="font-size:15px;line-height:1.4">${b.title || "(No title)"}</b>
+          ${b.bookUrl ? `<a class="btn" href="${b.bookUrl}" target="_blank">Open</a>` : `<button class="btn" disabled>No URL</button>`}
+        </div>
+        ${authors ? `<div class="meta">${isArabic(authors)?'المؤلف: ':'Author: '}${authors}</div>` : ""}
+        ${b.subject ? `<div class="meta">${isArabic(b.subject)?'الموضوع: ':'Subject: '}${b.subject}</div>` : ""}
+        ${pubLine ? `<div class="meta">${pubLine}</div>` : ""}
+        ${b.summary ? `<div style="margin-top:6px;font-size:13px">${b.summary.length>300 ? b.summary.slice(0,297)+'…' : b.summary}</div>` : ""}
+      `;
+      body.appendChild(div);
+    });
+    
+    if(results.length > 50){
+      const more = document.createElement("div");
+      more.className = "info";
+      more.textContent = `عرض 50 من ${results.length} • Showing 50 of ${results.length}`;
+      body.appendChild(more);
     }
-    div.innerHTML =
-      `<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;"><b style="font-size:15px;line-height:1.4">${titleOrPlaceholder(r.title).replace(/</g,"&lt;")}</b>${linkHTML}</div>` +
-      (r.author ? `<div class="meta">${isArabic(r.author)?'المؤلف: ':'Author: '}${r.author}</div>` : "") +
-      (r.other_author ? `<div class="meta">${isArabic(r.other_author)?'مؤلف مشارك: ':'Other: '}${r.other_author}</div>` : "") +
-      (r.corporate_name ? `<div class="meta">${isArabic(r.corporate_name)?'الهيئة: ':'Corporate: '}${r.corporate_name}</div>` : "") +
-      (r.subject ? `<div class="meta">${isArabic(r.subject)?'الموضوع: ':'Subject: '}${r.subject}</div>` : "") +
-      (pubLine ? `<div class="meta">${pubLine}</div>` : "") +
-      (r.summary ? `<div style="margin-top:6px;font-size:13px">${r.summary.length>300 ? r.summary.slice(0,297)+'…' : r.summary}</div>` : "");
-    B.appendChild(div);
-  });
+  }
+  
+  setBusy(false);
 }
 
-let suggestionTimeout;
-Q.addEventListener('input', async (e) => {
-  const val = e.target.value.trim();
-  clearTimeout(suggestionTimeout);
-  if (val.length < 3) {
-    suggestionsEl.style.display = 'none';
-    return;
-  }
-  suggestionTimeout = setTimeout(async () => {
-    try {
-      const response = await callAI('/suggest', { partial: val });
-      if (response.suggestions && response.suggestions.length > 0) {
-        suggestionsEl.innerHTML = '';
-        response.suggestions.forEach(s => {
-          const item = document.createElement('div');
-          item.className = 'suggestion-item';
-          item.textContent = s;
-          item.onclick = () => {
-            Q.value = s;
-            suggestionsEl.style.display = 'none';
-            run();
-          };
-          suggestionsEl.appendChild(item);
-        });
-        suggestionsEl.style.display = 'block';
-      }
-    } catch (error) {
-      console.log('Suggestions failed:', error);
-    }
-  }, 500);
-});
-
-document.addEventListener('click', (e) => {
-  if (!Q.contains(e.target) && !suggestionsEl.contains(e.target)) {
-    suggestionsEl.style.display = 'none';
-  }
-});
-
-async function run(){
-  const query = Q.value.trim();
-  if (!query) return;
-  await ensureLoaded();
-  if (CURRENT_MODE === 'chat') {
-    await aiEnhancedChat(query);
-  } else if (CURRENT_MODE === 'search') {
-    clearResults();
-    await aiEnhancedSearch(query);
-  }
-  Q.value = '';
-  suggestionsEl.style.display = 'none';
-}
-
-goBtn.onclick = run;
-Q.addEventListener("keydown", e => { 
-  if(e.key === "Enter") run(); 
-});
+go.onclick = () => search(q.value);
+q.onkeydown = (e) => { if(e.key === "Enter") search(q.value); };
 
 ensureLoaded();
 </script>
