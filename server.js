@@ -1,5 +1,5 @@
 // backend/server.js
-// ECSSR AI Assistant - AI Uses ONLY Catalog Summaries with Search Intent Understanding
+// ECSSR AI Assistant - FIXED Arabic Recognition + Strict Field Boundaries
 
 const express = require('express');
 const cors = require('cors');
@@ -61,28 +61,7 @@ async function callPerplexity(messages, model = 'sonar-pro') {
   }
 }
 
-// NEW: Detect search intent from query
-function detectSearchIntent(query) {
-  const q = query.toLowerCase();
-  
-  // Question patterns (what/how/why/when/where/who)
-  const questionWords = /^(what|how|why|when|where|who|which|ما|كيف|لماذا|متى|أين|من|ماذا|كيفية)\b/i;
-  if (questionWords.test(query)) {
-    return 'question';
-  }
-  
-  // Check if it looks like a name (author search)
-  const namePatterns = /\b(بن|ابن|محمد|أحمد|عبد|علي|حسن|خالد)\b/i;
-  const words = query.trim().split(/\s+/);
-  if (words.length >= 2 && words.length <= 4 && namePatterns.test(query)) {
-    return 'author';
-  }
-  
-  // Default to topic search
-  return 'topic';
-}
-
-// ====== CHAT ENDPOINT - AI with Search Intent Understanding ======
+// ====== CHAT ENDPOINT - STRICT FIELD BOUNDARIES ======
 app.post('/api/chat', async (req, res) => {
   const ip = req.ip;
   
@@ -106,77 +85,104 @@ app.post('/api/chat', async (req, res) => {
       });
     }
 
-    // NEW: Detect search intent
-    const intent = detectSearchIntent(query);
+    // Build STRICT field-specific instructions
+    let fieldInstructions = '';
+    let availableData = '';
     
-    // NEW: Build context-aware instructions for AI
-    let contextInstruction = '';
-    if (intent === 'question') {
-      contextInstruction = `
-🔍 SEARCH INTENT: QUESTION
-The user is asking a question and wants ANSWERS from book content.
+    if (searchField === 'summary') {
+      // QUESTIONS: Only use summaries
+      fieldInstructions = `
+⚠️ CRITICAL FIELD RULE: SUMMARY SEARCH
+You are answering a QUESTION. Use ONLY these fields:
+✅ ALLOWED: summary, contents
+❌ FORBIDDEN: Do NOT look at author, subject, or title fields
+❌ FORBIDDEN: Do NOT mention author names unless specifically in the summary text
 
-PRIORITY:
-1. Look in SUMMARIES/ABSTRACTS first (main source of answers)
-2. If not found, check TITLES for relevant topics
-3. Provide factual answers based on the content
+Your task: Answer the question using ONLY the summary/contents text provided.`;
 
-Focus on: Facts, explanations, definitions, and detailed information from the summaries.`;
-    } else if (intent === 'author') {
-      contextInstruction = `
-🔍 SEARCH INTENT: AUTHOR SEARCH
-The user is looking for books BY this specific author.
+      availableData = books.map(b => `
+Book ID ${b.id}:
+Summary: ${b.summary || "No summary"}
+---`).join('\n');
 
-PRIORITY:
-1. Match AUTHOR names in the provided books
-2. List all books by this author
+    } else if (searchField === 'subject') {
+      // TOPICS: Only use subject and title
+      fieldInstructions = `
+⚠️ CRITICAL FIELD RULE: SUBJECT/TOPIC SEARCH
+You are searching for books ABOUT a topic. Use ONLY these fields:
+✅ ALLOWED: subject, title
+❌ FORBIDDEN: Do NOT look at author fields
+❌ FORBIDDEN: Do NOT mention authors unless the query asks about them
 
-Focus on: Author names and their publications.`;
+Your task: List books whose SUBJECT or TITLE relates to the topic.`;
+
+      availableData = books.map(b => `
+Book ID ${b.id}:
+Title: ${b.title}
+Subject: ${b.subject || "No subject"}
+---`).join('\n');
+
+    } else if (searchField === 'author') {
+      // AUTHORS: Only use author fields
+      fieldInstructions = `
+⚠️ CRITICAL FIELD RULE: AUTHOR SEARCH
+You are searching for books BY an author. Use ONLY these fields:
+✅ ALLOWED: author, title (for listing books)
+❌ FORBIDDEN: Do NOT look at subject or summary fields
+
+Your task: List books BY this author.`;
+
+      availableData = books.map(b => `
+Book ID ${b.id}:
+Title: ${b.title}
+Author: ${b.author}
+---`).join('\n');
+
     } else {
-      contextInstruction = `
-🔍 SEARCH INTENT: TOPIC/SUBJECT SEARCH
-The user wants books ABOUT this topic or subject.
-
-PRIORITY:
-1. Look in SUBJECT fields first
-2. Check TITLES for topic relevance
-3. Review summaries if needed
-
-Focus on: Books that discuss, cover, or relate to this topic.`;
+      // DEFAULT: Show all fields
+      availableData = books.map(b => `
+Book ID ${b.id}:
+Title: ${b.title}
+Author: ${b.author}
+Subject: ${b.subject || ""}
+Summary: ${b.summary || ""}
+---`).join('\n');
     }
 
-    const prompt = `You are a library assistant. Answer the user's query using ONLY the book information below.
+    const prompt = `You are a library assistant. Follow the field rules STRICTLY.
 
-${contextInstruction}
+${fieldInstructions}
 
 CRITICAL RULES:
-- ONLY use information from the summaries, titles, subjects, and authors provided below
-- DO NOT use your general knowledge
-- DO NOT invent or assume information
-- If the information isn't in the provided data, say "المعلومات غير متوفرة في ملخصات الكتب / Information not available in book summaries"
-- When mentioning books, include their ID number in parentheses like (ID: 123)
-- Be concise and helpful
-- Answer in the same language as the query (Arabic or English)
-
-SEARCH FIELD USED: ${searchField || 'auto-detected'}
-
-AVAILABLE BOOKS (${books.length} found):
-${JSON.stringify(books.map(b => ({
-  id: b.id,
-  title: b.title,
-  author: b.author,
-  subject: b.subject || '',
-  summary: b.summary || "No summary available"
-})), null, 2)}
+1. ONLY use the fields specified as ALLOWED above
+2. NEVER use fields marked as FORBIDDEN
+3. NEVER use your general knowledge
+4. NEVER invent information
+5. If you cannot answer from allowed fields, say "المعلومات غير متوفرة / Information not available"
+6. When mentioning books, include their ID like this: (ID: 123)
+7. Answer in the SAME language as the query
 
 USER QUERY: "${query}"
 
-${intent === 'question' ? '📖 Answer the question using information from the summaries above.' : intent === 'author' ? '👤 List the books by this author from the results above.' : '📚 List the books about this topic from the results above.'}`;
+SEARCH FIELD: ${searchField}
+
+AVAILABLE DATA (${books.length} books found):
+${availableData}
+
+Now answer using ONLY the allowed fields shown above.`;
+
+    const systemPrompt = searchField === 'summary' 
+      ? 'You answer questions using ONLY summaries. NEVER mention authors unless they appear in the summary text itself.'
+      : searchField === 'subject'
+      ? 'You list books about topics using ONLY subject and title fields. NEVER mention authors.'
+      : searchField === 'author'
+      ? 'You list books BY authors using ONLY author and title fields.'
+      : 'You use only the provided data fields.';
 
     const answer = await callPerplexity([
       { 
         role: 'system', 
-        content: `You are a library assistant who ONLY uses provided book data. Never use external knowledge. Always cite book IDs. Understand search intent: questions need summary content, topics need subject/title matching, authors need author field matching.` 
+        content: systemPrompt
       },
       { role: 'user', content: prompt }
     ], 'sonar-pro');
@@ -265,10 +271,10 @@ BOOK_IDS: [comma-separated IDs, most relevant first]`;
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'ok', 
-    message: 'ECSSR AI Assistant Backend - Search Intent Understanding',
+    message: 'ECSSR AI Assistant Backend - Strict Field Boundaries',
     perplexityConfigured: !!PERPLEXITY_API_KEY && PERPLEXITY_API_KEY !== 'pplx-YOUR-API-KEY-HERE',
     modelVersion: 'sonar-pro',
-    features: 'AI understands questions vs topics vs authors'
+    features: 'Strict field separation - subjects never search authors'
   });
 });
 
@@ -281,7 +287,7 @@ app.listen(PORT, () => {
   console.log(`🚀 ECSSR AI Backend running on http://localhost:${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
   console.log(`🤖 Model: sonar-pro (temperature: 0.05)`);
-  console.log(`🎯 Features: Search intent detection (questions/topics/authors)`);
+  console.log(`🎯 Features: STRICT field boundaries enforced`);
   
   if (!PERPLEXITY_API_KEY || PERPLEXITY_API_KEY === 'pplx-YOUR-API-KEY-HERE') {
     console.warn('⚠️  WARNING: Perplexity API key not configured!');
