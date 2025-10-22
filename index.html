@@ -28,15 +28,13 @@
     position:absolute;left:0;bottom:0;width:var(--fab-size);height:var(--fab-size);
     background:#fff var(--logo-url) center/145% no-repeat;
     border:5px solid #BF9849;border-radius:50%;cursor:pointer;
-    box-shadow:0 10px 30px rgba(191,152,73,0.4);transition:all 0.3s ease;
-    animation:fabPulse 2.5s ease-in-out infinite;
+    box-shadow:0 10px 30px rgba(191,152,73,0.4);
+    transition:transform 0.3s ease, box-shadow 0.3s ease;
   }
   
-  .fab:hover{transform:scale(1.1);box-shadow:0 15px 40px rgba(191,152,73,0.6);}
-  
-  @keyframes fabPulse {
-    0%, 100% { transform:scale(1); box-shadow:0 10px 30px rgba(191,152,73,0.4); }
-    50% { transform:scale(1.1); box-shadow:0 15px 40px rgba(191,152,73,0.7); border-color:#D4AB5E; }
+  .fab:hover{
+    transform:scale(1.08);
+    box-shadow:0 15px 40px rgba(191,152,73,0.6);
   }
   
   .slide-banner{
@@ -48,8 +46,6 @@
     box-shadow:0 8px 24px rgba(191,152,73,0.5);white-space:nowrap;z-index:9998;
     animation:slideFromBottom 7s ease-in-out forwards;opacity:0;letter-spacing:0.3px;
   }
-  
-  .slide-banner::before{content:"🇦🇪 ";font-size:18px;margin-right:8px;}
   
   @keyframes slideFromBottom {
     0% { transform:translateY(200px); opacity:0; }
