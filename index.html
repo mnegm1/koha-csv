@@ -71,27 +71,157 @@ function setBusy(on,label){const bar=document.getElementById("busybar"),txt=docu
 function stripBidi(s){return String(s||"").replace(/[\u200E\u200F\u202A-\u202E]/g,"")}
 function clean(s){return stripBidi(String(s||"").replace(/^\uFEFF/,""))}
 function canonHeader(h){return clean(h).toLowerCase().replace(/\s+/g," ").trim()}
-function norm(s){if(!s)return "";s=clean(s).toLowerCase();try{s=s.normalize("NFKD")}catch(e){}s=s.replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ة/g,"ه").replace(/ک/g,"ك").replace(/\bعبد\s+ال/g,"عبدال").replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"").replace(/[\u0660-\u0669]/g,d=>String.fromCharCode(d.charCodeAt(0)-1632+48)).replace(/[\u06F0-\u06F9]/g,d=>String.fromCharCode(d.charCodeAt(0)-1776+48)).replace(/[^\p{L}\p{N}\s]/gu," ").replace(/\s+/g," ").trim();return s}
+
+// ENHANCED NORMALIZATION: Hamza + Waw handling
+function norm(s){
+  if(!s)return "";
+  s=clean(s).toLowerCase();
+  try{s=s.normalize("NFKD")}catch(e){}
+  
+  // 1. HAMZA NORMALIZATION - All alif variants → ا
+  s=s.replace(/[إأآٱ]/g,"ا");
+  
+  // 2. WAW CONJUNCTION - Remove spaces around و
+  s=s.replace(/\s*و\s*/g,"و");
+  
+  // 3. Other normalizations
+  s=s.replace(/[ىی]/g,"ي")
+    .replace(/ة/g,"ه")
+    .replace(/ک/g,"ك")
+    .replace(/\bعبد\s+ال/g,"عبدال")
+    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
+    .replace(/[\u0660-\u0669]/g,d=>String.fromCharCode(d.charCodeAt(0)-1632+48))
+    .replace(/[\u06F0-\u06F9]/g,d=>String.fromCharCode(d.charCodeAt(0)-1776+48))
+    .replace(/[^\p{L}\p{N}\s]/gu," ")
+    .replace(/\s+/g," ")
+    .trim();
+  return s
+}
+
 function isArabic(s){return/[\u0600-\u06FF]/.test(s||"")}
 const FAMOUS_PEOPLE=new Set(["محمد بن زايد","محمد بن راشد","خليفة بن زايد","زايد بن سلطان","محمد بن زايد آل نهيان","sheikh mohamed","sheikh mohammed","sheikh khalifa","sheikh zayed","الشيخ محمد","الشيخ خليفة","الشيخ زايد"]);
 function looksLikeYear(q){return/^\d{4}$/.test(q.trim())}
 function isFamousPerson(q){const nq=norm(q);for(const p of FAMOUS_PEOPLE)if(nq.includes(norm(p)))return true;return/\b(president|رئيس|سمو|صاحب السمو)\b/i.test(q)}
 
+// ENHANCED FIELD DETECTION with Publisher support
 function chooseField(q){
   const raw=q.trim();
+  const lower=raw.toLowerCase();
+  
+  // 1. PUBLISHER DETECTION - "ناشر" or "publisher" or "دار نشر"
+  if(/(ناشر|publisher|دار نشر|دار النشر|publishing house|press books)/i.test(raw)){
+    MATCH_NOTE="Publisher keyword → Publisher field";
+    // Remove the keyword and search the rest
+    const cleanQuery = raw.replace(/(ناشر|publisher|دار نشر|دار النشر|publishing house|press books|كتب)/gi,'').trim();
+    return "pub";
+  }
+  
+  // 2. Year
   if(looksLikeYear(raw))return "year";
-  if(/^(what|how|why|when|where|who|which|ما|كيف|لماذا|متى|أين|من|ماذا|كيفية|هل)\b/i.test(raw)){MATCH_NOTE="Question → Summary";return "summary"}
-  if(isFamousPerson(raw)){MATCH_NOTE="Famous person → Subject";return "subject"}
-  if(/(تراث|التراث|ثقافة|الثقافة|تاريخ|التاريخ|فن|الفن|علوم|العلوم|أدب|الأدب|شعر|الشعر|سياسة|السياسة|اقتصاد|الاقتصاد|تعليم|التعليم|صحة|الصحة|بيئة|البيئة|تكنولوجيا|التكنولوجيا|ذكاء|الذكاء|طاقة|الطاقة|مياه|المياه|زراعة|الزراعة|نفط|النفط|غاز|الغاز|امارات|الامارات|إمارات|الإمارات)/i.test(raw)){MATCH_NOTE="Topic keyword → Subject";return "subject"}
-  if(LOADED && INDEX.length > 0){const nq = norm(raw);let authorCount = 0,subjectCount = 0;for(let i = 0; i < Math.min(500, INDEX.length); i++){if(INDEX[i].nAuthorAll.includes(nq)) authorCount++;if(INDEX[i].nSubject.includes(nq) || INDEX[i].nTitle.includes(nq)) subjectCount++}if(authorCount > 3 && authorCount > subjectCount){MATCH_NOTE="Found in authors → Author";return "author"}if(subjectCount > 3){MATCH_NOTE="Found in subjects → Subject";return "subject"}}
+  
+  // 3. Question
+  if(/^(what|how|why|when|where|who|which|ما|كيف|لماذا|متى|أين|من|ماذا|كيفية|هل)\b/i.test(raw)){
+    MATCH_NOTE="Question → Summary";
+    return "summary"
+  }
+  
+  // 4. Famous person
+  if(isFamousPerson(raw)){
+    MATCH_NOTE="Famous person → Subject";
+    return "subject"
+  }
+  
+  // 5. Topic keywords
+  if(/(تراث|التراث|ثقافة|الثقافة|تاريخ|التاريخ|فن|الفن|علوم|العلوم|أدب|الأدب|شعر|الشعر|سياسة|السياسة|اقتصاد|الاقتصاد|تعليم|التعليم|صحة|الصحة|بيئة|البيئة|تكنولوجيا|التكنولوجيا|ذكاء|الذكاء|طاقة|الطاقة|مياه|المياه|زراعة|الزراعة|نفط|النفط|غاز|الغاز|امارات|الامارات|إمارات|الإمارات)/i.test(raw)){
+    MATCH_NOTE="Topic keyword → Subject";
+    return "subject"
+  }
+  
+  // 6. Check catalog
+  if(LOADED && INDEX.length > 0){
+    const nq = norm(raw);
+    let authorCount = 0,subjectCount = 0;
+    for(let i = 0; i < Math.min(500, INDEX.length); i++){
+      if(INDEX[i].nAuthorAll.includes(nq)) authorCount++;
+      if(INDEX[i].nSubject.includes(nq) || INDEX[i].nTitle.includes(nq)) subjectCount++;
+    }
+    if(authorCount > 3 && authorCount > subjectCount){
+      MATCH_NOTE="Found in authors → Author";
+      return "author"
+    }
+    if(subjectCount > 3){
+      MATCH_NOTE="Found in subjects → Subject";
+      return "subject"
+    }
+  }
+  
+  // 7. 2-3 Arabic words
   const words = raw.split(/\s+/).filter(Boolean);
-  if(words.length >= 2 && words.length <= 3 && isArabic(raw) && !/[a-zA-Z]/.test(raw)){MATCH_NOTE="2-3 Arabic words → Author";return "author"}
-  MATCH_NOTE="Default → Subject";return "subject"
+  if(words.length >= 2 && words.length <= 3 && isArabic(raw) && !/[a-zA-Z]/.test(raw)){
+    MATCH_NOTE="2-3 Arabic words → Author";
+    return "author"
+  }
+  
+  // 8. Default
+  MATCH_NOTE="Default → Subject";
+  return "subject"
 }
 
-async function ensureLoaded(){if(LOADED)return;try{setBusy(true,"Loading records…");const resp=await fetch(DATA_URL,{cache:"reload"});if(!resp.ok)throw new Error(`Fetch ${resp.status}`);const buf=await resp.arrayBuffer(),decoder=new TextDecoder("utf-8"),text=decoder.decode(buf),lines=text.split(/\r?\n/);if(lines.length<2)throw new Error("Empty catalog");const headers=lines[0].split("\t").map(canonHeader);HEADERS=headers;for(let i=1;i<lines.length;i++){const cols=lines[i].split("\t");if(cols.length<2||(cols.length===1&&!cols[0]))continue;const rec={};headers.forEach((h,idx)=>{rec[h]=clean(cols[idx]||"")});const title=rec["full title"]||rec["title"]||rec["العنوان"]||"",author=rec["author"]||rec["المؤلف"]||"",otherAu=rec["other author"]||rec["المؤلف الآخر"]||"",corporate=rec["corporate name"]||rec["جهة مؤسسية"]||"",subject=rec["subjects"]||rec["subject"]||rec["الموضوعات"]||"",summary=rec["abstract"]||rec["summary"]||rec["الملخص"]||"",content=rec["content"]||rec["contents"]||rec["المحتويات"]||"",pubData=rec["publications data"]||rec["بيانات النشر"]||"",bookUrl=rec["book_url"]||rec["book url"]||rec["رابط الكتاب"]||"",year=rec["year"]||rec["السنة"]||(pubData.match(/(19|20)\d{2}/)||[""])[0],publisher=pubData.replace(/\b(19|20)\d{2}\b/g,"").trim(),authorAll=[author,otherAu,corporate].filter(Boolean).join(" ");INDEX.push({id:INDEX.length,raw:{title,author,other_author:otherAu,corporate_name:corporate,subject,summary,content,publisher,year,book_url:bookUrl},nTitle:norm(title),nAuthorAll:norm(authorAll),nSummary:norm(summary),nContent:norm(content),nSubject:norm(subject),nPub:norm(publisher+" "+corporate),nYear:norm(year)})}LOADED=true;status.textContent=`✅ Loaded ${INDEX.length} records`}catch(e){status.textContent=`❌ Error: ${e.message}`}finally{setBusy(false)}}
+async function ensureLoaded(){
+  if(LOADED)return;
+  try{
+    setBusy(true,"Loading records…");
+    const resp=await fetch(DATA_URL,{cache:"reload"});
+    if(!resp.ok)throw new Error(`Fetch ${resp.status}`);
+    const buf=await resp.arrayBuffer();
+    const decoder=new TextDecoder("utf-8");
+    const text=decoder.decode(buf);
+    const lines=text.split(/\r?\n/);
+    if(lines.length<2)throw new Error("Empty catalog");
+    const headers=lines[0].split("\t").map(canonHeader);
+    HEADERS=headers;
+    
+    for(let i=1;i<lines.length;i++){
+      const cols=lines[i].split("\t");
+      if(cols.length<2||(cols.length===1&&!cols[0]))continue;
+      const rec={};
+      headers.forEach((h,idx)=>{rec[h]=clean(cols[idx]||"")});
+      
+      const title=rec["full title"]||rec["title"]||rec["العنوان"]||"";
+      const author=rec["author"]||rec["المؤلف"]||"";
+      const otherAu=rec["other author"]||rec["المؤلف الآخر"]||"";
+      const corporate=rec["corporate name"]||rec["جهة مؤسسية"]||"";
+      const subject=rec["subjects"]||rec["subject"]||rec["الموضوعات"]||"";
+      const summary=rec["abstract"]||rec["summary"]||rec["الملخص"]||"";
+      const content=rec["content"]||rec["contents"]||rec["المحتويات"]||"";
+      const pubData=rec["publications data"]||rec["بيانات النشر"]||"";
+      const bookUrl=rec["book_url"]||rec["book url"]||rec["رابط الكتاب"]||"";
+      const year=rec["year"]||rec["السنة"]||(pubData.match(/(19|20)\d{2}/)||[""])[0];
+      const publisher=pubData.replace(/\b(19|20)\d{2}\b/g,"").trim();
+      const authorAll=[author,otherAu,corporate].filter(Boolean).join(" ");
+      
+      INDEX.push({
+        id:INDEX.length,
+        raw:{title,author,other_author:otherAu,corporate_name:corporate,subject,summary,content,publisher,year,book_url:bookUrl},
+        nTitle:norm(title),
+        nAuthorAll:norm(authorAll),
+        nSummary:norm(summary),
+        nContent:norm(content),
+        nSubject:norm(subject),
+        nPub:norm(publisher+" "+corporate),
+        nYear:norm(year)
+      })
+    }
+    LOADED=true;
+    status.textContent=`✅ Loaded ${INDEX.length} records`;
+  }catch(e){
+    status.textContent=`❌ Error: ${e.message}`;
+  }finally{
+    setBusy(false)
+  }
+}
 
-// IMPROVED SEARCH: Token-based matching with scoring
+// IMPROVED SEARCH with token matching
 function searchField(field,q){
   const nq=norm(q);
   const tokens = nq.split(/\s+/).filter(t=>t.length>=2);
@@ -102,13 +232,12 @@ function searchField(field,q){
     let hit=false,sc=0;
     
     if(field==="author"){
-      // Token matching: all tokens must appear
       const matchCount = tokens.filter(tok=>r.nAuthorAll.includes(tok)).length;
       if(matchCount === tokens.length){
-        sc = 100 + matchCount * 5; // Full match
+        sc = 100 + matchCount * 5;
         hit = true;
       } else if(matchCount > 0 && matchCount >= tokens.length * 0.6){
-        sc = 50 + matchCount * 5; // Partial match (60%+)
+        sc = 50 + matchCount * 5;
         hit = true;
       }
       
@@ -123,16 +252,13 @@ function searchField(field,q){
       }
       
     } else if(field==="subject"){
-      // Try full match first
       if(r.nSubject.includes(nq)){sc=100;hit=true}
       else if(r.nTitle.includes(nq)){sc=90;hit=true}
       else {
-        // Token matching
         const subjectMatch = tokens.filter(tok=>r.nSubject.includes(tok)).length;
         const titleMatch = tokens.filter(tok=>r.nTitle.includes(tok)).length;
         const totalMatch = Math.max(subjectMatch, titleMatch);
-        
-        if(totalMatch >= tokens.length * 0.5){ // 50% match
+        if(totalMatch >= tokens.length * 0.5){
           sc = 30 + totalMatch * 8;
           hit = true;
         }
@@ -146,8 +272,7 @@ function searchField(field,q){
         const summaryMatch = tokens.filter(tok=>r.nSummary.includes(tok)).length;
         const contentMatch = tokens.filter(tok=>r.nContent.includes(tok)).length;
         const totalMatch = Math.max(summaryMatch, contentMatch);
-        
-        if(totalMatch >= tokens.length * 0.4){ // 40% match for questions
+        if(totalMatch >= tokens.length * 0.4){
           sc = 20 + totalMatch * 10;
           hit = true;
         }
@@ -157,7 +282,15 @@ function searchField(field,q){
       if(r.nYear.includes(nq)){sc=60;hit=true}
       
     } else if(field==="pub"){
-      if(r.nPub.includes(nq)){sc=50;hit=true}
+      // Publisher search with token matching
+      if(r.nPub.includes(nq)){sc=100;hit=true}
+      else {
+        const matchCount = tokens.filter(tok=>r.nPub.includes(tok)).length;
+        if(matchCount >= tokens.length * 0.6){
+          sc = 40 + matchCount * 10;
+          hit = true;
+        }
+      }
     }
     
     if(hit)out.push({sc,...r})
