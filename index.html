@@ -27,6 +27,7 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFE
 .translated{background:#e8f4f8;padding:8px;margin-top:8px;border-radius:6px;font-size:13px;border-left:3px solid #BF9849}
 .ai-summary{background:linear-gradient(135deg,#e8f4f8,#f0f8ff);border-left:4px solid #BF9849;padding:12px;margin:10px 0;border-radius:8px;font-size:13px;line-height:1.6}
 .ai-summary::before{content:"🤖 ";margin-right:4px}
+.citation-box{background:#f0f0f0;border-left:4px solid #BF9849;padding:8px 12px;margin:4px 0;border-radius:4px;font-size:12px;line-height:1.5;font-family:'Courier New',monospace;word-break:break-word}
 .input-wrap{padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
 .input{display:flex;gap:8px}
 .input input{flex:1;padding:10px 12px;border-radius:10px;border:1px solid #cfd9e3}
@@ -66,6 +67,7 @@ const PAGE_SIZE=12;
 const BACKEND_URL="https://ecssr-ai-assistant.onrender.com/api";
 
 let INDEX=[],HEADERS=[],LOADED=false,MATCH_NOTE="",LAST={items:[],shown:0,field:""};
+let CITATION_MAP={};
 
 const fab=document.getElementById("fab"),box=document.getElementById("box"),close=document.getElementById("close"),body=document.getElementById("body"),status=document.getElementById("status"),q=document.getElementById("q"),go=document.getElementById("go");
 setTimeout(()=>{const b=document.getElementById("slideBanner");if(b)b.remove()},7500);
@@ -116,184 +118,87 @@ function chooseField(q){
     if(a>3 && a>s){MATCH_NOTE="Found in authors → Author";return "author"}
     if(s>3){MATCH_NOTE="Found in subjects → Subject";return "subject"}
   }
-  const words=raw.split(/\s+/).filter(Boolean);
-  if(words.length>=2 && words.length<=3 && isArabic(raw) && !/[a-zA-Z]/.test(raw)){MATCH_NOTE="2-3 Arabic words → Author";return "author"}
-  MATCH_NOTE="Default → Subject";return "subject"
+  return "default"
 }
 
-// ---------- DATA LOAD ----------
+// ---------- LOAD DATA ----------
 async function ensureLoaded(){
   if(LOADED)return;
   try{
-    setBusy(true,"Loading records…");
-    const resp=await fetch(DATA_URL,{cache:"reload"});
-    if(!resp.ok)throw new Error(`Fetch ${resp.status}`);
-    const text=new TextDecoder("utf-8").decode(await resp.arrayBuffer());
-    const lines=text.split(/\r?\n/);
-    if(lines.length<2)throw new Error("Empty catalog");
-    const headers=lines[0].split("\t").map(canonHeader);
-    HEADERS=headers;
-    for(let i=1;i<lines.length;i++){
-      const cols=lines[i].split("\t");
-      if(cols.length<2||(cols.length===1&&!cols[0]))continue;
-      const rec={}; headers.forEach((h,idx)=>{rec[h]=clean(cols[idx]||"")});
-      const title=rec["full title"]||rec["title"]||rec["العنوان"]||"";
-      const author=rec["author"]||rec["المؤلف"]||"";
-      const otherAu=rec["other author"]||rec["المؤلف الآخر"]||"";
-      const corporate=rec["corporate name"]||rec["جهة مؤسسية"]||"";
-      const subject=rec["subjects"]||rec["subject"]||rec["الموضوعات"]||"";
-      const summary=rec["abstract"]||rec["summary"]||rec["الملخص"]||"";
-      const content=rec["content"]||rec["contents"]||rec["المحتويات"]||"";
-      const pubData=rec["publications data"]||rec["بيانات النشر"]||"";
-      const bookUrl=rec["book_url"]||rec["book url"]||rec["رابط الكتاب"]||"";
-      const year=rec["year"]||rec["السنة"]||(pubData.match(/(19|20)\d{2}/)||[""])[0];
-      const publisher=pubData.replace(/\b(19|20)\d{2}\b/g,"").trim();
-      const authorAll=[author,otherAu,corporate].filter(Boolean).join(" ");
-
-      INDEX.push({
-        id:INDEX.length,
-        raw:{title,author,other_author:otherAu,corporate_name:corporate,subject,summary,content,publisher,year,book_url:bookUrl},
-        nTitle:norm(title),
-        nAuthor:norm(author),
-        nOtherAuthor:norm(otherAu),
-        nCorporate:norm(corporate),
-        nAuthorAll:norm(authorAll),
-        nSummary:norm(summary),
-        nContent:norm(content),
-        nSubject:norm(subject),
-        nPub:norm(publisher+" "+corporate),
-        nYear:norm(year)
-      })
-    }
+    const response=await fetch(DATA_URL);
+    if(!response.ok){body.innerHTML='<div class="info">Failed to load catalog</div>';return}
+    const text=await response.text();
+    const lines=text.trim().split(/\r?\n/);
+    if(lines.length<2){body.innerHTML='<div class="info">Invalid catalog data</div>';return}
+    HEADERS=lines[0].split("\t").map(canonHeader);
+    INDEX=lines.slice(1).filter(line=>line.trim()).map((line,idx)=>{
+      const fields=line.split("\t");
+      const obj={id:idx};
+      for(let i=0;i<HEADERS.length;i++)obj[HEADERS[i]]=fields[i]||"";
+      const titleVal=obj.title||"",authorVal=(obj.author||"")+" "+(obj.other_author||"")+" "+(obj.corporate_name||""),subjectVal=obj.subject||"",contentVal=obj.content||"",summaryVal=obj.summary||"",pubVal=obj.publisher||"",yearVal=obj.year||"";
+      obj.nTitle=norm(titleVal);
+      obj.nAuthorAll=norm(authorVal);
+      obj.nAuthor=norm(obj.author||"");
+      obj.nSubject=norm(subjectVal);
+      obj.nContent=norm(contentVal);
+      obj.nSummary=norm(summaryVal);
+      obj.nPub=norm(pubVal);
+      obj.nYear=norm(yearVal);
+      obj.raw=obj;
+      return obj
+    });
     LOADED=true;
-    status.textContent=`✅ Loaded ${INDEX.length} records`;
-  }catch(e){
-    status.textContent=`❌ Error: ${e.message}`;
-  }finally{ setBusy(false) }
-}
-
-// ---------- AUTHOR MATCHING (surname anchor + non-common name) ----------
-const NAME_STOP = new Set(["بن","بنت","ابن","أبن","آل","ال","أبو","ابو","بو","بنّ","عبد","عبدال"]);
-// أسماء أولى شائعة جدًا تُضعِف المطابقة
-const COMMON_GIVEN = new Set(["محمد","احمد","أحمد","علي","حسن","حسين","خالد","سعيد","سالم","يوسف","عبدالله","عبد الله","عبدالرحمن","عبد الرحمن","عبدالعزيز","عبد العزيز","عبدال","عبد","محمود","ابراهيم","إبراهيم","عمر","سامي","سعيد","نادر","ماجد"]);
-
-function extractSurname(tokens){
-  for(let i=tokens.length-1;i>=0;i--){
-    const t = tokens[i];
-    if(!NAME_STOP.has(t)) return t;
-  }
-  return tokens[tokens.length-1] || null;
-}
-function tokenizeName(n){ return (n||"").split(/\s+/).filter(t=>t.length>=2) }
-function tokenEq(a,b){
-  if(a===b) return true;
-  if(a.length>=3 && b.startsWith(a)) return true;
-  if(b.length>=3 && a.startsWith(b)) return true;
-  return false;
-}
-function exactAuthorMatch(qTokens, name){
-  const aTokens = tokenizeName(name);
-  if(qTokens.length!==aTokens.length) return false;
-  return qTokens.every(qt => aTokens.some(at=>tokenEq(qt,at))) &&
-         aTokens.every(at => qTokens.some(qt=>tokenEq(qt,at)));
-}
-// flexible match with mandatory surname anchor AND at least one non-common given name (if available)
-function flexibleAuthorMatch(qTokens, name){
-  const aTokens = tokenizeName(name);
-  if(aTokens.length===0 || qTokens.length===0) return {hit:false,score:0};
-
-  const anchor = extractSurname(qTokens);
-  const hasAnchor = anchor ? aTokens.some(at=>tokenEq(anchor, at)) : false;
-  if(anchor && !hasAnchor) return {hit:false,score:0};
-
-  // إن وُجدت أسماء غير شائعة في الاستعلام، ألزم مطابقة واحد منها
-  const qNonCommon = qTokens.filter(t => t !== anchor && !COMMON_GIVEN.has(t) && !NAME_STOP.has(t));
-  if(qNonCommon.length > 0){
-    const hasDistinct = qNonCommon.some(t => aTokens.some(at=>tokenEq(t,at)));
-    if(!hasDistinct) return {hit:false,score:0};
-  }
-
-  // greedy one-to-one overlap
-  let overlap=0; const used=new Array(aTokens.length).fill(false);
-  for(const qt of qTokens){
-    const i=aTokens.findIndex((at,idx)=>!used[idx] && tokenEq(qt,at));
-    if(i>=0){ used[i]=true; overlap++; }
-  }
-  const minLen=Math.min(qTokens.length,aTokens.length);
-  const need=Math.max(2, Math.ceil(minLen*0.66));
-  if(overlap>=need){
-    const closeness=1 - Math.abs(qTokens.length - aTokens.length)/5;
-    const anchorBonus=hasAnchor?8:0;
-    // بونص إضافي لو الاسم المميّز موجود
-    const distinctBonus=(qNonCommon.length>0)?5:0;
-    return {hit:true, score:70 + overlap*10 + closeness*5 + anchorBonus + distinctBonus};
-  }
-  return {hit:false,score:0};
+    status.textContent=`Loaded: ${LOADED?INDEX.length:0} books`
+  }catch(error){console.error("Load error:",error);body.innerHTML='<div class="info">Failed to load catalog</div>'}
 }
 
 // ---------- SEARCH ----------
+function tokenize(s){return norm(s).split(/\s+/).filter(t=>t.length>=2)}
 function searchField(field,q){
-  const nq=norm(q);
-  const tokens = nq.split(/\s+/).filter(t=>t.length>=2);
-  const out=[];
-  MATCH_NOTE="";
-
+  const nq=norm(q),tokens=tokenize(q),out=[];
   for(const r of INDEX){
-    let hit=false,sc=0;
-
+    let sc=0,hit=false;
     if(field==="author"){
-      if(exactAuthorMatch(tokens, r.nAuthor)){sc=120;hit=true}
-      else if(exactAuthorMatch(tokens, r.nOtherAuthor)){sc=112;hit=true}
-      else if(exactAuthorMatch(tokens, r.nCorporate)){sc=105;hit=true}
-      else {
-        const main=flexibleAuthorMatch(tokens, r.nAuthor);
-        const other=flexibleAuthorMatch(tokens, r.nOtherAuthor);
-        const corp=flexibleAuthorMatch(tokens, r.nCorporate);
-        const best=[main,other,corp].reduce((a,b)=>a.score>b.score?a:b,{hit:false,score:0});
-        if(best.hit){sc=best.score;hit=true}
+      if(r.nAuthor.includes(nq)||r.nAuthorAll.includes(nq)){sc=100;hit=true}
+      else{
+        const authorMatch=tokens.filter(tok=>r.nAuthorAll.includes(tok)).length;
+        if(authorMatch>=tokens.length*0.7){sc=50+authorMatch*15;hit=true}
       }
-      if(hit) MATCH_NOTE="Author: surname + distinct name (if present)";
-
-    } else if(field==="title"){
-      const matchCount = tokens.filter(tok=>r.nTitle.includes(tok)).length;
-      if(matchCount === tokens.length){sc = 90 + matchCount * 5;hit=true}
-      else if(matchCount > 0 && matchCount >= tokens.length * 0.5){sc = 40 + matchCount * 5;hit=true}
-
-    } else if(field==="subject"){
+    }else if(field==="title"){
+      if(r.nTitle.includes(nq)){sc=100;hit=true}
+      else{
+        const titleMatch=tokens.filter(tok=>r.nTitle.includes(tok)).length;
+        if(titleMatch>=tokens.length*0.6){sc=60+titleMatch*10;hit=true}
+      }
+    }else if(field==="subject"){
       if(r.nSubject.includes(nq)){sc=100;hit=true}
-      else if(r.nTitle.includes(nq)){sc=90;hit=true}
-      else {
-        const subjectMatch = tokens.filter(tok=>r.nSubject.includes(tok)).length;
-        const titleMatch = tokens.filter(tok=>r.nTitle.includes(tok)).length;
-        const totalMatch = Math.max(subjectMatch, titleMatch);
-        if(totalMatch >= tokens.length * 0.5){sc = 30 + totalMatch * 8;hit=true}
+      else{
+        const subjectMatch=tokens.filter(tok=>r.nSubject.includes(tok)).length;
+        const titleMatch=tokens.filter(tok=>r.nTitle.includes(tok)).length;
+        const totalMatch=Math.max(subjectMatch,titleMatch);
+        if(totalMatch>=tokens.length*0.5){sc=30+totalMatch*8;hit=true}
       }
       if(hit&&isFamousPerson(q))MATCH_NOTE="Books ABOUT this person"
-
-    } else if(field==="summary"){
+    }else if(field==="summary"){
       if(r.nSummary.includes(nq)){sc=90;hit=true}
       else if(r.nContent.includes(nq)){sc=80;hit=true}
-      else {
-        const summaryMatch = tokens.filter(tok=>r.nSummary.includes(tok)).length;
-        const contentMatch = tokens.filter(tok=>r.nContent.includes(tok)).length;
-        const totalMatch = Math.max(summaryMatch, contentMatch);
-        if(totalMatch >= tokens.length * 0.4){sc = 20 + totalMatch * 10;hit=true}
+      else{
+        const summaryMatch=tokens.filter(tok=>r.nSummary.includes(tok)).length;
+        const contentMatch=tokens.filter(tok=>r.nContent.includes(tok)).length;
+        const totalMatch=Math.max(summaryMatch,contentMatch);
+        if(totalMatch>=tokens.length*0.4){sc=20+totalMatch*10;hit=true}
       }
-
-    } else if(field==="year"){
+    }else if(field==="year"){
       if(r.nYear.includes(nq)){sc=60;hit=true}
-
-    } else if(field==="pub"){
+    }else if(field==="pub"){
       if(r.nPub.includes(nq)){sc=100;hit=true}
-      else {
-        const matchCount = tokens.filter(tok=>r.nPub.includes(tok)).length;
-        if(matchCount >= tokens.length * 0.6){sc = 40 + matchCount * 10;hit=true}
+      else{
+        const matchCount=tokens.filter(tok=>r.nPub.includes(tok)).length;
+        if(matchCount>=tokens.length*0.6){sc=40+matchCount*10;hit=true}
       }
     }
-
-    if(hit) out.push({sc,...r})
+    if(hit)out.push({sc,...r})
   }
-
   out.sort((a,b)=>b.sc-a.sc);
   return out
 }
@@ -301,7 +206,36 @@ function searchField(field,q){
 // ---------- TRANSLATION + AI SUMMARY ----------
 async function translateText(text,targetLang){try{const sourceLang=isArabic(text)?"ar":"en";if(sourceLang===targetLang)return text;const url=`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceLang}|${targetLang}`,response=await fetch(url),data=await response.json();if(data.responseData&&data.responseData.translatedText)return data.responseData.translatedText;throw new Error("Translation failed")}catch(error){console.error("Translation error:",error);return null}}
 async function translateRecord(recordId,field,button){const book=INDEX.find(b=>b.id===recordId);if(!book)return;const text=book.raw[field];if(!text)return;button.textContent="⏳";button.disabled=true;const targetLang=isArabic(text)?"en":"ar",translated=await translateText(text,targetLang);if(translated){const div=document.createElement("div");div.className="translated";div.innerHTML=`<strong>${isArabic(translated)?"الترجمة:":"Translation:"}</strong> ${translated}`;button.parentElement.appendChild(div);button.remove()}else{button.textContent="🌐";button.disabled=false}}
-async function getAISummary(query,matchedBooks){if(matchedBooks.length===0)return null;try{const booksWithSummaries=matchedBooks.slice(0,20).map(b=>({id:b.id,title:b.raw.title,author:b.raw.author,subject:b.raw.subject||"",summary:b.raw.summary||b.raw.content||""})),response=await fetch(`${BACKEND_URL}/chat`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({query,matchedBooks:booksWithSummaries,searchField:LAST.field})});if(!response.ok)return null;const data=await response.json();return data.answer}catch(error){console.error("AI summary error:",error);return null}}
+
+async function getAISummary(query,matchedBooks){
+  if(matchedBooks.length===0)return null;
+  try{
+    const booksWithSummaries=matchedBooks.slice(0,20).map(b=>({id:b.id,title:b.raw.title,author:b.raw.author,subject:b.raw.subject||"",summary:b.raw.summary||b.raw.content||""}));
+    const response=await fetch(`${BACKEND_URL}/chat`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({query,matchedBooks:booksWithSummaries,searchField:LAST.field})
+    });
+    if(!response.ok)return null;
+    const data=await response.json();
+    
+    // Store citation map for later use
+    if(data.citationMap){
+      CITATION_MAP=data.citationMap;
+      console.log("Received citations:", CITATION_MAP);
+    }
+    
+    // Replace book IDs with citations in the answer
+    let answer=data.answer;
+    if(data.citationMap && Object.keys(data.citationMap).length>0){
+      for(const[bookId,citation] of Object.entries(data.citationMap)){
+        const idPattern=new RegExp(`\\(ID:\\s*${bookId}\\)`, 'g');
+        answer=answer.replace(idPattern, `<div class="citation-box">${citation}</div>`);
+      }
+    }
+    return answer;
+  }catch(error){console.error("AI summary error:",error);return null}
+}
 
 // ---------- RENDER ----------
 function clearResults(){body.innerHTML=""}
@@ -354,7 +288,13 @@ async function renderAll(list,field,query){
   const aiSummaryDiv=document.createElement("div");aiSummaryDiv.className="ai-summary";
   aiSummaryDiv.innerHTML="⏳ AI analyzing summaries...";
   body.appendChild(aiSummaryDiv);
-  getAISummary(query,list.slice(0,20)).then(aiAnswer=>{if(aiAnswer)aiSummaryDiv.innerHTML=aiAnswer;else aiSummaryDiv.remove()});
+  getAISummary(query,list.slice(0,20)).then(aiAnswer=>{
+    if(aiAnswer){
+      aiSummaryDiv.innerHTML=aiAnswer;
+    }else{
+      aiSummaryDiv.remove()
+    }
+  });
 
   const info=document.createElement("div");info.className="info";
   info.textContent=`وجدت ${list.length} نتيجة / Found ${list.length} results`;
