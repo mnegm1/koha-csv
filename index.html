@@ -130,7 +130,7 @@
       <div class="busytext" id="busytext">Loading...</div>
     </div>
     
-    <div class="status" id="status">Loading...</div>
+    <div class="status" id="status">Ready</div>
     <div class="body" id="body"></div>
     
     <div class="input-wrap">
@@ -168,8 +168,10 @@ setTimeout(() => {
 fab.onclick = () => { 
   box.style.display = box.style.display === "flex" ? "none" : "flex";
   if(box.style.display === "flex") {
-    setBusy(true,"Initializing…");
-    ensureLoaded().then(()=>setBusy(false));
+    if(!LOADED) {
+      setBusy(true,"Initializing…");
+      ensureLoaded().then(()=>setBusy(false));
+    }
     setTimeout(() => q.focus(), 50);
   }
 };
@@ -228,6 +230,7 @@ const NAME_STOPWORDS = new Set([
 const AR_NAME_PARTS = new Set(["بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال"]);
 const EN_STOP = new Set(["the","a","an","of","and","for","on","in","to","with"]);
 
+// FIXED: More specific author detection
 function looksLikeYear(q){ return /^\d{4}$/.test(q.trim()); }
 
 function isFamousPerson(q){
@@ -239,7 +242,7 @@ function isFamousPerson(q){
   return false;
 }
 
-// FIXED: Better name detection - stricter rules
+// FIXED: Much stricter author name detection
 function looksLikeName(q){
   const s=q.trim(); 
   if(!s||looksLikeYear(s)) return false;
@@ -247,40 +250,29 @@ function looksLikeName(q){
   
   const toks=s.split(/\s+/).filter(Boolean);
   
-  // CRITICAL FIX: If only 1-2 words and contains Arabic topic keywords, it's NOT a name
-  const topicKeywords = /^(التراث|الثقافة|التاريخ|الفن|العلوم|الأدب|الشعر|السياسة|الاقتصاد|التعليم|الصحة|البيئة|التكنولوجيا|الذكاء|الطاقة|المياه|الزراعة)/;
-  if(topicKeywords.test(s)){
-    return false; // It's a TOPIC, not a NAME
-  }
+  // Must be 2-4 words for Arabic, 2-3 for English
+  if(toks.length<2 || toks.length>4) return false;
   
-  // Must have 2-4 words for a name
-  if(toks.length<2||toks.length>4) return false;
-  
-  // CRITICAL FIX: Check if it appears MORE in subjects than authors
-  const nq=norm(s);
-  let authorCount = 0;
-  let subjectCount = 0;
-  
-  for(let i=0;i<Math.min(300,INDEX.length);i++){
-    if(INDEX[i].nAuthorAll.includes(nq)) authorCount++;
-    if(INDEX[i].nSubject.includes(nq) || INDEX[i].nTitle.includes(nq)) subjectCount++;
-  }
-  
-  // If appears more in subjects, it's a TOPIC not an AUTHOR
-  if(subjectCount > authorCount) {
-    return false;
-  }
-  
-  // Check for Arabic name indicators
-  let ar=false;
+  // Must have Arabic name parts (بن، ابن، etc.) OR match existing authors
+  let hasNamePart = false;
   for(const t of toks){
-    const nt=norm(t);
-    if(AR_NAME_PARTS.has(nt)) ar=true;
-    if(EN_STOP.has(nt)) return false;
+    if(AR_NAME_PARTS.has(norm(t))) hasNamePart = true;
   }
   
-  // Only return true if we found name parts OR it appears in author fields
-  return ar || authorCount > 0;
+  // If no Arabic name parts, check if it matches existing authors
+  if(!hasNamePart){
+    const nq=norm(s);
+    let foundInAuthors = false;
+    for(let i=0;i<Math.min(200,INDEX.length);i++){
+      if(INDEX[i].nAuthorAll.includes(nq)){
+        foundInAuthors = true;
+        break;
+      }
+    }
+    if(!foundInAuthors) return false; // Not an author!
+  }
+  
+  return true;
 }
 
 function tokenizeQuery(raw){
@@ -344,14 +336,20 @@ function chooseField(q){
       if(r.nAuthorAll.includes(nq)) authorMatches++;
     }
     
-    // CRITICAL FIX: If found in subjects/titles MORE than authors, it's a TOPIC
-    if((subjectMatches + titleMatches) > authorMatches){
+    // If appears in subjects >> authors, it's a topic
+    if(subjectMatches > authorMatches * 3){
       MATCH_NOTE = "Topic detected → searching in Subject & Title";
       return "subject";
     }
+    
+    // If appears in authors, search authors
+    if(authorMatches > subjectMatches){
+      MATCH_NOTE = "Found in authors → searching Author fields";
+      return "author";
+    }
   }
   
-  // 7. DEFAULT to subject (safer than author for ambiguous queries)
+  // 7. DEFAULT: subject search (safer than title for Arabic)
   return "subject";
 }
 
@@ -558,7 +556,7 @@ function renderChunk(items){
         🌐 ${translateTo}
       </button>
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding-left:60px;">
-        <b style="font-size:15px;line-height:1.4;flex:1;min-width:0;">${r.title || "(بدون عنوان)"}</b>
+        <b style="font-size:15px;line-height:1.4;flex:1;min-width:0;word-break:break-word;">${r.title || "(بدون عنوان)"}</b>
         ${r.book_url ? `<a class="btn" href="${r.book_url}" target="_blank" style="flex-shrink:0;">Open</a>` : `<button class="btn" disabled style="flex-shrink:0;">No URL</button>`}
       </div>
       ${authors ? `<div class="meta">${isArabic(authors)?'المؤلف: ':'Author: '}${authors}</div>` : ""}
@@ -666,7 +664,8 @@ q.addEventListener("keydown", e => {
 
 window.translateRecord = translateRecord;
 
-ensureLoaded();
+// REMOVED: Don't load on page load - only when user opens widget
+// ensureLoaded();
 </script>
 </body>
 </html>
