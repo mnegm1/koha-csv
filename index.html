@@ -71,7 +71,7 @@ function setBusy(on,label){const bar=document.getElementById("busybar"),txt=docu
 function stripBidi(s){return String(s||"").replace(/[\u200E\u200F\u202A-\u202E]/g,"")}
 function clean(s){return stripBidi(String(s||"").replace(/^\uFEFF/,""))}
 function canonHeader(h){return clean(h).toLowerCase().replace(/\s+/g," ").trim()}
-function norm(s){if(!s)return "";s=clean(s).toLowerCase();try{s=s.normalize("NFKD")}catch(e){}s=s.replace(/[إأآٱ]/g,"ا").replace(/\s*و\s*/g,"و").replace(/[ىی]/g,"ي").replace(/ة/g,"ه").replace(/ک/g,"ك").replace(/\bعبد\s+ال/g,"عبدال").replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"").replace(/[\u0660-\u0669]/g,d=>String.fromCharCode(d.charCodeAt(0)-1632+48)).replace(/[\u06F0-\u06F9]/g,d=>String.fromCharCode(d.charCodeAt(0)-1776+48)).replace(/[^\p{L}\p{N}\s]/gu," ").replace(/\s+/g," ").trim();return s}
+function norm(s){if(!s)return "";s=clean(s).toLowerCase();try{s=s.normalize("NFKD")}catch(e){}s=s.replace(/[إأآٱ]/g,"ا").replace(/\s*و\s*/g,"و").replace(/[ىی]/g,"ي").replace(/ة/g,"ه").replace(/ک)/g,"ك").replace(/\bعبد\s+ال/g,"عبدال").replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"").replace(/[\u0660-\u0669]/g,d=>String.fromCharCode(d.charCodeAt(0)-1632+48)).replace(/[\u06F0-\u06F9]/g,d=>String.fromCharCode(d.charCodeAt(0)-1776+48)).replace(/[^\p{L}\p{N}\s]/gu," ").replace(/\s+/g," ").trim();return s}
 function isArabic(s){return/[\u0600-\u06FF]/.test(s||"")}
 const FAMOUS_PEOPLE=new Set(["محمد بن زايد","محمد بن راشد","خليفة بن زايد","زايد بن سلطان","محمد بن زايد آل نهيان","sheikh mohamed","sheikh mohammed","sheikh khalifa","sheikh zayed","الشيخ محمد","الشيخ خليفة","الشيخ زايد"]);
 function looksLikeYear(q){return/^\d{4}$/.test(q.trim())}
@@ -80,7 +80,6 @@ function isFamousPerson(q){const nq=norm(q);for(const p of FAMOUS_PEOPLE)if(nq.i
 // CLEAN QUERY - Remove noise words
 function cleanQuery(q){
   let cleaned = q.trim();
-  // Remove common prefixes that don't add meaning
   cleaned = cleaned.replace(/^(كتب|books|book|الكتب|كتاب|الكتاب)\s+/gi, '');
   cleaned = cleaned.replace(/^(الدكتور|دكتور|الأستاذ|استاذ|د\.|أ\.)\s+/gi, '');
   cleaned = cleaned.replace(/^(الموضوع|الموضوعات|موضوع|subject|topic)\s*[\+:]*\s*/gi, '');
@@ -90,9 +89,6 @@ function cleanQuery(q){
 
 function chooseField(q){
   const raw=q.trim();
-  const lower=raw.toLowerCase();
-  
-  // Clean the query for better detection
   const cleaned = cleanQuery(raw);
   
   if(/(ناشر|publisher|دار نشر|دار النشر|publishing house|press books)/i.test(raw)){
@@ -194,21 +190,8 @@ async function ensureLoaded(){
   }
 }
 
-function exactAuthorMatch(qTokens, name){
-  if(!name) return false;
-  const authorTokens = name.split(/\s+/).filter(t=>t.length>=2);
-  if(qTokens.length !== authorTokens.length) return false;
-  for(const qt of qTokens){
-    if(!authorTokens.includes(qt)) return false;
-  }
-  for(const at of authorTokens){
-    if(!qTokens.includes(at)) return false;
-  }
-  return true;
-}
-
+// FLEXIBLE AUTHOR MATCHING - Matches first + last name
 function searchField(field,q){
-  // Use cleaned query for search
   const cleanedQ = cleanQuery(q);
   const nq=norm(cleanedQ);
   const tokens = nq.split(/\s+/).filter(t=>t.length>=2);
@@ -219,16 +202,16 @@ function searchField(field,q){
     let hit=false,sc=0;
     
     if(field==="author"){
-      if(exactAuthorMatch(tokens, r.nAuthor)){
-        sc = 120;
+      // FLEXIBLE MATCHING - Match ANY tokens (first name, last name, etc.)
+      const matchCount = tokens.filter(tok => r.nAuthorAll.includes(tok)).length;
+      
+      if(matchCount === tokens.length){
+        // All tokens match
+        sc = 100 + matchCount * 5;
         hit = true;
-      }
-      else if(exactAuthorMatch(tokens, r.nOtherAuthor)){
-        sc = 110;
-        hit = true;
-      }
-      else if(exactAuthorMatch(tokens, r.nCorporate)){
-        sc = 100;
+      } else if(matchCount > 0 && matchCount >= tokens.length * 0.6){
+        // At least 60% of tokens match
+        sc = 50 + matchCount * 5;
         hit = true;
       }
       
@@ -293,10 +276,8 @@ function searchField(field,q){
 async function translateText(text,targetLang){try{const sourceLang=isArabic(text)?"ar":"en";if(sourceLang===targetLang)return text;const url=`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceLang}|${targetLang}`,response=await fetch(url),data=await response.json();if(data.responseData&&data.responseData.translatedText)return data.responseData.translatedText;throw new Error("Translation failed")}catch(error){console.error("Translation error:",error);return null}}
 async function translateRecord(recordId,field,button){const book=INDEX.find(b=>b.id===recordId);if(!book)return;const text=book.raw[field];if(!text)return;button.textContent="⏳";button.disabled=true;const targetLang=isArabic(text)?"en":"ar",translated=await translateText(text,targetLang);if(translated){const div=document.createElement("div");div.className="translated";div.innerHTML=`<strong>${isArabic(translated)?"الترجمة:":"Translation:"}</strong> ${translated}`;button.parentElement.appendChild(div);button.remove()}else{button.textContent="🌐";button.disabled=false}}
 
-// IMPROVED AI SUMMARY - Always gives useful response
 async function getAISummary(query,matchedBooks){
   if(matchedBooks.length===0)return null;
-  
   try{
     const cleanedQuery = cleanQuery(query);
     const booksWithSummaries=matchedBooks.slice(0,20).map(b=>({
@@ -306,17 +287,15 @@ async function getAISummary(query,matchedBooks){
       subject:b.raw.subject||"",
       summary:b.raw.summary||b.raw.content||""
     }));
-    
     const response=await fetch(`${BACKEND_URL}/chat`,{
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
-        query:cleanedQuery,  // Use cleaned query
+        query:cleanedQuery,
         matchedBooks:booksWithSummaries,
         searchField:LAST.field
       })
     });
-    
     if(!response.ok)return null;
     const data=await response.json();
     return data.answer;
@@ -347,18 +326,15 @@ async function renderAll(list,field,query){
     return
   }
   
-  // Show AI summary first (even if books exist!)
   const aiSummaryDiv=document.createElement("div");
   aiSummaryDiv.className="ai-summary";
   aiSummaryDiv.innerHTML="⏳ AI analyzing results...";
   body.appendChild(aiSummaryDiv);
   
-  // Get AI summary in background
   getAISummary(query,list.slice(0,20)).then(aiAnswer=>{
     if(aiAnswer && aiAnswer.trim() && !aiAnswer.includes("المعلومات غير متوفرة")){
       aiSummaryDiv.innerHTML=aiAnswer;
     }else{
-      // If AI says "not available" but we have books, show generic summary
       const cleanedQuery = cleanQuery(query);
       aiSummaryDiv.innerHTML=`Found ${list.length} books matching "${cleanedQuery}". Browse the results below for details.`;
     }
