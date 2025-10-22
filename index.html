@@ -91,7 +91,7 @@
   .input button:disabled{opacity:.5}
   
   .btn{background:#BF9849;color:#fff;padding:6px 12px;border-radius:8px;text-decoration:none;
-    font-weight:600;font-size:12px;display:inline-block}
+    font-weight:600;font-size:12px;display:inline-block;white-space:nowrap}
   .btn:hover{background:#D4AB5E}
   .btn[disabled]{opacity:.5;cursor:not-allowed}
   
@@ -304,10 +304,8 @@ function chooseField(q){
   }
   
   // 5. TOPIC/SUBJECT detection (general terms, not names)
-  // Topics should search in title + subject, NOT in author
   const tokens = tokenizeQuery(raw);
   if(tokens.length > 0){
-    // Check if query appears in subjects/titles (topic indicators)
     let subjectMatches = 0;
     let authorMatches = 0;
     
@@ -317,14 +315,13 @@ function chooseField(q){
       if(r.nAuthorAll.includes(nq)) authorMatches++;
     }
     
-    // If clearly a topic (appears in subjects more than authors)
     if(subjectMatches > authorMatches * 2){
       MATCH_NOTE = "Topic detected → searching in Subject & Title";
       return "subject";
     }
   }
   
-  // 6. DEFAULT: Use voting system for ambiguous queries
+  // 6. DEFAULT: Use voting system
   let votes={title:0,subject:0,summary:0,author:0,pub:0};
   
   for(let i=0;i<Math.min(1200,INDEX.length);i++){
@@ -417,13 +414,12 @@ async function ensureLoaded(){
 function searchField(field, q){
   const nq = norm(q);
   const out = [];
-  MATCH_NOTE = ""; // Reset match note
+  MATCH_NOTE = "";
   
   for (const r of INDEX){
     let hit=false, sc=0;
 
     if (field === "author"){
-      // STRICT: Only search in author fields
       const tokens = tokenizeQuery(q);
       if (tokens.length >= 2){
         if (containsAllTokens(r.nAuthorAll, tokens)){
@@ -438,19 +434,15 @@ function searchField(field, q){
         }
       }
     } else if (field === "title"){
-      // STRICT: Only search in title
       if (r.nTitle.includes(nq)) { sc=80; hit=true; }
     } else if (field === "subject"){
-      // STRICT: Only search in subject + title (NOT in author or summary)
       if (r.nSubject.includes(nq)) { sc=100; hit=true; }
       if (r.nTitle.includes(nq)) { sc=85; hit=true; }
       
-      // Special handling for famous people
       if(hit && isFamousPerson(q)) {
         MATCH_NOTE = "Searching books ABOUT this person (not BY them)";
       }
     } else if (field === "summary"){
-      // STRICT: Search in summary + contents (for questions and detailed info)
       if (r.nSummary.includes(nq)) { sc=90; hit=true; }
       if (r.nContent.includes(nq)) { sc=80; hit=true; }
     } else if (field === "year"){
@@ -510,6 +502,7 @@ async function translateRecord(recordId, field, button) {
   }
 }
 
+// UPDATED: Send search field info to AI
 async function getAISummary(query, matchedBooks){
   if(matchedBooks.length === 0) return null;
   
@@ -518,6 +511,7 @@ async function getAISummary(query, matchedBooks){
       id: b.id,
       title: b.raw.title,
       author: b.raw.author,
+      subject: b.raw.subject || '',
       summary: b.raw.summary || b.raw.content || ""
     }));
     
@@ -526,7 +520,8 @@ async function getAISummary(query, matchedBooks){
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         query,
-        matchedBooks: booksWithSummaries
+        matchedBooks: booksWithSummaries,
+        searchField: LAST.field  // NEW: Tell AI which field was searched
       })
     });
     
@@ -553,13 +548,14 @@ function renderChunk(items){
     const pubLine = [r.publisher, r.year].filter(Boolean).join(" • ");
     const translateTo = isArabic(r.title) ? 'EN' : 'AR';
     
+    // FIXED: Better layout for button to prevent stretching
     div.innerHTML = `
       <button class="translate-icon" onclick="translateRecord(${it.id}, 'title', this)">
         🌐 ${translateTo}
       </button>
-      <div style="display:flex;justify-content:space-between;gap:8px;padding-left:60px;">
-        <b style="font-size:15px;line-height:1.4">${r.title || "(بدون عنوان)"}</b>
-        ${r.book_url ? `<a class="btn" href="${r.book_url}" target="_blank">Open</a>` : `<button class="btn" disabled>No URL</button>`}
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding-left:60px;">
+        <b style="font-size:15px;line-height:1.4;flex:1;min-width:0;">${r.title || "(بدون عنوان)"}</b>
+        ${r.book_url ? `<a class="btn" href="${r.book_url}" target="_blank" style="flex-shrink:0;">Open</a>` : `<button class="btn" disabled style="flex-shrink:0;">No URL</button>`}
       </div>
       ${authors ? `<div class="meta">${isArabic(authors)?'المؤلف: ':'Author: '}${authors}</div>` : ""}
       ${r.subject ? `<div class="meta">${isArabic(r.subject)?'الموضوع: ':'Subject: '}${r.subject}</div>` : ""}
