@@ -276,12 +276,55 @@ function containsAllTokens(targetNorm, tokens){
   return true;
 }
 
+// Enhanced field chooser with better intent detection
 function chooseField(q){
-  if(looksLikeYear(q)) return "year";
-  if(isFamousPerson(q)) return "subject";
-  if(looksLikeName(q)) return "author";
+  const raw = q.trim();
+  const nq = norm(q);
   
-  const nq=norm(q);
+  // 1. YEAR detection
+  if(looksLikeYear(raw)) return "year";
+  
+  // 2. QUESTION detection (what/how/why/when/where) → search in summary/contents
+  const questionWords = /^(what|how|why|when|where|who|which|ما|كيف|لماذا|متى|أين|من|ماذا|كيفية)\b/i;
+  if(questionWords.test(raw)) {
+    MATCH_NOTE = "Question detected → searching in Abstract & Contents";
+    return "summary";
+  }
+  
+  // 3. FAMOUS PERSON detection → search in subject/title (NOT author)
+  if(isFamousPerson(raw)) {
+    MATCH_NOTE = "Famous person → searching in Subject & Title (not Author)";
+    return "subject";
+  }
+  
+  // 4. AUTHOR NAME detection → search ONLY in author fields
+  if(looksLikeName(raw)) {
+    MATCH_NOTE = "Author name detected → searching in Author & Co-Author";
+    return "author";
+  }
+  
+  // 5. TOPIC/SUBJECT detection (general terms, not names)
+  // Topics should search in title + subject, NOT in author
+  const tokens = tokenizeQuery(raw);
+  if(tokens.length > 0){
+    // Check if query appears in subjects/titles (topic indicators)
+    let subjectMatches = 0;
+    let authorMatches = 0;
+    
+    for(let i=0; i<Math.min(500, INDEX.length); i++){
+      const r = INDEX[i];
+      if(r.nSubject.includes(nq) || r.nTitle.includes(nq)) subjectMatches++;
+      if(r.nAuthorAll.includes(nq)) authorMatches++;
+    }
+    
+    // If clearly a topic (appears in subjects more than authors)
+    if(subjectMatches > authorMatches * 2){
+      MATCH_NOTE = "Topic detected → searching in Subject & Title";
+      return "subject";
+    }
+  }
+  
+  // 6. DEFAULT: Use voting system for ambiguous queries
   let votes={title:0,subject:0,summary:0,author:0,pub:0};
   
   for(let i=0;i<Math.min(1200,INDEX.length);i++){
@@ -374,37 +417,42 @@ async function ensureLoaded(){
 function searchField(field, q){
   const nq = norm(q);
   const out = [];
+  MATCH_NOTE = ""; // Reset match note
   
   for (const r of INDEX){
     let hit=false, sc=0;
 
     if (field === "author"){
+      // STRICT: Only search in author fields
       const tokens = tokenizeQuery(q);
       if (tokens.length >= 2){
         if (containsAllTokens(r.nAuthorAll, tokens)){
           sc = 100 + tokens.length;
           hit = true;
-          MATCH_NOTE = "All name parts matched in Author + Other Author";
         }
       } else {
         const tok = tokens[0] || nq;
         if (tok && r.nAuthorAll.includes(tok)){
           sc = 85;
           hit = true;
-          MATCH_NOTE = "Name matched in Author + Other Author fields";
         }
       }
     } else if (field === "title"){
+      // STRICT: Only search in title
       if (r.nTitle.includes(nq)) { sc=80; hit=true; }
     } else if (field === "subject"){
-      if (r.nSubject.includes(nq)) { sc=90; hit=true; }
+      // STRICT: Only search in subject + title (NOT in author or summary)
+      if (r.nSubject.includes(nq)) { sc=100; hit=true; }
       if (r.nTitle.includes(nq)) { sc=85; hit=true; }
-      if (r.nSummary.includes(nq)) { sc=75; hit=true; }
+      
+      // Special handling for famous people
       if(hit && isFamousPerson(q)) {
         MATCH_NOTE = "Searching books ABOUT this person (not BY them)";
       }
     } else if (field === "summary"){
-      if (r.nSummary.includes(nq) || r.nContent.includes(nq)) { sc=60; hit=true; }
+      // STRICT: Search in summary + contents (for questions and detailed info)
+      if (r.nSummary.includes(nq)) { sc=90; hit=true; }
+      if (r.nContent.includes(nq)) { sc=80; hit=true; }
     } else if (field === "year"){
       if (r.nYear.includes(nq)) { sc=60; hit=true; }
     } else if (field === "pub"){
@@ -548,10 +596,10 @@ async function renderAll(list, field, query){
   clearResults();
   
   const labelAR = {
-    author:"المؤلف + مؤلف مشارك + هيئة",
+    author:"المؤلف + المؤلف المشارك",
     title:"العنوان",
-    subject:"الموضوع / العنوان / الملخص",
-    summary:"الملخص",
+    subject:"الموضوع + العنوان",
+    summary:"الملخص + المحتويات",
     year:"سنة النشر",
     pub:"الناشر"
   }[field] || field;
