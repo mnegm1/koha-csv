@@ -239,28 +239,48 @@ function isFamousPerson(q){
   return false;
 }
 
+// FIXED: Better name detection - stricter rules
 function looksLikeName(q){
   const s=q.trim(); 
   if(!s||looksLikeYear(s)) return false;
   if(isFamousPerson(s)) return false;
   
   const toks=s.split(/\s+/).filter(Boolean);
-  if(toks.length<1||toks.length>6) return false;
   
-  let ok=0, ar=false;
+  // CRITICAL FIX: If only 1-2 words and contains Arabic topic keywords, it's NOT a name
+  const topicKeywords = /^(التراث|الثقافة|التاريخ|الفن|العلوم|الأدب|الشعر|السياسة|الاقتصاد|التعليم|الصحة|البيئة|التكنولوجيا|الذكاء|الطاقة|المياه|الزراعة)/;
+  if(topicKeywords.test(s)){
+    return false; // It's a TOPIC, not a NAME
+  }
+  
+  // Must have 2-4 words for a name
+  if(toks.length<2||toks.length>4) return false;
+  
+  // CRITICAL FIX: Check if it appears MORE in subjects than authors
+  const nq=norm(s);
+  let authorCount = 0;
+  let subjectCount = 0;
+  
+  for(let i=0;i<Math.min(300,INDEX.length);i++){
+    if(INDEX[i].nAuthorAll.includes(nq)) authorCount++;
+    if(INDEX[i].nSubject.includes(nq) || INDEX[i].nTitle.includes(nq)) subjectCount++;
+  }
+  
+  // If appears more in subjects, it's a TOPIC not an AUTHOR
+  if(subjectCount > authorCount) {
+    return false;
+  }
+  
+  // Check for Arabic name indicators
+  let ar=false;
   for(const t of toks){
     const nt=norm(t);
-    if(/^[a-z\u0600-\u06FF]+$/i.test(nt)) ok++;
     if(AR_NAME_PARTS.has(nt)) ar=true;
     if(EN_STOP.has(nt)) return false;
   }
-  if(ok!==toks.length && ok<toks.length-1) return false;
   
-  const nq=norm(s);
-  for(let i=0;i<Math.min(400,INDEX.length);i++){
-    if(INDEX[i].nAuthorAll.includes(nq)) return true;
-  }
-  return ar || toks.length>=2;
+  // Only return true if we found name parts OR it appears in author fields
+  return ar || authorCount > 0;
 }
 
 function tokenizeQuery(raw){
@@ -276,7 +296,7 @@ function containsAllTokens(targetNorm, tokens){
   return true;
 }
 
-// Enhanced field chooser with better intent detection
+// FIXED: Better field chooser - topics should go to subject, not author
 function chooseField(q){
   const raw = q.trim();
   const nq = norm(q);
@@ -284,69 +304,55 @@ function chooseField(q){
   // 1. YEAR detection
   if(looksLikeYear(raw)) return "year";
   
-  // 2. QUESTION detection (what/how/why/when/where) → search in summary/contents
-  const questionWords = /^(what|how|why|when|where|who|which|ما|كيف|لماذا|متى|أين|من|ماذا|كيفية)\b/i;
+  // 2. QUESTION detection
+  const questionWords = /^(what|how|why|when|where|who|which|ما|كيف|لماذا|متى|أين|من|ماذا|كيفية|هل)\b/i;
   if(questionWords.test(raw)) {
     MATCH_NOTE = "Question detected → searching in Abstract & Contents";
     return "summary";
   }
   
-  // 3. FAMOUS PERSON detection → search in subject/title (NOT author)
+  // 3. FAMOUS PERSON detection
   if(isFamousPerson(raw)) {
     MATCH_NOTE = "Famous person → searching in Subject & Title (not Author)";
     return "subject";
   }
   
-  // 4. AUTHOR NAME detection → search ONLY in author fields
+  // 4. TOPIC KEYWORDS - Common Arabic subjects (NOT author names)
+  const topicKeywords = /(التراث|الثقافة|التاريخ|الفن|العلوم|الأدب|الشعر|السياسة|الاقتصاد|التعليم|الصحة|البيئة|التكنولوجيا|الذكاء|الطاقة|المياه|الزراعة|الشعبي|القومي|الوطني|الديني|الاجتماعي)/;
+  if(topicKeywords.test(raw)) {
+    MATCH_NOTE = "Topic keyword detected → searching in Subject & Title";
+    return "subject";
+  }
+  
+  // 5. AUTHOR NAME detection - STRICT
   if(looksLikeName(raw)) {
     MATCH_NOTE = "Author name detected → searching in Author & Co-Author";
     return "author";
   }
   
-  // 5. TOPIC/SUBJECT detection (general terms, not names)
+  // 6. Check actual distribution in catalog
   const tokens = tokenizeQuery(raw);
   if(tokens.length > 0){
     let subjectMatches = 0;
+    let titleMatches = 0;
     let authorMatches = 0;
     
     for(let i=0; i<Math.min(500, INDEX.length); i++){
       const r = INDEX[i];
-      if(r.nSubject.includes(nq) || r.nTitle.includes(nq)) subjectMatches++;
+      if(r.nSubject.includes(nq)) subjectMatches++;
+      if(r.nTitle.includes(nq)) titleMatches++;
       if(r.nAuthorAll.includes(nq)) authorMatches++;
     }
     
-    if(subjectMatches > authorMatches * 2){
+    // CRITICAL FIX: If found in subjects/titles MORE than authors, it's a TOPIC
+    if((subjectMatches + titleMatches) > authorMatches){
       MATCH_NOTE = "Topic detected → searching in Subject & Title";
       return "subject";
     }
   }
   
-  // 6. DEFAULT: Use voting system
-  let votes={title:0,subject:0,summary:0,author:0,pub:0};
-  
-  for(let i=0;i<Math.min(1200,INDEX.length);i++){
-    const r=INDEX[i];
-    if(r.nTitle.includes(nq)) votes.title++;
-    if(r.nSubject.includes(nq)) votes.subject++;
-    if(r.nSummary.includes(nq)) votes.summary++;
-    if(r.nContent.includes(nq)) votes.summary+=0.6;
-    if(r.nAuthorAll.includes(nq)) votes.author+=0.6;
-    if(r.nPub.includes(nq)) votes.pub+=0.6;
-  }
-  
-  const w={
-    author:votes.author*1.2,
-    subject:votes.subject*1.1,
-    title:votes.title,
-    summary:votes.summary*0.95,
-    pub:votes.pub
-  };
-  
-  let best="title",bestV=-1;
-  for(const k of Object.keys(w)){
-    if(w[k]>bestV){ best=k; bestV=w[k]; }
-  }
-  return best;
+  // 7. DEFAULT to subject (safer than author for ambiguous queries)
+  return "subject";
 }
 
 async function ensureLoaded(){
@@ -502,7 +508,6 @@ async function translateRecord(recordId, field, button) {
   }
 }
 
-// UPDATED: Send search field info to AI
 async function getAISummary(query, matchedBooks){
   if(matchedBooks.length === 0) return null;
   
@@ -521,7 +526,7 @@ async function getAISummary(query, matchedBooks){
       body: JSON.stringify({
         query,
         matchedBooks: booksWithSummaries,
-        searchField: LAST.field  // NEW: Tell AI which field was searched
+        searchField: LAST.field
       })
     });
     
@@ -548,7 +553,6 @@ function renderChunk(items){
     const pubLine = [r.publisher, r.year].filter(Boolean).join(" • ");
     const translateTo = isArabic(r.title) ? 'EN' : 'AR';
     
-    // FIXED: Better layout for button to prevent stretching
     div.innerHTML = `
       <button class="translate-icon" onclick="translateRecord(${it.id}, 'title', this)">
         🌐 ${translateTo}
