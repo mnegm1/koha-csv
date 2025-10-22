@@ -1,5 +1,5 @@
 // backend/server.js
-// ECSSR AI Assistant - FIXED: No undefined errors
+// ECSSR AI Assistant - Robust Error Handling
 
 const express = require('express');
 const cors = require('cors');
@@ -70,10 +70,13 @@ app.post('/api/chat', async (req, res) => {
   }
 
   try {
-    // FIXED: Safely extract data with defaults
-    const query = req.body.query || '';
-    const matchedBooks = req.body.matchedBooks || [];
-    const searchField = req.body.searchField || 'default';
+    // ROBUST: Safe extraction with defaults
+    const body = req.body || {};
+    const query = body.query || '';
+    const matchedBooks = Array.isArray(body.matchedBooks) ? body.matchedBooks : [];
+    const searchField = body.searchField || 'default';
+    
+    console.log(`[CHAT] Query: "${query}", Field: ${searchField}, Books: ${matchedBooks.length}`);
     
     if (!query) {
       return res.status(400).json({ error: 'Query is required' });
@@ -207,10 +210,11 @@ Now answer using ONLY the allowed fields shown above.`;
       bookIds.push(...idMatches.slice(0, 10).map(Number));
     }
 
+    console.log(`[CHAT] Response generated, IDs: ${bookIds.join(',')}`);
     res.json({ answer, bookIds });
 
   } catch (error) {
-    console.error('Chat error:', error);
+    console.error('[CHAT ERROR]', error);
     res.status(500).json({ 
       error: 'Internal server error',
       details: error.message 
@@ -227,8 +231,9 @@ app.post('/api/enhance-search', async (req, res) => {
   }
 
   try {
-    const query = req.body.query || '';
-    const preFilteredBooks = req.body.preFilteredBooks || [];
+    const body = req.body || {};
+    const query = body.query || '';
+    const preFilteredBooks = Array.isArray(body.preFilteredBooks) ? body.preFilteredBooks : [];
     
     if (!query || preFilteredBooks.length === 0) {
       return res.json({ rankedBooks: preFilteredBooks, explanation: "" });
@@ -296,10 +301,10 @@ BOOK_IDS: [comma-separated IDs, most relevant first]`;
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'ok', 
-    message: 'ECSSR AI Assistant Backend - Fixed undefined errors',
+    message: 'ECSSR AI Assistant Backend - Robust & Fixed',
     perplexityConfigured: !!PERPLEXITY_API_KEY && PERPLEXITY_API_KEY !== 'pplx-YOUR-API-KEY-HERE',
     modelVersion: 'sonar-pro',
-    features: 'Strict field separation - no undefined errors'
+    features: 'Strict field separation + Robust error handling'
   });
 });
 
