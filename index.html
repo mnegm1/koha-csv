@@ -227,10 +227,7 @@ const NAME_STOPWORDS = new Set([
   "الدكتور","دكتور","الأستاذ","استاذ","د","م","سمو","سعادة","معالي","الشيخ","sheikh"
 ]);
 
-const AR_NAME_PARTS = new Set(["بن","ابن","بنت","أبو","ابو","آل","عبد","عبدال"]);
-const EN_STOP = new Set(["the","a","an","of","and","for","on","in","to","with"]);
-
-// FIXED: More specific author detection
+// FIXED: Simplified author detection - if it looks like 2-3 Arabic words, check catalog
 function looksLikeYear(q){ return /^\d{4}$/.test(q.trim()); }
 
 function isFamousPerson(q){
@@ -242,36 +239,37 @@ function isFamousPerson(q){
   return false;
 }
 
-// FIXED: Much stricter author name detection
+// FIXED: Simple author detection - 2-3 words with Arabic characters
 function looksLikeName(q){
-  const s=q.trim(); 
-  if(!s||looksLikeYear(s)) return false;
+  const s = q.trim(); 
+  if(!s || looksLikeYear(s)) return false;
   if(isFamousPerson(s)) return false;
   
-  const toks=s.split(/\s+/).filter(Boolean);
+  const toks = s.split(/\s+/).filter(Boolean);
   
-  // Must be 2-4 words for Arabic, 2-3 for English
-  if(toks.length<2 || toks.length>4) return false;
+  // Must be 2-3 words
+  if(toks.length < 2 || toks.length > 3) return false;
   
-  // Must have Arabic name parts (بن، ابن، etc.) OR match existing authors
-  let hasNamePart = false;
-  for(const t of toks){
-    if(AR_NAME_PARTS.has(norm(t))) hasNamePart = true;
-  }
+  // Must have mostly Arabic OR English letters (not mixed gibberish)
+  const hasArabic = /[\u0600-\u06FF]/.test(s);
+  const hasEnglish = /[a-zA-Z]/.test(s);
   
-  // If no Arabic name parts, check if it matches existing authors
-  if(!hasNamePart){
-    const nq=norm(s);
-    let foundInAuthors = false;
-    for(let i=0;i<Math.min(200,INDEX.length);i++){
+  // If mixed Arabic + English, likely not a name
+  if(hasArabic && hasEnglish) return false;
+  
+  // If database is loaded, check if it exists in authors
+  if(LOADED && INDEX.length > 0){
+    const nq = norm(s);
+    for(let i = 0; i < Math.min(1000, INDEX.length); i++){
       if(INDEX[i].nAuthorAll.includes(nq)){
-        foundInAuthors = true;
-        break;
+        return true; // Found in authors!
       }
     }
-    if(!foundInAuthors) return false; // Not an author!
+    // Not found in authors, probably a topic
+    return false;
   }
   
+  // Database not loaded yet - default to TRUE if it looks like a name pattern
   return true;
 }
 
@@ -288,7 +286,7 @@ function containsAllTokens(targetNorm, tokens){
   return true;
 }
 
-// FIXED: Better field chooser - topics should go to subject, not author
+// FIXED: Improved field chooser with better logic
 function chooseField(q){
   const raw = q.trim();
   const nq = norm(q);
@@ -309,47 +307,45 @@ function chooseField(q){
     return "subject";
   }
   
-  // 4. TOPIC KEYWORDS - Common Arabic subjects (NOT author names)
-  const topicKeywords = /(التراث|الثقافة|التاريخ|الفن|العلوم|الأدب|الشعر|السياسة|الاقتصاد|التعليم|الصحة|البيئة|التكنولوجيا|الذكاء|الطاقة|المياه|الزراعة|الشعبي|القومي|الوطني|الديني|الاجتماعي)/;
+  // 4. TOPIC KEYWORDS - Common Arabic subjects
+  const topicKeywords = /(التراث|الثقافة|التاريخ|الفن|العلوم|الأدب|الشعر|السياسة|الاقتصاد|التعليم|الصحة|البيئة|التكنولوجيا|الذكاء|الطاقة|المياه|الزراعة|الشعبي|القومي|الوطني|الديني|الاجتماعي|الدولي)/;
   if(topicKeywords.test(raw)) {
     MATCH_NOTE = "Topic keyword detected → searching in Subject & Title";
     return "subject";
   }
   
-  // 5. AUTHOR NAME detection - STRICT
-  if(looksLikeName(raw)) {
-    MATCH_NOTE = "Author name detected → searching in Author & Co-Author";
-    return "author";
-  }
-  
-  // 6. Check actual distribution in catalog
-  const tokens = tokenizeQuery(raw);
-  if(tokens.length > 0){
+  // 5. Check distribution in catalog first (if loaded)
+  if(LOADED && INDEX.length > 0){
     let subjectMatches = 0;
-    let titleMatches = 0;
     let authorMatches = 0;
     
-    for(let i=0; i<Math.min(500, INDEX.length); i++){
+    for(let i = 0; i < Math.min(800, INDEX.length); i++){
       const r = INDEX[i];
-      if(r.nSubject.includes(nq)) subjectMatches++;
-      if(r.nTitle.includes(nq)) titleMatches++;
+      if(r.nSubject.includes(nq) || r.nTitle.includes(nq)) subjectMatches++;
       if(r.nAuthorAll.includes(nq)) authorMatches++;
     }
     
-    // If appears in subjects >> authors, it's a topic
-    if(subjectMatches > authorMatches * 3){
-      MATCH_NOTE = "Topic detected → searching in Subject & Title";
-      return "subject";
-    }
-    
-    // If appears in authors, search authors
-    if(authorMatches > subjectMatches){
+    // Clear winner for authors
+    if(authorMatches > 5 && authorMatches > subjectMatches * 2){
       MATCH_NOTE = "Found in authors → searching Author fields";
       return "author";
     }
+    
+    // Clear winner for subjects
+    if(subjectMatches > 5 && subjectMatches > authorMatches * 2){
+      MATCH_NOTE = "Found in subjects → searching Subject & Title";
+      return "subject";
+    }
   }
   
-  // 7. DEFAULT: subject search (safer than title for Arabic)
+  // 6. AUTHOR NAME detection (after checking catalog)
+  if(looksLikeName(raw)) {
+    MATCH_NOTE = "Name pattern detected → searching in Author & Co-Author";
+    return "author";
+  }
+  
+  // 7. DEFAULT: subject search
+  MATCH_NOTE = "General search → checking Subject & Title";
   return "subject";
 }
 
@@ -663,9 +659,6 @@ q.addEventListener("keydown", e => {
 });
 
 window.translateRecord = translateRecord;
-
-// REMOVED: Don't load on page load - only when user opens widget
-// ensureLoaded();
 </script>
 </body>
 </html>
