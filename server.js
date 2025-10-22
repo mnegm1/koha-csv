@@ -1,6 +1,5 @@
 // backend/server.js
-// ECSSR AI Assistant - AI Uses ONLY Catalog Summaries
-// Frontend searches → Backend gets summaries → AI answers from summaries ONLY
+// ECSSR AI Assistant - AI Uses ONLY Catalog Summaries with Search Intent Understanding
 
 const express = require('express');
 const cors = require('cors');
@@ -44,7 +43,7 @@ async function callPerplexity(messages, model = 'sonar-pro') {
       body: JSON.stringify({
         model: model,
         messages: messages,
-        temperature: 0.05, // VERY LOW = stick to provided data
+        temperature: 0.05,
         max_tokens: 800
       })
     });
@@ -62,7 +61,28 @@ async function callPerplexity(messages, model = 'sonar-pro') {
   }
 }
 
-// ====== CHAT ENDPOINT - AI Reads Summaries ONLY ======
+// NEW: Detect search intent from query
+function detectSearchIntent(query) {
+  const q = query.toLowerCase();
+  
+  // Question patterns (what/how/why/when/where/who)
+  const questionWords = /^(what|how|why|when|where|who|which|ما|كيف|لماذا|متى|أين|من|ماذا|كيفية)\b/i;
+  if (questionWords.test(query)) {
+    return 'question';
+  }
+  
+  // Check if it looks like a name (author search)
+  const namePatterns = /\b(بن|ابن|محمد|أحمد|عبد|علي|حسن|خالد)\b/i;
+  const words = query.trim().split(/\s+/);
+  if (words.length >= 2 && words.length <= 4 && namePatterns.test(query)) {
+    return 'author';
+  }
+  
+  // Default to topic search
+  return 'topic';
+}
+
+// ====== CHAT ENDPOINT - AI with Search Intent Understanding ======
 app.post('/api/chat', async (req, res) => {
   const ip = req.ip;
   
@@ -71,13 +91,12 @@ app.post('/api/chat', async (req, res) => {
   }
 
   try {
-    const { query, matchedBooks } = req.body;
+    const { query, matchedBooks, searchField } = req.body;
     
     if (!query) {
       return res.status(400).json({ error: 'Query is required' });
     }
 
-    // Frontend already searched and sends ONLY matched books
     const books = matchedBooks || [];
 
     if (books.length === 0) {
@@ -87,33 +106,77 @@ app.post('/api/chat', async (req, res) => {
       });
     }
 
-    // Build STRICT prompt - AI can ONLY use these summaries
-    const prompt = `You are a library assistant. Answer the user's question using ONLY the book summaries below.
+    // NEW: Detect search intent
+    const intent = detectSearchIntent(query);
+    
+    // NEW: Build context-aware instructions for AI
+    let contextInstruction = '';
+    if (intent === 'question') {
+      contextInstruction = `
+🔍 SEARCH INTENT: QUESTION
+The user is asking a question and wants ANSWERS from book content.
+
+PRIORITY:
+1. Look in SUMMARIES/ABSTRACTS first (main source of answers)
+2. If not found, check TITLES for relevant topics
+3. Provide factual answers based on the content
+
+Focus on: Facts, explanations, definitions, and detailed information from the summaries.`;
+    } else if (intent === 'author') {
+      contextInstruction = `
+🔍 SEARCH INTENT: AUTHOR SEARCH
+The user is looking for books BY this specific author.
+
+PRIORITY:
+1. Match AUTHOR names in the provided books
+2. List all books by this author
+
+Focus on: Author names and their publications.`;
+    } else {
+      contextInstruction = `
+🔍 SEARCH INTENT: TOPIC/SUBJECT SEARCH
+The user wants books ABOUT this topic or subject.
+
+PRIORITY:
+1. Look in SUBJECT fields first
+2. Check TITLES for topic relevance
+3. Review summaries if needed
+
+Focus on: Books that discuss, cover, or relate to this topic.`;
+    }
+
+    const prompt = `You are a library assistant. Answer the user's query using ONLY the book information below.
+
+${contextInstruction}
 
 CRITICAL RULES:
-- ONLY use information from the summaries provided below
+- ONLY use information from the summaries, titles, subjects, and authors provided below
 - DO NOT use your general knowledge
 - DO NOT invent or assume information
-- If the summaries don't contain the answer, say "المعلومات غير متوفرة في ملخصات الكتب / Information not available in book summaries"
-- When mentioning books, include their ID number
+- If the information isn't in the provided data, say "المعلومات غير متوفرة في ملخصات الكتب / Information not available in book summaries"
+- When mentioning books, include their ID number in parentheses like (ID: 123)
 - Be concise and helpful
+- Answer in the same language as the query (Arabic or English)
 
-AVAILABLE BOOKS (with summaries from catalog):
+SEARCH FIELD USED: ${searchField || 'auto-detected'}
+
+AVAILABLE BOOKS (${books.length} found):
 ${JSON.stringify(books.map(b => ({
   id: b.id,
   title: b.title,
   author: b.author,
+  subject: b.subject || '',
   summary: b.summary || "No summary available"
-})))}
+})), null, 2)}
 
-User question: ${query}
+USER QUERY: "${query}"
 
-Answer using ONLY the summaries above. Start your answer with the number of relevant books found.`;
+${intent === 'question' ? '📖 Answer the question using information from the summaries above.' : intent === 'author' ? '👤 List the books by this author from the results above.' : '📚 List the books about this topic from the results above.'}`;
 
     const answer = await callPerplexity([
       { 
         role: 'system', 
-        content: 'You ONLY answer based on provided book summaries. Never use external knowledge. Always cite book IDs.' 
+        content: `You are a library assistant who ONLY uses provided book data. Never use external knowledge. Always cite book IDs. Understand search intent: questions need summary content, topics need subject/title matching, authors need author field matching.` 
       },
       { role: 'user', content: prompt }
     ], 'sonar-pro');
@@ -148,7 +211,6 @@ app.post('/api/enhance-search', async (req, res) => {
       return res.json({ rankedBooks: preFilteredBooks || [], explanation: "" });
     }
 
-    // AI reads summaries and ranks by relevance
     const prompt = `You are analyzing book summaries for a library search.
 
 User searched for: "${query}"
@@ -188,7 +250,6 @@ BOOK_IDS: [comma-separated IDs, most relevant first]`;
       ? idsMatch[1].split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id))
       : [];
 
-    // Return books in AI-ranked order
     const rankedBooks = bookIds
       .map(id => preFilteredBooks.find(b => b.id === id))
       .filter(Boolean);
@@ -204,10 +265,10 @@ BOOK_IDS: [comma-separated IDs, most relevant first]`;
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'ok', 
-    message: 'ECSSR AI Assistant Backend - Summary-only mode',
+    message: 'ECSSR AI Assistant Backend - Search Intent Understanding',
     perplexityConfigured: !!PERPLEXITY_API_KEY && PERPLEXITY_API_KEY !== 'pplx-YOUR-API-KEY-HERE',
     modelVersion: 'sonar-pro',
-    features: 'AI uses ONLY catalog summaries, no external knowledge'
+    features: 'AI understands questions vs topics vs authors'
   });
 });
 
@@ -220,7 +281,7 @@ app.listen(PORT, () => {
   console.log(`🚀 ECSSR AI Backend running on http://localhost:${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
   console.log(`🤖 Model: sonar-pro (temperature: 0.05)`);
-  console.log(`📚 AI uses ONLY catalog summaries - NO external knowledge`);
+  console.log(`🎯 Features: Search intent detection (questions/topics/authors)`);
   
   if (!PERPLEXITY_API_KEY || PERPLEXITY_API_KEY === 'pplx-YOUR-API-KEY-HERE') {
     console.warn('⚠️  WARNING: Perplexity API key not configured!');
