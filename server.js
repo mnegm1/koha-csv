@@ -1,5 +1,10 @@
 // backend/server.js
-// ECSSR AI Assistant — Robust + Author Surname-Anchor Matching + Safe availableData
+// ECSSR AI Assistant — v3
+// - Robust + Author Surname-Anchor Matching
+// - Safe availableData builders (no sampleBooks, ever)
+// - Extra guards + logging + code version
+
+const CODE_VERSION = "ecssr-backend-v3-2025-10-22";
 
 const express = require('express');
 const cors = require('cors');
@@ -13,13 +18,21 @@ const PERPLEXITY_API_KEY =
 const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
 const PERPLEXITY_MODEL = process.env.PPLX_MODEL || 'sonar-pro';
 
-app.set('trust proxy', true); // real client IPs behind proxy
+app.set('trust proxy', true);
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-/* =======================================
-   Simple in-memory rate limiting
-======================================= */
+/* ---------- Minimal request logger (helps verify real body) ---------- */
+app.use((req, res, next) => {
+  // Only log for our API routes
+  if (req.path.startsWith('/api/')) {
+    const size = req.headers['content-length'];
+    console.log(`[REQ] ${req.method} ${req.path} size=${size || 0}`);
+  }
+  next();
+});
+
+/* ---------- Simple in-memory rate limiting ---------- */
 const requestCounts = new Map();
 const RATE_LIMIT = 100;
 const RATE_WINDOW = 60 * 60 * 1000;
@@ -33,9 +46,7 @@ function checkRateLimit(ip) {
   return true;
 }
 
-/* =======================================
-   Perplexity wrapper
-======================================= */
+/* ---------- Perplexity wrapper ---------- */
 async function callPerplexity(messages, model = PERPLEXITY_MODEL) {
   try {
     const response = await fetch(PERPLEXITY_URL, {
@@ -65,9 +76,7 @@ async function callPerplexity(messages, model = PERPLEXITY_MODEL) {
   }
 }
 
-/* =======================================
-   Normalization + AUTHOR MATCH (backend)
-======================================= */
+/* ---------- Normalization + AUTHOR MATCH (backend parity) ---------- */
 function norm(s) {
   if (!s) return '';
   s = String(s).toLowerCase();
@@ -91,9 +100,7 @@ function norm(s) {
     .trim();
 }
 function tokenizeName(n) {
-  return norm(n)
-    .split(/\s+/)
-    .filter((t) => t.length >= 2);
+  return norm(n).split(/\s+/).filter((t) => t.length >= 2);
 }
 function tokenEq(a, b) {
   if (a === b) return true;
@@ -102,20 +109,9 @@ function tokenEq(a, b) {
   return false;
 }
 const NAME_STOP = new Set([
-  'بن',
-  'بنت',
-  'ابن',
-  'أبن',
-  'آل',
-  'ال',
-  'أبو',
-  'ابو',
-  'بو',
-  'بنّ',
-  'عبد',
-  'عبدال',
+  'بن','بنت','ابن','أبن','آل','ال','أبو','ابو','بو','بنّ','عبد','عبدال'
 ]);
-// Very common given names — do not count as “distinct” token
+// Very common given names — don’t count as distinct
 const COMMON_GIVEN = new Set([
   'محمد','احمد','أحمد','علي','حسن','حسين','خالد','سعيد','سالم','يوسف',
   'عبدالله','عبد الله','عبدالرحمن','عبد الرحمن','عبدالعزيز','عبد العزيز',
@@ -144,7 +140,6 @@ function flexibleAuthorMatch(qTokens, name) {
   const hasAnchor = anchor ? aTokens.some((at) => tokenEq(anchor, at)) : false;
   if (anchor && !hasAnchor) return { hit: false, score: 0 };
 
-  // if query contains non-common tokens (besides surname), require ≥1 of them
   const qNonCommon = qTokens.filter(
     (t) => t !== anchor && !COMMON_GIVEN.has(t) && !NAME_STOP.has(t)
   );
@@ -155,17 +150,12 @@ function flexibleAuthorMatch(qTokens, name) {
     if (!hasDistinct) return { hit: false, score: 0 };
   }
 
-  // overlap
   let overlap = 0;
   const used = new Array(aTokens.length).fill(false);
   for (const qt of qTokens) {
     const i = aTokens.findIndex((at, idx) => !used[idx] && tokenEq(qt, at));
-    if (i >= 0) {
-      used[i] = true;
-      overlap++;
-    }
+    if (i >= 0) { used[i] = true; overlap++; }
   }
-
   const minLen = Math.min(qTokens.length, aTokens.length);
   const need = Math.max(2, Math.ceil(minLen * 0.66));
   if (overlap >= need) {
@@ -193,15 +183,11 @@ function filterAuthorBooks(query, books) {
     .map((x) => x.book);
 }
 
-/* =======================================
-   /api/chat — STRICT field boundaries
-======================================= */
+/* ---------- /api/chat ---------- */
 app.post('/api/chat', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
   if (!checkRateLimit(ip)) {
-    return res
-      .status(429)
-      .json({ error: 'Rate limit exceeded. Please try again later.' });
+    return res.status(429).json({ error: 'Rate limit exceeded. Please try again later.' });
   }
 
   try {
@@ -214,22 +200,27 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: 'Query is required' });
     }
 
-    // Enforce author filter on backend
+    // Strong guard & log request shape
+    console.log(`[CHAT] v=${CODE_VERSION} field=${searchField} books_in=${matchedBooks.length}`);
+    if (!Array.isArray(matchedBooks)) {
+      console.warn('[CHAT] matchedBooks not array -> coercing to []');
+      matchedBooks = [];
+    }
+
     if (searchField === 'author' && matchedBooks.length) {
       matchedBooks = filterAuthorBooks(query, matchedBooks);
+      console.log(`[CHAT] author-filtered -> ${matchedBooks.length}`);
     }
 
     if (!matchedBooks.length) {
       return res.json({
-        answer:
-          "لم أجد كتباً تطابق سؤالك في الكتالوج.<br>I didn't find any matching books in the catalog.",
+        answer: "لم أجد كتباً تطابق سؤالك في الكتالوج.<br>I didn't find any matching books in the catalog.",
         bookIds: [],
       });
     }
 
-    // SAFE list for formatting (never reference sampleBooks, filter out bad rows)
-    const safeBooks = matchedBooks
-      .filter((b) => b && typeof b === 'object');
+    // SAFE list for formatting (never reference sampleBooks; drop bad rows)
+    const safeBooks = matchedBooks.filter((b) => b && typeof b === 'object');
 
     let fieldInstructions = '';
     let availableData = '';
@@ -329,14 +320,10 @@ ${availableData}
 Now answer using ONLY the allowed fields above.`;
 
     const answer = await callPerplexity(
-      [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
+      [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
       PERPLEXITY_MODEL
     );
 
-    // Extract any IDs referenced in the output (best effort)
     const bookIds = [];
     const idMatches = answer.match(/\b(\d+)\b/g);
     if (idMatches) bookIds.push(...idMatches.slice(0, 10).map(Number));
@@ -344,15 +331,11 @@ Now answer using ONLY the allowed fields above.`;
     res.json({ answer, bookIds });
   } catch (err) {
     console.error('Chat error:', err);
-    res
-      .status(500)
-      .json({ error: 'Internal server error', details: err.message });
+    res.status(500).json({ error: 'Internal server error', details: err.message });
   }
 });
 
-/* =======================================
-   /api/enhance-search — rank by summary
-======================================= */
+/* ---------- /api/enhance-search ---------- */
 app.post('/api/enhance-search', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
   if (!checkRateLimit(ip)) {
@@ -397,27 +380,18 @@ BOOK_IDS: [comma-separated IDs, most relevant first]`;
 
     const response = await callPerplexity(
       [
-        {
-          role: 'system',
-          content:
-            'Rank books based ONLY on provided summaries. Never use external knowledge.',
-        },
+        { role: 'system', content: 'Rank books based ONLY on provided summaries. Never use external knowledge.' },
         { role: 'user', content: prompt },
       ],
       PERPLEXITY_MODEL
     );
 
-    const explanationMatch = response.match(
-      /EXPLANATION:\s*(.+?)(?=BOOK_IDS:|$)/s
-    );
+    const explanationMatch = response.match(/EXPLANATION:\s*(.+?)(?=BOOK_IDS:|$)/s);
     const idsMatch = response.match(/BOOK_IDS:\s*([\d,\s]+)/);
 
     const explanation = explanationMatch ? explanationMatch[1].trim() : '';
     const bookIds = idsMatch
-      ? idsMatch[1]
-          .split(',')
-          .map((id) => parseInt(id.trim(), 10))
-          .filter((n) => !Number.isNaN(n))
+      ? idsMatch[1].split(',').map((id) => parseInt(id.trim(), 10)).filter((n) => !Number.isNaN(n))
       : [];
 
     const rankedBooks = bookIds
@@ -427,19 +401,15 @@ BOOK_IDS: [comma-separated IDs, most relevant first]`;
     res.json({ rankedBooks, explanation });
   } catch (err) {
     console.error('Enhance search error:', err);
-    res
-      .status(500)
-      .json({ error: 'Internal server error', details: err.message });
+    res.status(500).json({ error: 'Internal server error', details: err.message });
   }
 });
 
-/* =======================================
-   Health check
-======================================= */
+/* ---------- Health ---------- */
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'ECSSR AI Assistant Backend — Robust & Fixed',
+    codeVersion: CODE_VERSION,
     perplexityConfigured:
       !!PERPLEXITY_API_KEY && PERPLEXITY_API_KEY !== 'pplx-YOUR-API-KEY-HERE',
     modelVersion: PERPLEXITY_MODEL,
@@ -448,30 +418,20 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-/* =======================================
-   Error middleware
-======================================= */
+/* ---------- Error middleware ---------- */
 app.use((err, req, res, next) => {
   console.error('Server error:', err);
-  res
-    .status(500)
-    .json({ error: 'Internal server error', details: err.message });
+  res.status(500).json({ error: 'Internal server error', details: err.message });
 });
 
-/* =======================================
-   Start server
-======================================= */
+/* ---------- Start ---------- */
 app.listen(PORT, () => {
   console.log(`🚀 ECSSR AI Backend running on http://localhost:${PORT}`);
-  console.log(`📊 Health:           /api/health`);
+  console.log(`🔖 Version: ${CODE_VERSION}`);
+  console.log(`📊 Health:  /api/health`);
   console.log(
-    `🤖 Model: ${PERPLEXITY_MODEL} (temperature: 0.05) — key ${
-      PERPLEXITY_API_KEY && PERPLEXITY_API_KEY !== 'pplx-YOUR-API-KEY-HERE'
-        ? 'OK'
-        : 'NOT SET'
+    `🤖 Model: ${PERPLEXITY_MODEL} — key ${
+      PERPLEXITY_API_KEY && PERPLEXITY_API_KEY !== 'pplx-YOUR-API-KEY-HERE' ? 'OK' : 'NOT SET'
     }`
-  );
-  console.log(
-    `🎯 Features: STRICT field boundaries + Surname-anchored author matching + Safe availableData + Error handling`
   );
 });
