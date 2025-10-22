@@ -1,8 +1,9 @@
 // backend/server.js
-// ECSSR AI Assistant - FIXED v3.1
+// ECSSR AI Assistant - FIXED v3.2-CLEAN
 // - Strict author matching
 // - Field-based search
-// - NO sampleBooks reference!
+// - Beautiful citations
+// - UTF-8 CLEAN (no encoding issues!)
 
 const express = require('express');
 const cors = require('cors');
@@ -68,22 +69,23 @@ async function callPerplexity(messages, model = PERPLEXITY_MODEL) {
   }
 }
 
-// Normalization functions (matching frontend)
+// Text normalization for search
 function norm(s) {
   if (!s) return '';
   s = String(s).toLowerCase();
   try { s = s.normalize('NFKD'); } catch (_) {}
+  
+  // Remove diacritics and normalize Arabic characters
   return s
-    .replace(/[إأآٱ]/g, 'ا')
-    .replace(/\s*و\s*/g, 'و')
-    .replace(/[ىی]/g, 'ي')
-    .replace(/ة/g, 'ه')
-    .replace(/ک/g, 'ك')
-    .replace(/\bعبد\s+ال/g, 'عبدال')
-    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g, '')
-    .replace(/[\u0660-\u0669]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 1632 + 48))
-    .replace(/[\u06F0-\u06F9]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 1776 + 48))
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/[\u064B-\u065F]/g, '')
+    .replace(/\u0660/g, '0').replace(/\u0661/g, '1').replace(/\u0662/g, '2')
+    .replace(/\u0663/g, '3').replace(/\u0664/g, '4').replace(/\u0665/g, '5')
+    .replace(/\u0666/g, '6').replace(/\u0667/g, '7').replace(/\u0668/g, '8')
+    .replace(/\u0669/g, '9')
+    .replace(/\u06F0/g, '0').replace(/\u06F1/g, '1').replace(/\u06F2/g, '2')
+    .replace(/\u06F3/g, '3').replace(/\u06F4/g, '4').replace(/\u06F5/g, '5')
+    .replace(/\u06F6/g, '6').replace(/\u06F7/g, '7').replace(/\u06F8/g, '8')
+    .replace(/\u06F9/g, '9')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -97,15 +99,12 @@ function exactAuthorMatch(qTokens, name) {
   if (!name) return false;
   const aTokens = tokenizeName(name);
   
-  // Must have same number of tokens
   if (qTokens.length !== aTokens.length) return false;
   
-  // All query tokens must exist in author tokens
   for (const qt of qTokens) {
     if (!aTokens.includes(qt)) return false;
   }
   
-  // All author tokens must exist in query tokens
   for (const at of aTokens) {
     if (!qTokens.includes(at)) return false;
   }
@@ -124,6 +123,21 @@ function filterAuthorBooks(query, books) {
       const author = b.author || '';
       return exactAuthorMatch(qTokens, author);
     });
+}
+
+// Helper: Build citation from book object
+function buildCitation(book) {
+  if (!book) return null;
+  const author = (book.author || 'Unknown Author').toString().trim();
+  const title = (book.title || 'Untitled').toString().trim();
+  const publisher = (book.publisher || '').toString().trim();
+  const year = (book.year || '').toString().trim();
+  
+  let citation = `${author} - "${title}"`;
+  if (publisher || year) {
+    citation += ` (${[publisher, year].filter(Boolean).join(', ')})`;
+  }
+  return citation;
 }
 
 // ====== CHAT ENDPOINT ======
@@ -154,22 +168,23 @@ app.post('/api/chat', async (req, res) => {
 
     if (matchedBooks.length === 0) {
       return res.json({ 
-        answer: "لم أجد كتباً تطابق سؤالك في الكتالوج.<br>I didn't find any matching books in the catalog.",
-        bookIds: []
+        answer: "لم أجد كتاب يطابق سؤالك في الكتالوج. I didn't find any matching books in the catalog.",
+        bookIds: [],
+        citationMap: {}
       });
     }
 
-    // Build field-specific data (SAFE - no sampleBooks!)
+    // Build field-specific data
     const safeBooks = matchedBooks.filter(b => b && typeof b === 'object');
     let fieldInstructions = '';
     let availableData = '';
 
     if (searchField === 'summary') {
       fieldInstructions = `
-⚠️ CRITICAL: SUMMARY SEARCH
+WARNING: SUMMARY SEARCH ONLY
 Use ONLY: summary, contents.
 FORBIDDEN: author, subject, title.
-If info not in summaries, say "المعلومات غير متوفرة / Information not available".`;
+If info not available, say "Information not available".`;
 
       availableData = safeBooks.map((b, i) => {
         const id = b.id ?? i;
@@ -179,7 +194,7 @@ If info not in summaries, say "المعلومات غير متوفرة / Informat
 
     } else if (searchField === 'subject') {
       fieldInstructions = `
-⚠️ CRITICAL: SUBJECT/TOPIC SEARCH
+WARNING: SUBJECT/TOPIC SEARCH
 Use ONLY: subject, title.
 FORBIDDEN: author, summary.`;
 
@@ -192,7 +207,7 @@ FORBIDDEN: author, summary.`;
 
     } else if (searchField === 'author') {
       fieldInstructions = `
-⚠️ CRITICAL: AUTHOR SEARCH
+WARNING: AUTHOR SEARCH ONLY
 Use ONLY: author, title.
 FORBIDDEN: subject, summary.`;
 
@@ -231,7 +246,7 @@ RULES:
 1) ONLY use ALLOWED fields above
 2) NEVER use FORBIDDEN fields
 3) NEVER use external knowledge
-4) If can't answer from allowed fields, say "المعلومات غير متوفرة / Information not available"
+4) If can't answer from allowed fields, say "Information not available"
 5) When mentioning books, include ID like: (ID: 123)
 6) Answer in SAME language as query
 
@@ -248,14 +263,27 @@ Answer using ONLY allowed fields above.`;
       { role: 'user', content: userPrompt }
     ], PERPLEXITY_MODEL);
 
-    // Extract book IDs
+    // Extract book IDs and build citation map
     const bookIds = [];
-    const idMatches = answer.match(/\b(\d+)\b/g);
+    const citationMap = {};
+    const idMatches = answer.match(/\(ID:\s*(\d+)\)/g);
+    
     if (idMatches) {
-      bookIds.push(...idMatches.slice(0, 10).map(Number));
+      for (const match of idMatches) {
+        const bookId = parseInt(match.replace(/[^\d]/g, ''), 10);
+        if (!isNaN(bookId) && !bookIds.includes(bookId)) {
+          bookIds.push(bookId);
+          
+          // Find matching book and create citation
+          const book = safeBooks.find(b => (b.id ?? safeBooks.indexOf(b)) === bookId);
+          if (book) {
+            citationMap[bookId] = buildCitation(book);
+          }
+        }
+      }
     }
 
-    res.json({ answer, bookIds });
+    res.json({ answer, bookIds, citationMap });
 
   } catch (error) {
     console.error('Chat error:', error);
@@ -334,10 +362,10 @@ BOOK_IDS: [comma-separated IDs, most relevant first]`;
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'ok',
-    version: 'v3.1-fixed',
+    version: 'v3.2-clean',
     perplexityConfigured: !!PERPLEXITY_API_KEY && PERPLEXITY_API_KEY !== 'pplx-YOUR-API-KEY-HERE',
     modelVersion: PERPLEXITY_MODEL,
-    features: 'Strict author matching • Field-based search • No sampleBooks bug!'
+    features: 'Strict author matching | Field-based search | Beautiful citations | UTF-8 CLEAN'
   });
 });
 
@@ -350,10 +378,10 @@ app.use((err, req, res, next) => {
 // ====== START SERVER ======
 app.listen(PORT, () => {
   console.log(`🚀 ECSSR AI Backend running on http://localhost:${PORT}`);
-  console.log(`📊 Version: v3.1-fixed`);
-  console.log(`🔍 Health: /api/health`);
+  console.log(`📊 Version: v3.2-clean`);
+  console.log(`🔗 Health: /api/health`);
   console.log(`🤖 Model: ${PERPLEXITY_MODEL}`);
-  console.log(`✅ NO sampleBooks bug!`);
+  console.log(`✅ UTF-8 CLEAN - No encoding issues!`);
   
   if (!PERPLEXITY_API_KEY || PERPLEXITY_API_KEY === 'pplx-YOUR-API-KEY-HERE') {
     console.warn('⚠️  WARNING: Perplexity API key not configured!');
