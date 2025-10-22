@@ -40,21 +40,22 @@
   }
   
   .slide-banner{
-    position:fixed;right:calc(var(--fab-size) + 40px);
+    position:fixed;
+    right:calc(var(--fab-size) + 30px);
     bottom:calc(18px + (var(--fab-size) / 2) - 22px);
     background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;
     padding:14px 28px;border-radius:30px;font-weight:700;font-size:15px;
     box-shadow:0 8px 24px rgba(191,152,73,0.5);white-space:nowrap;z-index:9998;
-    animation:slideFromLeft 7s ease-in-out forwards;opacity:0;letter-spacing:0.3px;
+    animation:slideFromBottom 7s ease-in-out forwards;opacity:0;letter-spacing:0.3px;
   }
   
   .slide-banner::before{content:"🇦🇪 ";font-size:18px;margin-right:8px;}
   
-  @keyframes slideFromLeft {
-    0% { transform:translateX(-600px); opacity:0; }
-    15% { transform:translateX(0); opacity:1; }
-    85% { transform:translateX(0); opacity:1; }
-    100% { transform:translateX(-600px); opacity:0; }
+  @keyframes slideFromBottom {
+    0% { transform:translateY(200px); opacity:0; }
+    15% { transform:translateY(0); opacity:1; }
+    85% { transform:translateY(0); opacity:1; }
+    100% { transform:translateY(200px); opacity:0; }
   }
   
   .box{
