@@ -5,82 +5,328 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>ECSSR AI Assistant</title>
 <style>
-  :root{
-    --brand:#BF9849;
-    --logo-url:url("https://assets.almanhal.com/platform/shared/Product/ECSSR/middlelogo.png");
-    --fab-size:70px;
-  }
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;margin:0;padding:2rem}
-  .fab-wrap{position:fixed;right:18px;bottom:18px;z-index:9999;width:var(--fab-size);height:calc(var(--fab-size)+36px)}
-  .fab-label{position:absolute;left:50%;bottom:calc(var(--fab-size)+4px);transform:translateX(-50%);width:calc(var(--fab-size)+36px);height:34px;pointer-events:none;filter:drop-shadow(0 1px 0 rgba(255,255,255,.65))}
-  .fab-label text{fill:var(--brand);font-weight:700;font-size:12px;letter-spacing:.5px}
-  .fab{position:absolute;left:0;bottom:0;width:var(--fab-size);height:var(--fab-size);background:#fff var(--logo-url) center/145% no-repeat;border:5px solid #BF9849;border-radius:50%;cursor:pointer;box-shadow:0 10px 30px rgba(191,152,73,0.4);transition:transform 0.3s ease, box-shadow 0.3s ease}
-  .fab:hover{transform:scale(1.08);box-shadow:0 15px 40px rgba(191,152,73,0.6)}
-  .slide-banner{position:fixed;right:calc(var(--fab-size) + 30px);bottom:calc(18px + (var(--fab-size) / 2) - 22px);background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;padding:14px 28px;border-radius:30px;font-weight:700;font-size:15px;box-shadow:0 8px 24px rgba(191,152,73,0.5);white-space:nowrap;z-index:9998;animation:slideFromBottom 7s ease-in-out forwards;opacity:0;letter-spacing:0.3px}
-  @keyframes slideFromBottom{0%{transform:translateY(200px);opacity:0}15%{transform:translateY(0);opacity:1}85%{transform:translateY(0);opacity:1}100%{transform:translateY(200px);opacity:0}}
-  .box{position:fixed;right:18px;bottom:calc(18px + var(--fab-size) + 12px);width:min(620px,94vw);max-height:85vh;background:#fff;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.25);display:none;flex-direction:column;overflow:hidden;z-index:9999}
-  .head{background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;padding:12px 16px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
-  .close{background:none;border:none;color:#fff;font-size:20px;cursor:pointer}
-  .status{font-size:12px;padding:8px 12px;background:#fafafa;border-bottom:1px solid #e8eef3}
-  .body{padding:10px;overflow:auto;flex:1}
-  .row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0;position:relative}
-  .row:hover{box-shadow:0 4px 12px rgba(0,0,0,0.08);border-color:#BF9849}
-  .meta{opacity:.85;font-size:12px;margin-top:6px}
-  .translate-icon{position:absolute;top:12px;left:12px;background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;transition:all 0.2s;z-index:10}
-  .translate-icon:hover{background:#BF9849;color:#fff;border-color:#BF9849}
-  .translated{background:#e8f4f8;padding:8px;margin-top:8px;border-radius:6px;font-size:13px;border-left:3px solid #BF9849}
-  .ai-summary{background:linear-gradient(135deg,#e8f4f8,#f0f8ff);border-left:4px solid #BF9849;padding:12px;margin:10px 0;border-radius:8px;font-size:13px;line-height:1.6}
-  .ai-summary::before{content:"🤖 ";margin-right:4px}
-  .input-wrap{padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
-  .input{display:flex;gap:8px}
-  .input input{flex:1;padding:10px 12px;border-radius:10px;border:1px solid #cfd9e3}
-  .input button{background:#BF9849;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-weight:600;cursor:pointer}
-  .input button:disabled{opacity:.5}
-  .btn{background:#BF9849;color:#fff;padding:6px 12px;border-radius:8px;text-decoration:none;font-weight:600;font-size:12px;display:inline-block;white-space:nowrap}
-  .btn:hover{background:#D4AB5E}
-  .btn[disabled]{opacity:.5;cursor:not-allowed}
-  .info{background:#e8f4f8;border-left:4px solid #BF9849;padding:10px;margin:10px 0;border-radius:8px;font-size:13px}
-  .more-row{display:flex;justify-content:center;margin-top:10px}
-  .more-row button{background:#BF9849;color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:700;cursor:pointer}
-  .busybar{display:none;align-items:center;gap:10px;padding:8px 12px;background:#fff;border-bottom:1px solid #e8eef3}
-  .box.busy .busybar{display:flex}
-  .spinner{width:32px;height:32px;border-radius:50%;background:#fff var(--logo-url) center/90% no-repeat;border:3px solid rgba(0,0,0,.06);box-shadow:0 2px 8px rgba(0,0,0,.12);animation:spin 1s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  .busytext{font-weight:600;color:#555}
+:root{--brand:#BF9849;--logo-url:url("https://assets.almanhal.com/platform/shared/Product/ECSSR/middlelogo.png");--fab-size:70px}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;margin:0;padding:2rem}
+.fab-wrap{position:fixed;right:18px;bottom:18px;z-index:9999;width:var(--fab-size);height:calc(var(--fab-size)+36px)}
+.fab-label{position:absolute;left:50%;bottom:calc(var(--fab-size)+4px);transform:translateX(-50%);width:calc(var(--fab-size)+36px);height:34px;pointer-events:none;filter:drop-shadow(0 1px 0 rgba(255,255,255,.65))}
+.fab-label text{fill:var(--brand);font-weight:700;font-size:12px;letter-spacing:.5px}
+.fab{position:absolute;left:0;bottom:0;width:var(--fab-size);height:var(--fab-size);background:#fff var(--logo-url) center/145% no-repeat;border:5px solid #BF9849;border-radius:50%;cursor:pointer;box-shadow:0 10px 30px rgba(191,152,73,0.4);transition:transform 0.3s ease, box-shadow 0.3s ease}
+.fab:hover{transform:scale(1.08);box-shadow:0 15px 40px rgba(191,152,73,0.6)}
+.slide-banner{position:fixed;right:calc(var(--fab-size) + 30px);bottom:calc(18px + (var(--fab-size) / 2) - 22px);background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;padding:14px 28px;border-radius:30px;font-weight:700;font-size:15px;box-shadow:0 8px 24px rgba(191,152,73,0.5);white-space:nowrap;z-index:9998;animation:slideFromBottom 7s ease-in-out forwards;opacity:0;letter-spacing:0.3px}
+@keyframes slideFromBottom{0%{transform:translateY(200px);opacity:0}15%{transform:translateY(0);opacity:1}85%{transform:translateY(0);opacity:1}100%{transform:translateY(200px);opacity:0}}
+.box{position:fixed;right:18px;bottom:calc(18px + var(--fab-size) + 12px);width:min(620px,94vw);max-height:85vh;background:#fff;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.25);display:none;flex-direction:column;overflow:hidden;z-index:9999}
+.head{background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;padding:12px 16px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+.close{background:none;border:none;color:#fff;font-size:20px;cursor:pointer}
+.status{font-size:12px;padding:8px 12px;background:#fafafa;border-bottom:1px solid #e8eef3}
+.body{padding:10px;overflow:auto;flex:1}
+.row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0;position:relative}
+.row:hover{box-shadow:0 4px 12px rgba(0,0,0,0.08);border-color:#BF9849}
+.meta{opacity:.85;font-size:12px;margin-top:6px}
+.translate-icon{position:absolute;top:12px;left:12px;background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;transition:all 0.2s;z-index:10}
+.translate-icon:hover{background:#BF9849;color:#fff;border-color:#BF9849}
+.translated{background:#e8f4f8;padding:8px;margin-top:8px;border-radius:6px;font-size:13px;border-left:3px solid #BF9849}
+.ai-summary{background:linear-gradient(135deg,#e8f4f8,#f0f8ff);border-left:4px solid #BF9849;padding:12px;margin:10px 0;border-radius:8px;font-size:13px;line-height:1.6}
+.ai-summary::before{content:"🤖 ";margin-right:4px}
+.input-wrap{padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
+.input{display:flex;gap:8px}
+.input input{flex:1;padding:10px 12px;border-radius:10px;border:1px solid #cfd9e3}
+.input button{background:#BF9849;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-weight:600;cursor:pointer}
+.input button:disabled{opacity:.5}
+.btn{background:#BF9849;color:#fff;padding:6px 12px;border-radius:8px;text-decoration:none;font-weight:600;font-size:12px;display:inline-block;white-space:nowrap}
+.btn:hover{background:#D4AB5E}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.info{background:#e8f4f8;border-left:4px solid #BF9849;padding:10px;margin:10px 0;border-radius:8px;font-size:13px}
+.more-row{display:flex;justify-content:center;margin-top:10px}
+.more-row button{background:#BF9849;color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:700;cursor:pointer}
+.busybar{display:none;align-items:center;gap:10px;padding:8px 12px;background:#fff;border-bottom:1px solid #e8eef3}
+.box.busy .busybar{display:flex}
+.spinner{width:32px;height:32px;border-radius:50%;background:#fff var(--logo-url) center/90% no-repeat;border:3px solid rgba(0,0,0,.06);box-shadow:0 2px 8px rgba(0,0,0,.12);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.busytext{font-weight:600;color:#555}
 </style>
 </head>
 <body>
 <div class="slide-banner" id="slideBanner">UAE Federation Library AI Assistant</div>
-<div class="fab-wrap"><svg class="fab-label" viewBox="0 0 120 40"><defs><path id="arc" d="M 10,34 A 50,50 0 0 1 110,34"/></defs><text text-anchor="middle"><textPath href="#arc" startOffset="50%">AI Assist</textPath></text></svg><button class="fab" id="fab"></button></div>
-<div class="box" id="box"><div class="head"><div>ECSSR AI Search</div><button class="close" id="close">×</button></div><div class="busybar" id="busybar"><div class="spinner"></div><div class="busytext" id="busytext">Loading...</div></div><div class="status" id="status">Ready</div><div class="body" id="body"></div><div class="input-wrap"><div class="input"><input id="q" type="text" placeholder="اكتب: اسم مؤلف / عنوان / موضوع / سنة" dir="auto"><button id="go">Search</button></div></div></div>
+<div class="fab-wrap">
+<svg class="fab-label" viewBox="0 0 120 40"><defs><path id="arc" d="M 10,34 A 50,50 0 0 1 110,34"/></defs><text text-anchor="middle"><textPath href="#arc" startOffset="50%">AI Assist</textPath></text></svg>
+<button class="fab" id="fab"></button>
+</div>
+<div class="box" id="box">
+<div class="head"><div>ECSSR AI Search</div><button class="close" id="close">×</button></div>
+<div class="busybar" id="busybar"><div class="spinner"></div><div class="busytext" id="busytext">Loading...</div></div>
+<div class="status" id="status">Ready</div>
+<div class="body" id="body"></div>
+<div class="input-wrap"><div class="input"><input id="q" type="text" placeholder="اكتب: اسم مؤلف / عنوان / موضوع / سنة" dir="auto"><button id="go">Search</button></div></div>
+</div>
 <script>
-const DATA_URL="./opac-catalog.tab?delim=tab",PAGE_SIZE=12,BACKEND_URL="https://ecssr-ai-assistant.onrender.com/api";
-let INDEX=[],HEADERS=[],LOADED=!1,MATCH_NOTE="",LAST={items:[],shown:0,field:""};
-const fab=document.getElementById("fab"),box=document.getElementById("box"),close=document.getElementById("close"),body=document.getElementById("body"),status=document.getElementById("status"),q=document.getElementById("q"),go=document.getElementById("go");
-setTimeout(()=>{const e=document.getElementById("slideBanner");e&&e.remove()},7500);
-fab.onclick=()=>{box.style.display="flex"===box.style.display?"none":"flex","flex"===box.style.display&&(LOADED||(setBusy(!0,"Initializing…"),ensureLoaded().then(()=>setBusy(!1))),setTimeout(()=>q.focus(),50))};
+const DATA_URL="./opac-catalog.tab?delim=tab";
+const PAGE_SIZE=12;
+const BACKEND_URL="https://ecssr-ai-assistant.onrender.com/api";
+let INDEX=[],HEADERS=[],LOADED=false,MATCH_NOTE="",LAST={items:[],shown:0,field:""};
+const fab=document.getElementById("fab");
+const box=document.getElementById("box");
+const close=document.getElementById("close");
+const body=document.getElementById("body");
+const status=document.getElementById("status");
+const q=document.getElementById("q");
+const go=document.getElementById("go");
+setTimeout(()=>{const b=document.getElementById("slideBanner");if(b)b.remove()},7500);
+fab.onclick=()=>{
+  box.style.display=(box.style.display==="flex")?"none":"flex";
+  if(box.style.display==="flex"){
+    if(!LOADED){setBusy(true,"Initializing…");ensureLoaded().then(()=>setBusy(false))}
+    setTimeout(()=>q.focus(),50)
+  }
+};
 close.onclick=()=>box.style.display="none";
-function setBusy(e,t){const n=document.getElementById("busybar"),o=document.getElementById("busytext");t&&(o.textContent=t),e?(box.classList.add("busy"),go.disabled=!0,q.disabled=!0):(box.classList.remove("busy"),go.disabled=!1,q.disabled=!1)}
-function stripBidi(e){return String(e||"").replace(/[\u200E\u200F\u202A-\u202E]/g,"")}
-function clean(e){return stripBidi(String(e||"").replace(/^\uFEFF/,""))}
-function canonHeader(e){return clean(e).toLowerCase().replace(/\s+/g," ").trim()}
-function norm(e){if(!e)return"";try{e=(e=clean(e).toLowerCase()).normalize("NFKD")}catch(e){}return e.replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ة/g,"ه").replace(/ک/g,"ك").replace(/\bعبد\s+ال/g,"عبدال").replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"").replace(/[\u0660-\u0669]/g,e=>e.charCodeAt(0)-1632).replace(/[\u06F0-\u06F9]/g,e=>e.charCodeAt(0)-1776).replace(/[^\p{L}\p{N}\s]/gu," ").replace(/\s+/g," ").trim()}
-function isArabic(e){return/[\u0600-\u06FF]/.test(e||"")}
+function setBusy(on,label){
+  const bar=document.getElementById("busybar");
+  const txt=document.getElementById("busytext");
+  if(label)txt.textContent=label;
+  if(on){box.classList.add("busy");go.disabled=true;q.disabled=true}
+  else{box.classList.remove("busy");go.disabled=false;q.disabled=false}
+}
+function stripBidi(s){return String(s||"").replace(/[\u200E\u200F\u202A-\u202E]/g,"")}
+function clean(s){return stripBidi(String(s||"").replace(/^\uFEFF/,""))}
+function canonHeader(h){return clean(h).toLowerCase().replace(/\s+/g," ").trim()}
+function norm(s){
+  if(!s)return "";
+  s=clean(s).toLowerCase();
+  try{s=s.normalize("NFKD")}catch(e){}
+  s=s.replace(/[إأآٱ]/g,"ا").replace(/[ىی]/g,"ي").replace(/ة/g,"ه").replace(/ک/g,"ك")
+    .replace(/\bعبد\s+ال/g,"عبدال")
+    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
+    .replace(/[\u0660-\u0669]/g,d=>String.fromCharCode(d.charCodeAt(0)-1632+48))
+    .replace(/[\u06F0-\u06F9]/g,d=>String.fromCharCode(d.charCodeAt(0)-1776+48))
+    .replace(/[^\p{L}\p{N}\s]/gu," ").replace(/\s+/g," ").trim();
+  return s
+}
+function isArabic(s){return/[\u0600-\u06FF]/.test(s||"")}
 const FAMOUS_PEOPLE=new Set(["محمد بن زايد","محمد بن راشد","خليفة بن زايد","زايد بن سلطان","محمد بن زايد آل نهيان","sheikh mohamed","sheikh mohammed","sheikh khalifa","sheikh zayed","الشيخ محمد","الشيخ خليفة","الشيخ زايد"]);
-function looksLikeYear(e){return/^\d{4}$/.test(e.trim())}
-function isFamousPerson(e){const t=norm(e);for(const e of FAMOUS_PEOPLE)if(t.includes(norm(e)))return!0;return/\b(president|رئيس|سمو|صاحب السمو)\b/i.test(e)}
-function chooseField(e){const t=e.trim(),n=norm(e);if(looksLikeYear(t))return"year";if(/^(what|how|why|when|where|who|which|ما|كيف|لماذا|متى|أين|من|ماذا|كيفية|هل)\b/i.test(t))return MATCH_NOTE="Question → searching in Abstract & Contents","summary";if(isFamousPerson(t))return MATCH_NOTE="Famous person → searching in Subject & Title","subject";if(/(التراث|الثقافة|التاريخ|الفن|العلوم|الأدب|الشعر|السياسة|الاقتصاد|التعليم|الصحة|البيئة|التكنولوجيا|الذكاء|الطاقة|المياه|الزراعة|النفط|الغاز)/i.test(t))return MATCH_NOTE="Topic keyword → searching in Subject","subject";const o=t.split(/\s+/).filter(Boolean);if(o.length>=2&&o.length<=3&&isArabic(t))return MATCH_NOTE="2-3 Arabic words → searching in Author",/[a-zA-Z]/.test(t)&&isArabic(t)?"subject":"author";return MATCH_NOTE="General search → Subject & Title","subject"}
-async function ensureLoaded(){if(LOADED)return;try{setBusy(!0,"Loading records…");const e=await fetch(DATA_URL,{cache:"reload"});if(!e.ok)throw new Error(`Fetch ${e.status}`);const t=new TextDecoder("utf-8").decode(await e.arrayBuffer()),n=t.split(/\r?\n/);if(n.length<2)throw new Error("Empty catalog");const o=n[0].split("\t").map(canonHeader);HEADERS=o;for(let e=1;e<n.length;e++){const t=n[e].split("\t");if(!(t.length<2||1===t.length&&!t[0])){const e={};o.forEach((n,o)=>{e[n]=clean(t[o]||"")});const n=e["full title"]||e.title||e["العنوان"]||"",r=e.author||e["المؤلف"]||"",a=e["other author"]||e["المؤلف الآخر"]||"",i=e["corporate name"]||e["جهة مؤسسية"]||"",s=e.subjects||e.subject||e["الموضوعات"]||"",l=e.abstract||e.summary||e["الملخص"]||"",c=e.content||e.contents||e["المحتويات"]||"",u=e["publications data"]||e["بيانات النشر"]||"",d=e.book_url||e["book url"]||e["رابط الكتاب"]||"",m=e.year||e["السنة"]||(u.match(/(19|20)\d{2}/)||[""])[0],f=u.replace(/\b(19|20)\d{2}\b/g,"").trim(),p=[r,a,i].filter(Boolean).join(" ");INDEX.push({id:INDEX.length,raw:{title:n,author:r,other_author:a,corporate_name:i,subject:s,summary:l,content:c,publisher:f,year:m,book_url:d},nTitle:norm(n),nAuthorAll:norm(p),nSummary:norm(l),nContent:norm(c),nSubject:norm(s),nPub:norm(f+" "+i),nYear:norm(m)})}}LOADED=!0,status.textContent=`✅ Loaded ${INDEX.length} records`}catch(e){status.textContent=`❌ Error: ${e.message}`}finally{setBusy(!1)}}
-function searchField(e,t){const n=norm(t),o=[];MATCH_NOTE="";for(const t of INDEX){let r=!1,a=0;if("author"===e){const e=t.split(/\s+/).filter(e=>e.length>=2&&!/^\d+$/.test(e));if(e.length>=2){if(e.every(e=>t.nAuthorAll.includes(e)))a=100+e.length,r=!0}else{const t=e[0]||n;t&&t.nAuthorAll.includes(t)&&(a=85,r=!0)}}else"title"===e?t.nTitle.includes(n)&&(a=80,r=!0):"subject"===e?(t.nSubject.includes(n)&&(a=100,r=!0),t.nTitle.includes(n)&&(a=85,r=!0),r&&isFamousPerson(t)&&(MATCH_NOTE="Books ABOUT this person")):"summary"===e?(t.nSummary.includes(n)&&(a=90,r=!0),t.nContent.includes(n)&&(a=80,r=!0)):"year"===e?t.nYear.includes(n)&&(a=60,r=!0):"pub"===e&&t.nPub.includes(n)&&(a=50,r=!0);r&&o.push({sc:a,...t})}return o.sort((e,t)=>t.sc-e.sc),o}
-async function translateText(e,t){try{const n=isArabic(e)?"ar":"en";if(n===t)return e;const o=`https://api.mymemory.translated.net/get?q=${encodeURIComponent(e)}&langpair=${n}|${t}`,r=await(await fetch(o)).json();if(r.responseData&&r.responseData.translatedText)return r.responseData.translatedText;throw new Error("Translation failed")}catch(e){return console.error("Translation error:",e),null}}
-async function translateRecord(e,t,n){const o=INDEX.find(t=>t.id===e);if(o){const e=o.raw[t];if(e){n.textContent="⏳",n.disabled=!0;const t=await translateText(e,isArabic(e)?"en":"ar");if(t){const e=document.createElement("div");e.className="translated",e.innerHTML=`<strong>${isArabic(t)?"الترجمة:":"Translation:"}</strong> ${t}`,n.parentElement.appendChild(e),n.remove()}else n.textContent="🌐",n.disabled=!1}}}
-async function getAISummary(e,t){if(0===t.length)return null;try{const n=t.slice(0,20).map(e=>({id:e.id,title:e.raw.title,author:e.raw.author,subject:e.raw.subject||"",summary:e.raw.summary||e.raw.content||""})),o=await fetch(`${BACKEND_URL}/chat`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({query:e,matchedBooks:n,searchField:LAST.field})});if(!o.ok)return null;return(await o.json()).answer}catch(e){return console.error("AI summary error:",e),null}}
+function looksLikeYear(q){return/^\d{4}$/.test(q.trim())}
+function isFamousPerson(q){
+  const nq=norm(q);
+  for(const p of FAMOUS_PEOPLE)if(nq.includes(norm(p)))return true;
+  return/\b(president|رئيس|سمو|صاحب السمو)\b/i.test(q)
+}
+function chooseField(q){
+  const raw=q.trim();
+  const nq=norm(q);
+  if(looksLikeYear(raw))return "year";
+  if(/^(what|how|why|when|where|who|which|ما|كيف|لماذا|متى|أين|من|ماذا|كيفية|هل)\b/i.test(raw)){
+    MATCH_NOTE="Question → searching in Abstract & Contents";return "summary"
+  }
+  if(isFamousPerson(raw)){MATCH_NOTE="Famous person → searching in Subject & Title";return "subject"}
+  if(/(التراث|الثقافة|التاريخ|الفن|العلوم|الأدب|الشعر|السياسة|الاقتصاد|التعليم|الصحة|البيئة|التكنولوجيا|الذكاء|الطاقة|المياه|الزراعة|النفط|الغاز)/i.test(raw)){
+    MATCH_NOTE="Topic keyword → searching in Subject";return "subject"
+  }
+  const words=raw.split(/\s+/).filter(Boolean);
+  if(words.length>=2&&words.length<=3&&isArabic(raw)){
+    MATCH_NOTE="2-3 Arabic words → searching in Author";
+    if(/[a-zA-Z]/.test(raw)&&isArabic(raw))return "subject";
+    return "author"
+  }
+  MATCH_NOTE="General search → Subject & Title";
+  return "subject"
+}
+async function ensureLoaded(){
+  if(LOADED)return;
+  try{
+    setBusy(true,"Loading records…");
+    const resp=await fetch(DATA_URL,{cache:"reload"});
+    if(!resp.ok)throw new Error(`Fetch ${resp.status}`);
+    const buf=await resp.arrayBuffer();
+    const decoder=new TextDecoder("utf-8");
+    const text=decoder.decode(buf);
+    const lines=text.split(/\r?\n/);
+    if(lines.length<2)throw new Error("Empty catalog");
+    const headers=lines[0].split("\t").map(canonHeader);
+    HEADERS=headers;
+    for(let i=1;i<lines.length;i++){
+      const cols=lines[i].split("\t");
+      if(cols.length<2||(cols.length===1&&!cols[0]))continue;
+      const rec={};
+      headers.forEach((h,idx)=>{rec[h]=clean(cols[idx]||"")});
+      const title=rec["full title"]||rec["title"]||rec["العنوان"]||"";
+      const author=rec["author"]||rec["المؤلف"]||"";
+      const otherAu=rec["other author"]||rec["المؤلف الآخر"]||"";
+      const corporate=rec["corporate name"]||rec["جهة مؤسسية"]||"";
+      const subject=rec["subjects"]||rec["subject"]||rec["الموضوعات"]||"";
+      const summary=rec["abstract"]||rec["summary"]||rec["الملخص"]||"";
+      const content=rec["content"]||rec["contents"]||rec["المحتويات"]||"";
+      const pubData=rec["publications data"]||rec["بيانات النشر"]||"";
+      const bookUrl=rec["book_url"]||rec["book url"]||rec["رابط الكتاب"]||"";
+      const year=rec["year"]||rec["السنة"]||(pubData.match(/(19|20)\d{2}/)||[""])[0];
+      const publisher=pubData.replace(/\b(19|20)\d{2}\b/g,"").trim();
+      const authorAll=[author,otherAu,corporate].filter(Boolean).join(" ");
+      INDEX.push({
+        id:INDEX.length,
+        raw:{title,author,other_author:otherAu,corporate_name:corporate,subject,summary,content,publisher,year,book_url:bookUrl},
+        nTitle:norm(title),nAuthorAll:norm(authorAll),nSummary:norm(summary),nContent:norm(content),nSubject:norm(subject),nPub:norm(publisher+" "+corporate),nYear:norm(year)
+      })
+    }
+    LOADED=true;
+    status.textContent=`✅ Loaded ${INDEX.length} records`
+  }catch(e){status.textContent=`❌ Error: ${e.message}`}finally{setBusy(false)}
+}
+function searchField(field,q){
+  const nq=norm(q);
+  const out=[];
+  MATCH_NOTE="";
+  for(const r of INDEX){
+    let hit=false,sc=0;
+    if(field==="author"){
+      const tokens=q.split(/\s+/).filter(t=>t.length>=2&&!/^\d+$/.test(t)).map(norm);
+      if(tokens.length>=2){
+        if(tokens.every(tok=>r.nAuthorAll.includes(tok))){sc=100+tokens.length;hit=true}
+      }else{
+        const tok=tokens[0]||nq;
+        if(tok&&r.nAuthorAll.includes(tok)){sc=85;hit=true}
+      }
+    }else if(field==="title"){
+      if(r.nTitle.includes(nq)){sc=80;hit=true}
+    }else if(field==="subject"){
+      if(r.nSubject.includes(nq)){sc=100;hit=true}
+      if(r.nTitle.includes(nq)){sc=85;hit=true}
+      if(hit&&isFamousPerson(q))MATCH_NOTE="Books ABOUT this person"
+    }else if(field==="summary"){
+      if(r.nSummary.includes(nq)){sc=90;hit=true}
+      if(r.nContent.includes(nq)){sc=80;hit=true}
+    }else if(field==="year"){
+      if(r.nYear.includes(nq)){sc=60;hit=true}
+    }else if(field==="pub"){
+      if(r.nPub.includes(nq)){sc=50;hit=true}
+    }
+    if(hit)out.push({sc,...r})
+  }
+  out.sort((a,b)=>b.sc-a.sc);
+  return out
+}
+async function translateText(text,targetLang){
+  try{
+    const sourceLang=isArabic(text)?"ar":"en";
+    if(sourceLang===targetLang)return text;
+    const url=`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceLang}|${targetLang}`;
+    const response=await fetch(url);
+    const data=await response.json();
+    if(data.responseData&&data.responseData.translatedText)return data.responseData.translatedText;
+    throw new Error("Translation failed")
+  }catch(error){console.error("Translation error:",error);return null}
+}
+async function translateRecord(recordId,field,button){
+  const book=INDEX.find(b=>b.id===recordId);
+  if(!book)return;
+  const text=book.raw[field];
+  if(!text)return;
+  button.textContent="⏳";
+  button.disabled=true;
+  const targetLang=isArabic(text)?"en":"ar";
+  const translated=await translateText(text,targetLang);
+  if(translated){
+    const div=document.createElement("div");
+    div.className="translated";
+    div.innerHTML=`<strong>${isArabic(translated)?"الترجمة:":"Translation:"}</strong> ${translated}`;
+    button.parentElement.appendChild(div);
+    button.remove()
+  }else{button.textContent="🌐";button.disabled=false}
+}
+async function getAISummary(query,matchedBooks){
+  if(matchedBooks.length===0)return null;
+  try{
+    const booksWithSummaries=matchedBooks.slice(0,20).map(b=>({
+      id:b.id,title:b.raw.title,author:b.raw.author,subject:b.raw.subject||"",summary:b.raw.summary||b.raw.content||""
+    }));
+    const response=await fetch(`${BACKEND_URL}/chat`,{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({query,matchedBooks:booksWithSummaries,searchField:LAST.field})
+    });
+    if(!response.ok)return null;
+    const data=await response.json();
+    return data.answer
+  }catch(error){console.error("AI summary error:",error);return null}
+}
 function clearResults(){body.innerHTML=""}
-function renderChunk(e){const t=document.createDocumentFragment();for(const n of e){const e=n.raw,o=document.createElement("div");o.className="row",o.dir=isArabic(e.title||e.author)?"rtl":"ltr";const r=[e.author,e.other_author,e.corporate_name].filter(Boolean).join(" • "),a=[e.publisher,e.year].filter(Boolean).join(" • "),i=isArabic(e.title)?"EN":"AR";o.innerHTML=`<button class="translate-icon" onclick="translateRecord(${n.id},'title',this)">🌐 ${i}</button><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding-left:60px"><b style="font-size:15px;line-height:1.4;flex:1;min-width:0;word-break:break-word">${e.title||"(بدون عنوان)"}</b>${e.book_url?`<a class="btn" href="${e.book_url}" target="_blank" style="flex-shrink:0">Open</a>`:'<button class="btn" disabled style="flex-shrink:0">No URL</button>'}</div>${r?`<div class="meta">${isArabic(r)?"المؤلف: ":"Author: "}${r}</div>`:""}${e.subject?`<div class="meta">${isArabic(e.subject)?"الموضوع: ":"Subject: "}${e.subject}</div>`:""}${a?`<div class="meta">${a}</div>`:""}${e.summary?`<div style="margin-top:6px;font-size:13px">${e.summary.length>300?e.summary.slice(0,297)+"…":e.summary}</div>`:""}`,t.appendChild(o)}body.appendChild(t)}
-function addShowMoreIfNeeded(){const e=document.getElementById("more-btn");if(e&&e.remove(),!(LAST.shown>=LAST.items.length)){const e=document.createElement("div");e.className="more-row",e.id="more-btn";const t=document.createElement("button"),n=LAST.items.length-LAST.shown;t.textContent=n>PAGE_SIZE?"Show more":"Show all",t.onclick=()=>{const e=Math.min(LAST.shown+PAGE_SIZE,LAST.items.length);renderChunk(LAST.items.slice(LAST.shown,e)),LAST.shown=e,addShowMoreIfNeeded()},e.appendChild(t),body.appendChild(e)}}
-async function renderAll(e,t,n){clearResults();const o={author:"المؤلف + المؤلف المشارك",title:"العنوان",subject:"الموضوع + العنوان",summary:"الملخص + المحتويات",year:"سنة النشر",pub:"الناشر"}[t]||t,r=document.createElement("div");r.className="info";const a=MATCH_NOTE?" • "+MATCH_NOTE:"";if(r.textContent=`Searching: ${o}${a}`,body.appendChild(r),!e.length){const e=document.createElement("div");return e.className="info",e.textContent="لا توجد نتائج / No results found",void body.appendChild(e)}const i=document.createElement("div");i.className="ai-summary",i.innerHTML="⏳ AI analyzing summaries...",body.appendChild(i),getAISummary(n,e.slice(0,20)).then(e=>{e?i.innerHTML=e:i.remove()});const s=document.createElement("div");s.className="info",s.textContent=`وجدت ${e.length} نتيجة / Found ${e.length} results`,body.appendChild(s),LAST.items=e,LAST.shown=Math.min(PAGE_SIZE,e.length),LAST.field=t,renderChunk(e.slice(0,LAST.shown)),addShowMoreIfNeeded()}
-async function run(){setBusy(!0,"Searching…");try{await ensureLoaded();const e=q.value.trim();if(!e)return void setBusy(!1);const t=chooseField(e),n=searchField(t,e);await renderAll(n,t,e)}finally{setBusy(!1)}}
-go.onclick=run,q.addEventListener("keydown",e=>{"Enter"===e.key&&run()}),window.translateRecord=translateRecord;
+function renderChunk(items){
+  const frag=document.createDocumentFragment();
+  for(const it of items){
+    const r=it.raw;
+    const div=document.createElement("div");
+    div.className="row";
+    div.dir=isArabic(r.title||r.author)?"rtl":"ltr";
+    const authors=[r.author,r.other_author,r.corporate_name].filter(Boolean).join(" • ");
+    const pubLine=[r.publisher,r.year].filter(Boolean).join(" • ");
+    const translateTo=isArabic(r.title)?"EN":"AR";
+    div.innerHTML=`<button class="translate-icon" onclick="translateRecord(${it.id},'title',this)">🌐 ${translateTo}</button><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding-left:60px"><b style="font-size:15px;line-height:1.4;flex:1;min-width:0;word-break:break-word">${r.title||"(بدون عنوان)"}</b>${r.book_url?`<a class="btn" href="${r.book_url}" target="_blank" style="flex-shrink:0">Open</a>`:'<button class="btn" disabled style="flex-shrink:0">No URL</button>'}</div>${authors?`<div class="meta">${isArabic(authors)?"المؤلف: ":"Author: "}${authors}</div>`:""}${r.subject?`<div class="meta">${isArabic(r.subject)?"الموضوع: ":"Subject: "}${r.subject}</div>`:""}${pubLine?`<div class="meta">${pubLine}</div>`:""}${r.summary?`<div style="margin-top:6px;font-size:13px">${r.summary.length>300?r.summary.slice(0,297)+"…":r.summary}</div>`:""}`;
+    frag.appendChild(div)
+  }
+  body.appendChild(frag)
+}
+function addShowMoreIfNeeded(){
+  const old=document.getElementById("more-btn");
+  if(old)old.remove();
+  if(LAST.shown>=LAST.items.length)return;
+  const row=document.createElement("div");
+  row.className="more-row";
+  row.id="more-btn";
+  const btn=document.createElement("button");
+  const remaining=LAST.items.length-LAST.shown;
+  btn.textContent=remaining>PAGE_SIZE?"Show more":"Show all";
+  btn.onclick=()=>{
+    const next=Math.min(LAST.shown+PAGE_SIZE,LAST.items.length);
+    renderChunk(LAST.items.slice(LAST.shown,next));
+    LAST.shown=next;
+    addShowMoreIfNeeded()
+  };
+  row.appendChild(btn);
+  body.appendChild(row)
+}
+async function renderAll(list,field,query){
+  clearResults();
+  const labelAR={author:"المؤلف + المؤلف المشارك",title:"العنوان",subject:"الموضوع + العنوان",summary:"الملخص + المحتويات",year:"سنة النشر",pub:"الناشر"}[field]||field;
+  const note=document.createElement("div");
+  note.className="info";
+  const extra=MATCH_NOTE?" • "+MATCH_NOTE:"";
+  note.textContent=`Searching: ${labelAR}${extra}`;
+  body.appendChild(note);
+  if(!list.length){
+    const empty=document.createElement("div");
+    empty.className="info";
+    empty.textContent="لا توجد نتائج / No results found";
+    body.appendChild(empty);
+    return
+  }
+  const aiSummaryDiv=document.createElement("div");
+  aiSummaryDiv.className="ai-summary";
+  aiSummaryDiv.innerHTML="⏳ AI analyzing summaries...";
+  body.appendChild(aiSummaryDiv);
+  getAISummary(query,list.slice(0,20)).then(aiAnswer=>{
+    if(aiAnswer)aiSummaryDiv.innerHTML=aiAnswer;
+    else aiSummaryDiv.remove()
+  });
+  const info=document.createElement("div");
+  info.className="info";
+  info.textContent=`وجدت ${list.length} نتيجة / Found ${list.length} results`;
+  body.appendChild(info);
+  LAST.items=list;
+  LAST.shown=Math.min(PAGE_SIZE,list.length);
+  LAST.field=field;
+  renderChunk(list.slice(0,LAST.shown));
+  addShowMoreIfNeeded()
+}
+async function run(){
+  setBusy(true,"Searching…");
+  try{
+    await ensureLoaded();
+    const raw=q.value.trim();
+    if(!raw){setBusy(false);return}
+    const field=chooseField(raw);
+    const results=searchField(field,raw);
+    await renderAll(results,field,raw)
+  }finally{setBusy(false)}
+}
+go.onclick=run;
+q.addEventListener("keydown",e=>{if(e.key==="Enter")run()});
+window.translateRecord=translateRecord;
 </script>
 </body>
 </html>
