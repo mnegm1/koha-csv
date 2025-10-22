@@ -1,5 +1,5 @@
 // backend/server.js
-// ECSSR AI Assistant — Robust + Author Surname-Anchor Matching (Backend Parity)
+// ECSSR AI Assistant — Robust + Author Surname-Anchor Matching + Safe availableData
 
 const express = require('express');
 const cors = require('cors');
@@ -13,13 +13,13 @@ const PERPLEXITY_API_KEY =
 const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
 const PERPLEXITY_MODEL = process.env.PPLX_MODEL || 'sonar-pro';
 
-app.set('trust proxy', true); // correct client IPs behind proxies/load balancers
+app.set('trust proxy', true); // real client IPs behind proxy
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-/* =========================
-   Rate limiting (simple in-memory)
-========================= */
+/* =======================================
+   Simple in-memory rate limiting
+======================================= */
 const requestCounts = new Map();
 const RATE_LIMIT = 100;
 const RATE_WINDOW = 60 * 60 * 1000;
@@ -33,9 +33,9 @@ function checkRateLimit(ip) {
   return true;
 }
 
-/* =========================
+/* =======================================
    Perplexity wrapper
-========================= */
+======================================= */
 async function callPerplexity(messages, model = PERPLEXITY_MODEL) {
   try {
     const response = await fetch(PERPLEXITY_URL, {
@@ -65,10 +65,9 @@ async function callPerplexity(messages, model = PERPLEXITY_MODEL) {
   }
 }
 
-/* ======================================================
-   Arabic/EN normalization + AUTHOR SURNAME-ANCHOR MATCH
-   (mirrors frontend logic; prevents wrong-family matches)
-====================================================== */
+/* =======================================
+   Normalization + AUTHOR MATCH (backend)
+======================================= */
 function norm(s) {
   if (!s) return '';
   s = String(s).toLowerCase();
@@ -102,7 +101,6 @@ function tokenEq(a, b) {
   if (b.length >= 3 && a.startsWith(b)) return true;
   return false;
 }
-// Arabic name stop-words (connectors)
 const NAME_STOP = new Set([
   'بن',
   'بنت',
@@ -116,6 +114,12 @@ const NAME_STOP = new Set([
   'بنّ',
   'عبد',
   'عبدال',
+]);
+// Very common given names — do not count as “distinct” token
+const COMMON_GIVEN = new Set([
+  'محمد','احمد','أحمد','علي','حسن','حسين','خالد','سعيد','سالم','يوسف',
+  'عبدالله','عبد الله','عبدالرحمن','عبد الرحمن','عبدالعزيز','عبد العزيز',
+  'عبدال','عبد','محمود','ابراهيم','إبراهيم','عمر','سامي','نادر','ماجد'
 ]);
 function extractSurname(tokens) {
   for (let i = tokens.length - 1; i >= 0; i--) {
@@ -132,20 +136,26 @@ function exactAuthorMatch(qTokens, name) {
     aTokens.every((at) => qTokens.some((qt) => tokenEq(qt, at)))
   );
 }
-/**
- * Flexible author match with required surname anchor.
- * Returns { hit:boolean, score:number }
- */
 function flexibleAuthorMatch(qTokens, name) {
   const aTokens = tokenizeName(name);
   if (!aTokens.length || !qTokens.length) return { hit: false, score: 0 };
 
-  // Anchor (surname) from query tokens must exist in author tokens
   const anchor = extractSurname(qTokens);
   const hasAnchor = anchor ? aTokens.some((at) => tokenEq(anchor, at)) : false;
   if (anchor && !hasAnchor) return { hit: false, score: 0 };
 
-  // Greedy one-to-one overlap
+  // if query contains non-common tokens (besides surname), require ≥1 of them
+  const qNonCommon = qTokens.filter(
+    (t) => t !== anchor && !COMMON_GIVEN.has(t) && !NAME_STOP.has(t)
+  );
+  if (qNonCommon.length > 0) {
+    const hasDistinct = qNonCommon.some((t) =>
+      aTokens.some((at) => tokenEq(t, at))
+    );
+    if (!hasDistinct) return { hit: false, score: 0 };
+  }
+
+  // overlap
   let overlap = 0;
   const used = new Array(aTokens.length).fill(false);
   for (const qt of qTokens) {
@@ -157,33 +167,25 @@ function flexibleAuthorMatch(qTokens, name) {
   }
 
   const minLen = Math.min(qTokens.length, aTokens.length);
-  const need = Math.max(2, Math.ceil(minLen * 0.66)); // >=2 and ~66% of shorter
+  const need = Math.max(2, Math.ceil(minLen * 0.66));
   if (overlap >= need) {
     const closeness = 1 - Math.abs(qTokens.length - aTokens.length) / 5;
     const anchorBonus = hasAnchor ? 8 : 0;
-    return { hit: true, score: 70 + overlap * 10 + closeness * 5 + anchorBonus };
+    const distinctBonus = qNonCommon.length > 0 ? 5 : 0;
+    return { hit: true, score: 70 + overlap * 10 + closeness * 5 + anchorBonus + distinctBonus };
   }
   return { hit: false, score: 0 };
 }
-/**
- * Backend filter to enforce author rules on incoming matchedBooks
- * (works even if client sent noisy candidates).
- */
 function filterAuthorBooks(query, books) {
   const qTokens = tokenizeName(query);
   if (qTokens.length === 0) return [];
-
-  return books
+  return (Array.isArray(books) ? books : [])
+    .filter((b) => b && typeof b === 'object')
     .map((b, idx) => {
-      const author = (b && b.author) || '';
-      // 1) exact, then 2) flexible
-      if (exactAuthorMatch(qTokens, author)) {
-        return { book: b, score: 120, idx };
-      }
+      const author = b.author || '';
+      if (exactAuthorMatch(qTokens, author)) return { book: b, score: 120, idx };
       const flex = flexibleAuthorMatch(qTokens, author);
-      if (flex.hit) {
-        return { book: b, score: flex.score, idx };
-      }
+      if (flex.hit) return { book: b, score: flex.score, idx };
       return null;
     })
     .filter(Boolean)
@@ -191,9 +193,9 @@ function filterAuthorBooks(query, books) {
     .map((x) => x.book);
 }
 
-/* =========================
-   /api/chat  (STRICT FIELDS)
-========================= */
+/* =======================================
+   /api/chat — STRICT field boundaries
+======================================= */
 app.post('/api/chat', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
   if (!checkRateLimit(ip)) {
@@ -208,20 +210,16 @@ app.post('/api/chat', async (req, res) => {
     let matchedBooks = Array.isArray(body.matchedBooks) ? body.matchedBooks : [];
     const searchField = body.searchField || 'default';
 
-    console.log(
-      `[CHAT] Query="${query}" Field=${searchField} Books=${matchedBooks.length}`
-    );
-
     if (!query) {
       return res.status(400).json({ error: 'Query is required' });
     }
 
-    // Backend enforcement: if author search, apply surname-anchored filter
+    // Enforce author filter on backend
     if (searchField === 'author' && matchedBooks.length) {
       matchedBooks = filterAuthorBooks(query, matchedBooks);
     }
 
-    if (matchedBooks.length === 0) {
+    if (!matchedBooks.length) {
       return res.json({
         answer:
           "لم أجد كتباً تطابق سؤالك في الكتالوج.<br>I didn't find any matching books in the catalog.",
@@ -229,7 +227,10 @@ app.post('/api/chat', async (req, res) => {
       });
     }
 
-    // Build STRICT field-specific instructions and the data payload
+    // SAFE list for formatting (never reference sampleBooks, filter out bad rows)
+    const safeBooks = matchedBooks
+      .filter((b) => b && typeof b === 'object');
+
     let fieldInstructions = '';
     let availableData = '';
 
@@ -240,52 +241,62 @@ Use ONLY: summary, contents.
 FORBIDDEN: author, subject, title.
 If info not present in summaries, say "المعلومات غير متوفرة / Information not available".`;
 
-      availableData = matchedBooks
-        .map((b, i) => `Book ID ${b.id ?? i}:
-Summary: ${b.summary || 'No summary'}
----`)
-        .join('\n');
+      availableData = safeBooks.map((b, i) => {
+        const id = b.id ?? i;
+        const summary =
+          (b.summary || b.contents || b.content || '').toString().trim() ||
+          'No summary';
+        return `Book ID ${id}:
+Summary: ${summary}
+---`;
+      }).join('\n');
+
     } else if (searchField === 'subject') {
       fieldInstructions = `
 ⚠️ CRITICAL FIELD RULE: SUBJECT/TOPIC SEARCH
 Use ONLY: subject, title.
-FORBIDDEN: author, summary.
-List books about the topic.`;
+FORBIDDEN: author, summary.`;
 
-      availableData = matchedBooks
-        .map(
-          (b, i) => `Book ID ${b.id ?? i}:
-Title: ${b.title || 'Untitled'}
-Subject: ${b.subject || 'No subject'}
----`
-        )
-        .join('\n');
+      availableData = safeBooks.map((b, i) => {
+        const id = b.id ?? i;
+        const title = (b.title || 'Untitled').toString();
+        const subject = (b.subject || 'No subject').toString();
+        return `Book ID ${id}:
+Title: ${title}
+Subject: ${subject}
+---`;
+      }).join('\n');
+
     } else if (searchField === 'author') {
       fieldInstructions = `
 ⚠️ CRITICAL FIELD RULE: AUTHOR SEARCH
 Use ONLY: author (to match), title (to list).
 FORBIDDEN: subject, summary.`;
 
-      availableData = matchedBooks
-        .map(
-          (b, i) => `Book ID ${b.id ?? i}:
-Title: ${b.title || 'Untitled'}
-Author: ${b.author || 'Unknown'}
----`
-        )
-        .join('\n');
+      availableData = safeBooks.map((b, i) => {
+        const id = b.id ?? i;
+        const title = (b.title || 'Untitled').toString();
+        const author = (b.author || 'Unknown').toString();
+        return `Book ID ${id}:
+Title: ${title}
+Author: ${author}
+---`;
+      }).join('\n');
+
     } else {
-      // default (fallback)
-      availableData = matchedBooks
-        .map(
-          (b, i) => `Book ID ${b.id ?? i}:
-Title: ${b.title || 'Untitled'}
-Author: ${b.author || 'Unknown'}
-Subject: ${b.subject || ''}
-Summary: ${b.summary || ''}
----`
-        )
-        .join('\n');
+      availableData = safeBooks.map((b, i) => {
+        const id = b.id ?? i;
+        const title = (b.title || 'Untitled').toString();
+        const author = (b.author || 'Unknown').toString();
+        const subject = (b.subject || '').toString();
+        const summary = (b.summary || '').toString();
+        return `Book ID ${id}:
+Title: ${title}
+Author: ${author}
+Subject: ${subject}
+Summary: ${summary}
+---`;
+      }).join('\n');
     }
 
     const systemPrompt =
@@ -312,7 +323,7 @@ RULES:
 USER QUERY: "${query}"
 SEARCH FIELD: ${searchField}
 
-AVAILABLE DATA (${matchedBooks.length} books):
+AVAILABLE DATA (${safeBooks.length} books):
 ${availableData}
 
 Now answer using ONLY the allowed fields above.`;
@@ -325,24 +336,23 @@ Now answer using ONLY the allowed fields above.`;
       PERPLEXITY_MODEL
     );
 
-    // Try to collect any IDs referenced in the text, cap to 10
+    // Extract any IDs referenced in the output (best effort)
     const bookIds = [];
     const idMatches = answer.match(/\b(\d+)\b/g);
     if (idMatches) bookIds.push(...idMatches.slice(0, 10).map(Number));
 
-    console.log(`[CHAT] Response ready. IDs: ${bookIds.join(',')}`);
     res.json({ answer, bookIds });
   } catch (err) {
-    console.error('[CHAT ERROR]', err);
+    console.error('Chat error:', err);
     res
       .status(500)
       .json({ error: 'Internal server error', details: err.message });
   }
 });
 
-/* ==========================================================
-   /api/enhance-search — AI ranks by summary relevance only
-========================================================== */
+/* =======================================
+   /api/enhance-search — rank by summary
+======================================= */
 app.post('/api/enhance-search', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
   if (!checkRateLimit(ip)) {
@@ -423,9 +433,9 @@ BOOK_IDS: [comma-separated IDs, most relevant first]`;
   }
 });
 
-/* =========================
+/* =======================================
    Health check
-========================= */
+======================================= */
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -434,13 +444,13 @@ app.get('/api/health', (req, res) => {
       !!PERPLEXITY_API_KEY && PERPLEXITY_API_KEY !== 'pplx-YOUR-API-KEY-HERE',
     modelVersion: PERPLEXITY_MODEL,
     features:
-      'Strict field separation • Author surname-anchored matching • Error handling',
+      'Strict field separation • Author surname-anchored matching • Safe availableData • Error handling',
   });
 });
 
-/* =========================
+/* =======================================
    Error middleware
-========================= */
+======================================= */
 app.use((err, req, res, next) => {
   console.error('Server error:', err);
   res
@@ -448,9 +458,9 @@ app.use((err, req, res, next) => {
     .json({ error: 'Internal server error', details: err.message });
 });
 
-/* =========================
+/* =======================================
    Start server
-========================= */
+======================================= */
 app.listen(PORT, () => {
   console.log(`🚀 ECSSR AI Backend running on http://localhost:${PORT}`);
   console.log(`📊 Health:           /api/health`);
@@ -462,6 +472,6 @@ app.listen(PORT, () => {
     }`
   );
   console.log(
-    `🎯 Features: STRICT field boundaries + Surname-anchored author matching + Error handling`
+    `🎯 Features: STRICT field boundaries + Surname-anchored author matching + Safe availableData + Error handling`
   );
 });
