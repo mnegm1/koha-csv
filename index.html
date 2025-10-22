@@ -172,8 +172,11 @@ async function ensureLoaded(){
   }finally{ setBusy(false) }
 }
 
-// ---------- AUTHOR MATCHING (with surname anchor) ----------
+// ---------- AUTHOR MATCHING (surname anchor + non-common name) ----------
 const NAME_STOP = new Set(["بن","بنت","ابن","أبن","آل","ال","أبو","ابو","بو","بنّ","عبد","عبدال"]);
+// أسماء أولى شائعة جدًا تُضعِف المطابقة
+const COMMON_GIVEN = new Set(["محمد","احمد","أحمد","علي","حسن","حسين","خالد","سعيد","سالم","يوسف","عبدالله","عبد الله","عبدالرحمن","عبد الرحمن","عبدالعزيز","عبد العزيز","عبدال","عبد","محمود","ابراهيم","إبراهيم","عمر","سامي","سعيد","نادر","ماجد"]);
+
 function extractSurname(tokens){
   for(let i=tokens.length-1;i>=0;i--){
     const t = tokens[i];
@@ -194,13 +197,23 @@ function exactAuthorMatch(qTokens, name){
   return qTokens.every(qt => aTokens.some(at=>tokenEq(qt,at))) &&
          aTokens.every(at => qTokens.some(qt=>tokenEq(qt,at)));
 }
-// flexible match with mandatory surname anchor
+// flexible match with mandatory surname anchor AND at least one non-common given name (if available)
 function flexibleAuthorMatch(qTokens, name){
   const aTokens = tokenizeName(name);
   if(aTokens.length===0 || qTokens.length===0) return {hit:false,score:0};
+
   const anchor = extractSurname(qTokens);
   const hasAnchor = anchor ? aTokens.some(at=>tokenEq(anchor, at)) : false;
   if(anchor && !hasAnchor) return {hit:false,score:0};
+
+  // إن وُجدت أسماء غير شائعة في الاستعلام، ألزم مطابقة واحد منها
+  const qNonCommon = qTokens.filter(t => t !== anchor && !COMMON_GIVEN.has(t) && !NAME_STOP.has(t));
+  if(qNonCommon.length > 0){
+    const hasDistinct = qNonCommon.some(t => aTokens.some(at=>tokenEq(t,at)));
+    if(!hasDistinct) return {hit:false,score:0};
+  }
+
+  // greedy one-to-one overlap
   let overlap=0; const used=new Array(aTokens.length).fill(false);
   for(const qt of qTokens){
     const i=aTokens.findIndex((at,idx)=>!used[idx] && tokenEq(qt,at));
@@ -211,7 +224,9 @@ function flexibleAuthorMatch(qTokens, name){
   if(overlap>=need){
     const closeness=1 - Math.abs(qTokens.length - aTokens.length)/5;
     const anchorBonus=hasAnchor?8:0;
-    return {hit:true, score:70 + overlap*10 + closeness*5 + anchorBonus};
+    // بونص إضافي لو الاسم المميّز موجود
+    const distinctBonus=(qNonCommon.length>0)?5:0;
+    return {hit:true, score:70 + overlap*10 + closeness*5 + anchorBonus + distinctBonus};
   }
   return {hit:false,score:0};
 }
@@ -237,7 +252,7 @@ function searchField(field,q){
         const best=[main,other,corp].reduce((a,b)=>a.score>b.score?a:b,{hit:false,score:0});
         if(best.hit){sc=best.score;hit=true}
       }
-      if(hit) MATCH_NOTE="Author: ≥2 tokens + surname anchor";
+      if(hit) MATCH_NOTE="Author: surname + distinct name (if present)";
 
     } else if(field==="title"){
       const matchCount = tokens.filter(tok=>r.nTitle.includes(tok)).length;
