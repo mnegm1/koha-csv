@@ -1,6 +1,6 @@
 // backend/server.js
-// ECSSR AI Assistant Backend - FIXED VERSION
-// Solution: Frontend pre-filters, backend refines with AI
+// ECSSR AI Assistant - AI Uses ONLY Catalog Summaries
+// Frontend searches → Backend gets summaries → AI answers from summaries ONLY
 
 const express = require('express');
 const cors = require('cors');
@@ -44,7 +44,7 @@ async function callPerplexity(messages, model = 'sonar-pro') {
       body: JSON.stringify({
         model: model,
         messages: messages,
-        temperature: 0.1,
+        temperature: 0.05, // VERY LOW = stick to provided data
         max_tokens: 800
       })
     });
@@ -62,7 +62,7 @@ async function callPerplexity(messages, model = 'sonar-pro') {
   }
 }
 
-// 1. Chat endpoint - Works with pre-filtered results
+// ====== CHAT ENDPOINT - AI Reads Summaries ONLY ======
 app.post('/api/chat', async (req, res) => {
   const ip = req.ip;
   
@@ -71,35 +71,54 @@ app.post('/api/chat', async (req, res) => {
   }
 
   try {
-    const { query, context } = req.body;
+    const { query, matchedBooks } = req.body;
     
     if (!query) {
       return res.status(400).json({ error: 'Query is required' });
     }
 
-    // Use reasonable sample (max 100 books to avoid token limit)
-    const sampleBooks = (context.sampleBooks || []).slice(0, 100);
+    // Frontend already searched and sends ONLY matched books
+    const books = matchedBooks || [];
 
-    const contextMsg = `You are a library assistant for ECSSR with ${context.totalBooks} books total.
+    if (books.length === 0) {
+      return res.json({ 
+        answer: "لم أجد كتباً تطابق سؤالك في الكتالوج.<br>I didn't find any matching books in the catalog.",
+        bookIds: []
+      });
+    }
 
-RULES:
-- Answer based on these sample books from our catalog
-- Be helpful and concise
-- Support Arabic and English
-- If asked about books not in sample, say "يمكنني البحث عن المزيد / I can search for more"
+    // Build STRICT prompt - AI can ONLY use these summaries
+    const prompt = `You are a library assistant. Answer the user's question using ONLY the book summaries below.
 
-SAMPLE FROM CATALOG (100 of ${context.totalBooks} books):
-${JSON.stringify(sampleBooks)}
+CRITICAL RULES:
+- ONLY use information from the summaries provided below
+- DO NOT use your general knowledge
+- DO NOT invent or assume information
+- If the summaries don't contain the answer, say "المعلومات غير متوفرة في ملخصات الكتب / Information not available in book summaries"
+- When mentioning books, include their ID number
+- Be concise and helpful
 
-Previous conversation: ${JSON.stringify(context.conversationHistory || [])}
+AVAILABLE BOOKS (with summaries from catalog):
+${JSON.stringify(books.map(b => ({
+  id: b.id,
+  title: b.title,
+  author: b.author,
+  summary: b.summary || "No summary available"
+})))}
 
-User question: ${query}`;
+User question: ${query}
+
+Answer using ONLY the summaries above. Start your answer with the number of relevant books found.`;
 
     const answer = await callPerplexity([
-      { role: 'system', content: 'You are a library assistant for ECSSR.' },
-      { role: 'user', content: contextMsg }
+      { 
+        role: 'system', 
+        content: 'You ONLY answer based on provided book summaries. Never use external knowledge. Always cite book IDs.' 
+      },
+      { role: 'user', content: prompt }
     ], 'sonar-pro');
 
+    // Extract book IDs mentioned in answer
     const bookIds = [];
     const idMatches = answer.match(/\b(\d+)\b/g);
     if (idMatches) {
@@ -114,8 +133,8 @@ User question: ${query}`;
   }
 });
 
-// 2. Search endpoint - Frontend sends PRE-FILTERED results only
-app.post('/api/search', async (req, res) => {
+// ====== ENHANCE SEARCH - AI Ranks by Summary Relevance ======
+app.post('/api/enhance-search', async (req, res) => {
   const ip = req.ip;
   
   if (!checkRateLimit(ip)) {
@@ -123,105 +142,72 @@ app.post('/api/search', async (req, res) => {
   }
 
   try {
-    const { query, catalog } = req.body;
+    const { query, preFilteredBooks } = req.body;
     
-    if (!query) {
-      return res.status(400).json({ error: 'Query is required' });
+    if (!query || !preFilteredBooks || preFilteredBooks.length === 0) {
+      return res.json({ rankedBooks: preFilteredBooks || [], explanation: "" });
     }
 
-    // Frontend already filtered - we receive only matching books (max 200)
-    const preFiltered = (catalog || []).slice(0, 200);
-
-    if (preFiltered.length === 0) {
-      return res.json({ 
-        explanation: 'لا توجد نتائج / No results found', 
-        bookIds: [] 
-      });
-    }
-
-    const prompt = `Refine search results for library catalog.
+    // AI reads summaries and ranks by relevance
+    const prompt = `You are analyzing book summaries for a library search.
 
 User searched for: "${query}"
 
-PRE-FILTERED RESULTS (${preFiltered.length} books):
-${JSON.stringify(preFiltered)}
+BOOKS WITH SUMMARIES:
+${JSON.stringify(preFilteredBooks.slice(0, 50).map(b => ({
+  id: b.id,
+  title: b.title,
+  author: b.author,
+  summary: b.summary || ""
+})))}
 
 Task:
-1. Rank these books by relevance to the query
-2. Select the MOST relevant ones
-3. Explain briefly
+1. Read each book's SUMMARY
+2. Rank books by how well the SUMMARY matches the query
+3. Return the top 20 most relevant book IDs
+
+CRITICAL: Only use information from the summaries provided. Do not use external knowledge.
 
 Format:
-EXPLANATION: [brief reasoning in same language as query]
-BOOK_IDS: [top 20 most relevant IDs from list above]`;
+EXPLANATION: [brief explanation in same language as query]
+BOOK_IDS: [comma-separated IDs, most relevant first]`;
 
     const response = await callPerplexity([
-      { role: 'system', content: 'Rank provided books by relevance. Use only IDs from the list.' },
+      { 
+        role: 'system', 
+        content: 'Rank books based ONLY on provided summaries. Never use external knowledge.' 
+      },
       { role: 'user', content: prompt }
     ], 'sonar-pro');
 
     const explanationMatch = response.match(/EXPLANATION:\s*(.+?)(?=BOOK_IDS:|$)/s);
     const idsMatch = response.match(/BOOK_IDS:\s*([\d,\s]+)/);
 
-    const explanation = explanationMatch ? explanationMatch[1].trim() : 'وجدت نتائج ذات صلة / Found relevant results';
+    const explanation = explanationMatch ? explanationMatch[1].trim() : '';
     const bookIds = idsMatch 
       ? idsMatch[1].split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id))
       : [];
 
-    res.json({ explanation, bookIds: bookIds.slice(0, 30) });
+    // Return books in AI-ranked order
+    const rankedBooks = bookIds
+      .map(id => preFilteredBooks.find(b => b.id === id))
+      .filter(Boolean);
+
+    res.json({ rankedBooks, explanation });
 
   } catch (error) {
-    console.error('Search error:', error);
+    console.error('Enhance search error:', error);
     res.status(500).json({ error: error.message });
-  }
-});
-
-// 3. Auto-suggestions
-app.post('/api/suggest', async (req, res) => {
-  const ip = req.ip;
-  
-  if (!checkRateLimit(ip)) {
-    return res.status(429).json({ error: 'Rate limit exceeded' });
-  }
-
-  try {
-    const { partial } = req.body;
-    
-    if (!partial || partial.length < 3) {
-      return res.json({ suggestions: [] });
-    }
-
-    const prompt = `User typed: "${partial}"
-
-Generate 5 search queries for a library. Same language as input.
-
-Return ONLY comma-separated queries.`;
-
-    const response = await callPerplexity([
-      { role: 'user', content: prompt }
-    ], 'sonar-pro');
-
-    const suggestions = response
-      .split(/[,\n]/)
-      .map(s => s.trim())
-      .filter(s => s.length > 0 && s.length < 100)
-      .slice(0, 5);
-
-    res.json({ suggestions });
-
-  } catch (error) {
-    console.error('Suggest error:', error);
-    res.json({ suggestions: [] });
   }
 });
 
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'ok', 
-    message: 'ECSSR AI Assistant Backend is running',
+    message: 'ECSSR AI Assistant Backend - Summary-only mode',
     perplexityConfigured: !!PERPLEXITY_API_KEY && PERPLEXITY_API_KEY !== 'pplx-YOUR-API-KEY-HERE',
     modelVersion: 'sonar-pro',
-    features: 'Smart search with pre-filtering (no token limits)'
+    features: 'AI uses ONLY catalog summaries, no external knowledge'
   });
 });
 
@@ -233,8 +219,8 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`🚀 ECSSR AI Backend running on http://localhost:${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
-  console.log(`🤖 Model: sonar-pro`);
-  console.log(`📚 Smart search: Frontend filters → AI refines`);
+  console.log(`🤖 Model: sonar-pro (temperature: 0.05)`);
+  console.log(`📚 AI uses ONLY catalog summaries - NO external knowledge`);
   
   if (!PERPLEXITY_API_KEY || PERPLEXITY_API_KEY === 'pplx-YOUR-API-KEY-HERE') {
     console.warn('⚠️  WARNING: Perplexity API key not configured!');
