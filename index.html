@@ -112,20 +112,38 @@ function isFamousPerson(q){
 function chooseField(q){
   const raw=q.trim();
   const nq=norm(q);
+  
+  // 1. Year detection
   if(looksLikeYear(raw))return "year";
+  
+  // 2. Question detection
   if(/^(what|how|why|when|where|who|which|ما|كيف|لماذا|متى|أين|من|ماذا|كيفية|هل)\b/i.test(raw)){
     MATCH_NOTE="Question → searching in Abstract & Contents";return "summary"
   }
+  
+  // 3. Famous person detection
   if(isFamousPerson(raw)){MATCH_NOTE="Famous person → searching in Subject & Title";return "subject"}
-  if(/(التراث|الثقافة|التاريخ|الفن|العلوم|الأدب|الشعر|السياسة|الاقتصاد|التعليم|الصحة|البيئة|التكنولوجيا|الذكاء|الطاقة|المياه|الزراعة|النفط|الغاز)/i.test(raw)){
-    MATCH_NOTE="Topic keyword → searching in Subject";return "subject"
+  
+  // 4. ENHANCED Topic keyword detection (BEFORE author detection!)
+  const topicKeywords = /(تراث|التراث|ثقافة|الثقافة|تاريخ|التاريخ|فن|الفن|علوم|العلوم|أدب|الأدب|شعر|الشعر|سياسة|السياسة|اقتصاد|الاقتصاد|تعليم|التعليم|صحة|الصحة|بيئة|البيئة|تكنولوجيا|التكنولوجيا|ذكاء|الذكاء|طاقة|الطاقة|مياه|المياه|زراعة|الزراعة|نفط|النفط|غاز|الغاز|امارات|الامارات|عربي|العربي|اسلامي|الاسلامي|دولي|الدولي|قومي|القومي|وطني|الوطني|ديني|الديني|اجتماعي|الاجتماعي|heritage|culture|history|art|science|literature|politics|economy|education|health|environment|technology|energy|water|agriculture|oil|gas)/i;
+  
+  if(topicKeywords.test(raw)){
+    MATCH_NOTE="Topic keyword → searching in Subject";
+    return "subject"
   }
+  
+  // 5. Author name detection (2-3 Arabic words WITHOUT topic keywords)
   const words=raw.split(/\s+/).filter(Boolean);
   if(words.length>=2&&words.length<=3&&isArabic(raw)){
-    MATCH_NOTE="2-3 Arabic words → searching in Author";
-    if(/[a-zA-Z]/.test(raw)&&isArabic(raw))return "subject";
-    return "author"
+    // Check if it looks like author (has common name particles)
+    const hasNameParticle = /\b(بن|ابن|آل|عبد|أبو|ابو)\b/i.test(raw);
+    if(hasNameParticle){
+      MATCH_NOTE="Author name → searching in Author";
+      return "author"
+    }
   }
+  
+  // 6. Default: subject search
   MATCH_NOTE="General search → Subject & Title";
   return "subject"
 }
@@ -186,6 +204,7 @@ function searchField(field,q){
     }else if(field==="title"){
       if(r.nTitle.includes(nq)){sc=80;hit=true}
     }else if(field==="subject"){
+      // STRICT: Only search in subject and title fields
       if(r.nSubject.includes(nq)){sc=100;hit=true}
       if(r.nTitle.includes(nq)){sc=85;hit=true}
       if(hit&&isFamousPerson(q))MATCH_NOTE="Books ABOUT this person"
