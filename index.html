@@ -168,7 +168,7 @@ function chooseField(q){
   if(/(ناشر|publisher|دار نشر|دار النشر|publishing house|press books)/i.test(raw)){MATCH_NOTE="Publisher keyword → Publisher field";return "pub"}
   if(looksLikeYear(raw))return "year";
   if(/^(what|how|why|when|where|who|which|ما|كيف|لماذا|متى|أين|من|ماذا|كيفية|هل)\b/i.test(raw)){MATCH_NOTE="Question → Summary";return "summary"}
-  if(isFamousPerson(raw)){MATCH_NOTE="Famous person → Subject";return "subject"}
+  if(isFamousPerson(raw)){MATCH_NOTE="Famous person → Summary (answer from book content)";return "summary"}
   if(/(تراث|التراث|ثقافة|الثقافة|تاريخ|التاريخ|فن|الفن|علوم|العلوم|أدب|الأدب|شعر|الشعر|سياسة|السياسة|اقتصاد|الاقتصاد|تعليم|التعليم|صحة|الصحة|بيئة|البيئة|تكنولوجيا|التكنولوجيا|ذكاء|الذكاء|طاقة|الطاقة|مياه|المياه|زراعة|الزراعة|نفط|النفط|غاز|الغاز|امارات|الامارات|إمارات|الإمارات)/i.test(raw)){MATCH_NOTE="Topic keyword → Subject";return "subject"}
   if(LOADED && INDEX.length>0){
     const nq=norm(raw);let a=0,s=0;
