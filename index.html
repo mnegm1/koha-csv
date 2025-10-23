@@ -107,6 +107,61 @@ const FAMOUS_PEOPLE=new Set(["محمد بن زايد","محمد بن راشد","
 function looksLikeYear(q){return/^\d{4}$/.test(q.trim())}
 function isFamousPerson(q){const nq=norm(q);for(const p of FAMOUS_PEOPLE)if(nq.includes(norm(p)))return true;return/\b(president|رئيس|سمو|صاحب السمو)\b/i.test(q)}
 
+// ---------- AUTHOR MATCHING (surname anchor + non-common name) ----------
+const NAME_STOP = new Set(["بن","بنت","ابن","أبن","آل","ال","أبو","ابو","بو","بنّ","عبد","عبدال"]);
+const COMMON_GIVEN = new Set(["محمد","احمد","أحمد","علي","حسن","حسين","خالد","سعيد","سالم","يوسف","عبدالله","عبد الله","عبدالرحمن","عبد الرحمن","عبدالعزيز","عبد العزيز","عبدال","عبد","محمود","ابراهيم","إبراهيم","عمر","سامي","سعيد","نادر","ماجد"]);
+
+function extractSurname(tokens){
+  for(let i=tokens.length-1;i>=0;i--){
+    const t = tokens[i];
+    if(!NAME_STOP.has(t)) return t;
+  }
+  return tokens[tokens.length-1] || null;
+}
+function tokenizeName(n){ return norm(n).split(/\s+/).filter(t=>t.length>=2) }
+function tokenEq(a,b){
+  if(a===b) return true;
+  if(a.length>=3 && b.startsWith(a)) return true;
+  if(b.length>=3 && a.startsWith(b)) return true;
+  return false;
+}
+function exactAuthorMatch(qTokens, name){
+  const aTokens = tokenizeName(name);
+  if(qTokens.length!==aTokens.length) return false;
+  return qTokens.every(qt => aTokens.some(at=>tokenEq(qt,at))) &&
+         aTokens.every(at => qTokens.some(qt=>tokenEq(qt,at)));
+}
+function flexibleAuthorMatch(qTokens, name){
+  const aTokens = tokenizeName(name);
+  if(aTokens.length===0 || qTokens.length===0) return {hit:false,score:0};
+
+  const anchor = extractSurname(qTokens);
+  const hasAnchor = anchor ? aTokens.some(at=>tokenEq(anchor, at)) : false;
+  if(anchor && !hasAnchor) return {hit:false,score:0};
+
+  const qNonCommon = qTokens.filter(t => t !== anchor && !COMMON_GIVEN.has(t) && !NAME_STOP.has(t));
+  if(qNonCommon.length > 0){
+    const hasDistinct = qNonCommon.some(t => aTokens.some(at=>tokenEq(t,at)));
+    if(!hasDistinct) return {hit:false,score:0};
+  }
+
+  let overlap=0; const used=new Array(aTokens.length).fill(false);
+  for(const qt of qTokens){
+    const i=aTokens.findIndex((at,idx)=>!used[idx] && tokenEq(qt,at));
+    if(i>=0){ used[i]=true; overlap++; }
+  }
+  const minLen=Math.min(qTokens.length,aTokens.length);
+  const need=Math.max(2, Math.ceil(minLen*0.66));
+  if(overlap>=need){
+    const closeness=1 - Math.abs(qTokens.length - aTokens.length)/5;
+    const anchorBonus=hasAnchor?8:0;
+    const distinctBonus=(qNonCommon.length>0)?5:0;
+    return {hit:true, score:70 + overlap*10 + closeness*5 + anchorBonus + distinctBonus};
+  }
+  return {hit:false,score:0};
+}
+
+
 // ---------- FIELD CHOOSER ----------
 function chooseField(q){
   const raw=q.trim();
@@ -145,7 +200,7 @@ async function ensureLoaded(){
     if(cells.length!==rawHdrs.length)continue;
     const obj={id:cells[idxMap["biblionumber"]]||"",title:clean(cells[idxMap["full title"]]||""),author:clean(cells[idxMap["author"]]||""),summary:clean(cells[idxMap["abstract"]]||""),publisher:clean(cells[idxMap["publications data"]]||""),content:clean(cells[idxMap["content"]]||""),subject:clean(cells[idxMap["subjects"]]||""),corporate_name:clean(cells[idxMap["corporate name"]]||""),other_author:clean(cells[idxMap["other authors"]]||""),year:clean(cells[idxMap["year"]]||""),item_type:clean(cells[idxMap["item type"]]||""),book_url:clean(cells[idxMap["book_url"]]||"")};
     const combo=obj.author+" "+obj.other_author+" "+obj.corporate_name;
-    INDEX.push({id:obj.id,raw:obj,nTitle:norm(obj.title),nAuthor:norm(obj.author),nAuthorAll:norm(combo),nSummary:norm(obj.summary),nContent:norm(obj.content),nSubject:norm(obj.subject),nYear:norm(obj.year),nPub:norm(obj.publisher)})
+    INDEX.push({id:obj.id,raw:obj,nTitle:norm(obj.title),nAuthor:norm(obj.author),nOtherAuthor:norm(obj.other_author),nCorporate:norm(obj.corporate_name),nAuthorAll:norm(combo),nSummary:norm(obj.summary),nContent:norm(obj.content),nSubject:norm(obj.subject),nYear:norm(obj.year),nPub:norm(obj.publisher)})
   }
   LOADED=true;
   status.textContent=`✅ Loaded ${INDEX.length} records`
@@ -169,11 +224,18 @@ function searchField(field,q){
       }
 
     } else if(field==="author"){
-      if(r.nAuthorAll.includes(nq)){sc=100;hit=true}
+      if(exactAuthorMatch(tokens, r.nAuthor)){sc=120;hit=true}
+      else if(exactAuthorMatch(tokens, r.nOtherAuthor)){sc=112;hit=true}
+      else if(exactAuthorMatch(tokens, r.nCorporate)){sc=105;hit=true}
       else {
-        const matchCount = tokens.filter(tok=>r.nAuthorAll.includes(tok)).length;
-        if(matchCount >= tokens.length * 0.6){sc = 40 + matchCount * 10;hit=true}
+        const main=flexibleAuthorMatch(tokens, r.nAuthor);
+        const other=flexibleAuthorMatch(tokens, r.nOtherAuthor);
+        const corp=flexibleAuthorMatch(tokens, r.nCorporate);
+        const best=[main,other,corp].reduce((a,b)=>a.score>b.score?a:b,{hit:false,score:0});
+        if(best.hit){sc=best.score;hit=true}
       }
+      if(hit) MATCH_NOTE="Author: surname + distinct name (if present)";
+
 
     } else if(field==="subject"){
       if(r.nSubject.includes(nq)){sc=100;hit=true}
