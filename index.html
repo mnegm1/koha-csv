@@ -334,7 +334,32 @@ async function renderAll(list,field,query){
   
   getAISummary(query,list.slice(0,20)).then(result=>{
     if(result && result.answer){
-      aiSummaryDiv.innerHTML=result.answer;
+      // Convert [1], [2], etc. to clickable links
+      let answerWithLinks = result.answer;
+      
+      // Find all [number] patterns and replace with clickable links
+      answerWithLinks = answerWithLinks.replace(/\[(\d+)\]/g, (match, num) => {
+        const index = parseInt(num) - 1;
+        if(index >= 0 && index < list.length){
+          const book = list[index];
+          const bookUrl = book.raw.book_url || '#';
+          const title = (book.raw.title || 'Book ' + num).substring(0, 100);
+          return `<a href="${bookUrl}" target="_blank" style="color:#BF9849;font-weight:bold;text-decoration:none;border-bottom:2px solid #BF9849" title="${title}">[${num}]</a>`;
+        }
+        return match;
+      });
+      
+      aiSummaryDiv.innerHTML=answerWithLinks;
+      
+      // Add Data Source note after AI summary
+      const sourceNote=document.createElement("div");
+      sourceNote.className="info";
+      sourceNote.style.marginTop="8px";
+      sourceNote.style.fontSize="12px";
+      sourceNote.style.background="linear-gradient(135deg,#fff9e6,#fffbf0)";
+      sourceNote.innerHTML="<strong>📚 Data Source:</strong> All information provided by the AI is based exclusively on the bibliographic data in the ECSSR library catalog, including titles, authors, publishers, years, subjects, and abstracts from the matched books shown below.";
+      aiSummaryDiv.after(sourceNote);
+      
       // Render citations after AI summary
       if(result.citations && result.citations.length > 0){
         renderCitations(result.citations);
