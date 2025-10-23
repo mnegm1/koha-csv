@@ -146,13 +146,14 @@ async function ensureLoaded(){
       const content=rec["content"]||rec["contents"]||rec["المحتويات"]||"";
       const pubData=rec["publications data"]||rec["بيانات النشر"]||"";
       const bookUrl=rec["book_url"]||rec["book url"]||rec["رابط الكتاب"]||"";
+      const itemType=rec["item type"]||rec["نوع المادة"]||"";
       const year=rec["year"]||rec["السنة"]||(pubData.match(/(19|20)\d{2}/)||[""])[0];
       const publisher=pubData.replace(/\b(19|20)\d{2}\b/g,"").trim();
       const authorAll=[author,otherAu,corporate].filter(Boolean).join(" ");
 
       INDEX.push({
         id:INDEX.length,
-        raw:{title,author,other_author:otherAu,corporate_name:corporate,subject,summary,content,publisher,year,book_url:bookUrl},
+        raw:{title,author,other_author:otherAu,corporate_name:corporate,subject,summary,content,publisher,year,book_url:bookUrl,item_type:itemType},
         nTitle:norm(title),
         nAuthor:norm(author),
         nOtherAuthor:norm(otherAu),
@@ -301,7 +302,7 @@ function searchField(field,q){
 // ---------- TRANSLATION + AI SUMMARY ----------
 async function translateText(text,targetLang){try{const sourceLang=isArabic(text)?"ar":"en";if(sourceLang===targetLang)return text;const url=`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceLang}|${targetLang}`,response=await fetch(url),data=await response.json();if(data.responseData&&data.responseData.translatedText)return data.responseData.translatedText;throw new Error("Translation failed")}catch(error){console.error("Translation error:",error);return null}}
 async function translateRecord(recordId,field,button){const book=INDEX.find(b=>b.id===recordId);if(!book)return;const text=book.raw[field];if(!text)return;button.textContent="⏳";button.disabled=true;const targetLang=isArabic(text)?"en":"ar",translated=await translateText(text,targetLang);if(translated){const div=document.createElement("div");div.className="translated";div.innerHTML=`<strong>${isArabic(translated)?"الترجمة:":"Translation:"}</strong> ${translated}`;button.parentElement.appendChild(div);button.remove()}else{button.textContent="🌐";button.disabled=false}}
-async function getAISummary(query,matchedBooks){if(matchedBooks.length===0)return null;try{const booksWithSummaries=matchedBooks.slice(0,20).map(b=>({id:b.id,title:b.raw.title,author:b.raw.author,subject:b.raw.subject||"",summary:b.raw.summary||b.raw.content||""})),response=await fetch(`${BACKEND_URL}/chat`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({query,matchedBooks:booksWithSummaries,searchField:LAST.field})});if(!response.ok)return null;const data=await response.json();return data.answer}catch(error){console.error("AI summary error:",error);return null}}
+async function getAISummary(query,matchedBooks){if(matchedBooks.length===0)return null;try{const booksWithSummaries=matchedBooks.slice(0,20).map(b=>({id:b.id,title:b.raw.title,author:b.raw.author,subject:b.raw.subject||"",summary:b.raw.summary||b.raw.content||"",publisher:b.raw.publisher||"",year:b.raw.year||"",item_type:b.raw.item_type||""})),response=await fetch(`${BACKEND_URL}/chat`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({query,matchedBooks:booksWithSummaries,searchField:LAST.field})});if(!response.ok)return null;const data=await response.json();return data.answer}catch(error){console.error("AI summary error:",error);return null}}
 
 // ---------- RENDER ----------
 function clearResults(){body.innerHTML=""}
@@ -313,6 +314,7 @@ function renderChunk(items){
     div.dir=isArabic(r.title||r.author)?"rtl":"ltr";
     const authors=[r.author,r.other_author,r.corporate_name].filter(Boolean).join(" • ");
     const pubLine=[r.publisher,r.year].filter(Boolean).join(" • ");
+    const itemTypeLine=r.item_type?`<div class="meta">${isArabic(r.item_type)?"نوع المادة: ":"Item Type: "}${r.item_type}</div>`:"";
     const translateTo=isArabic(r.title)?"EN":"AR";
     div.innerHTML=
       `<button class="translate-icon" onclick="translateRecord(${it.id},'title',this)">🌐 ${translateTo}</button>
@@ -323,6 +325,7 @@ function renderChunk(items){
        ${authors?`<div class="meta">${isArabic(authors)?"المؤلف: ":"Author: "}${authors}</div>`:""}
        ${r.subject?`<div class="meta">${isArabic(r.subject)?"الموضوع: ":"Subject: "}${r.subject}</div>`:""}
        ${pubLine?`<div class="meta">${pubLine}</div>`:""}
+       ${itemTypeLine}
        ${r.summary?`<div style="margin-top:6px;font-size:13px">${r.summary.length>300?r.summary.slice(0,297)+"…":r.summary}</div>`:""}`;
     frag.appendChild(div)
   }
@@ -354,7 +357,18 @@ async function renderAll(list,field,query){
   const aiSummaryDiv=document.createElement("div");aiSummaryDiv.className="ai-summary";
   aiSummaryDiv.innerHTML="⏳ AI analyzing summaries...";
   body.appendChild(aiSummaryDiv);
-  getAISummary(query,list.slice(0,20)).then(aiAnswer=>{if(aiAnswer)aiSummaryDiv.innerHTML=aiAnswer;else aiSummaryDiv.remove()});
+  getAISummary(query,list.slice(0,20)).then(aiAnswer=>{
+    if(aiAnswer){
+      aiSummaryDiv.innerHTML=aiAnswer;
+      const sourceNote=document.createElement("div");
+      sourceNote.className="info";
+      sourceNote.style.marginTop="8px";
+      sourceNote.style.fontSize="12px";
+      sourceNote.style.background="linear-gradient(135deg,#fff9e6,#fffbf0)";
+      sourceNote.innerHTML="<strong>📚 Data Source:</strong> All information provided by the AI is based exclusively on the bibliographic data in the ECSSR library catalog, including titles, authors, publishers, years, subjects, and abstracts from the matched books shown below.";
+      aiSummaryDiv.after(sourceNote);
+    }else aiSummaryDiv.remove()
+  });
 
   const info=document.createElement("div");info.className="info";
   info.textContent=`وجدت ${list.length} نتيجة / Found ${list.length} results`;
