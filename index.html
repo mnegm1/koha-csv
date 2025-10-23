@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>UAE Federation Library AI Assistant</title>
+<title>ECSSR AI Assistant</title>
 <style>
 :root{--brand:#BF9849;--logo-url:url("https://assets.almanhal.com/platform/shared/Product/ECSSR/middlelogo.png");--fab-size:70px}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;margin:0;padding:2rem}
@@ -61,7 +61,7 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFE
 </div>
 
 <div class="box" id="box">
-  <div class="head"><div>UAE Federation Library AI Search</div><button class="close" id="close">×</button></div>
+  <div class="head"><div>ECSSR AI Search</div><button class="close" id="close">×</button></div>
   <div class="busybar" id="busybar"><div class="spinner"></div><div class="busytext" id="busytext">Loading...</div></div>
   <div class="status" id="status">Ready</div>
   <div class="body" id="body"></div>
@@ -543,12 +543,19 @@ q.addEventListener("keydown",e=>{if(e.key==="Enter")run()});
 
 // Event delegation for translate buttons
 body.addEventListener('click', (e) => {
+  console.log('Clicked element:', e.target);
+  console.log('Has translate-icon class:', e.target.classList.contains('translate-icon'));
+  
   if (e.target.classList.contains('translate-icon')) {
     const button = e.target;
     const recordId = parseInt(button.getAttribute('data-record-id'));
     const field = button.getAttribute('data-field');
+    console.log('Translate button clicked:', { recordId, field });
+    
     if (recordId && field) {
       translateRecord(recordId, field, button);
+    } else {
+      console.error('Missing recordId or field:', { recordId, field });
     }
   }
 });
