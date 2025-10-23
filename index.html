@@ -27,16 +27,6 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFE
 .translated{background:#e8f4f8;padding:8px;margin-top:8px;border-radius:6px;font-size:13px;border-left:3px solid #BF9849}
 .ai-summary{background:linear-gradient(135deg,#e8f4f8,#f0f8ff);border-left:4px solid #BF9849;padding:12px;margin:10px 0;border-radius:8px;font-size:13px;line-height:1.6}
 .ai-summary::before{content:"🤖 ";margin-right:4px}
-
-/* NEW: citations styling */
-.cites{margin-top:10px;border-top:1px dashed #d9d9d9;padding-top:8px}
-.cites h4{margin:6px 0 8px 0;font-size:13px;color:#444}
-.cite-list{display:flex;flex-wrap:wrap;gap:8px}
-.cite{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:8px 10px;font-size:12px;box-shadow:0 1px 3px rgba(0,0,0,.04);display:flex;align-items:center;gap:8px}
-.cite b{font-weight:700;margin-inline-end:6px}
-.cite a{background:#BF9849;color:#fff;text-decoration:none;border-radius:8px;padding:4px 8px;font-weight:600}
-.cite a[disabled], .cite a[aria-disabled="true"]{opacity:.5;pointer-events:none}
-
 .input-wrap{padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
 .input{display:flex;gap:8px}
 .input input{flex:1;padding:10px 12px;border-radius:10px;border:1px solid #cfd9e3}
@@ -71,21 +61,17 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFE
 </div>
 
 <script>
-/* ------------------- Config ------------------- */
 const DATA_URL="./opac-catalog.tab?delim=tab";
 const PAGE_SIZE=12;
 const BACKEND_URL="https://ecssr-ai-assistant.onrender.com/api";
 
-/* ------------------- State ------------------- */
 let INDEX=[],HEADERS=[],LOADED=false,MATCH_NOTE="",LAST={items:[],shown:0,field:""};
 
-/* ------------------- UI Hooks ------------------- */
 const fab=document.getElementById("fab"),box=document.getElementById("box"),close=document.getElementById("close"),body=document.getElementById("body"),status=document.getElementById("status"),q=document.getElementById("q"),go=document.getElementById("go");
 setTimeout(()=>{const b=document.getElementById("slideBanner");if(b)b.remove()},7500);
 fab.onclick=()=>{box.style.display=(box.style.display==="flex")?"none":"flex";if(box.style.display==="flex"){if(!LOADED){setBusy(true,"Initializing…");ensureLoaded().then(()=>setBusy(false))}setTimeout(()=>q.focus(),50)}};
 close.onclick=()=>box.style.display="none";
 
-/* ------------------- Utils ------------------- */
 function setBusy(on,label){const bar=document.getElementById("busybar"),txt=document.getElementById("busytext");if(label)txt.textContent=label;if(on){box.classList.add("busy");go.disabled=true;q.disabled=true}else{box.classList.remove("busy");go.disabled=false;q.disabled=false}}
 function stripBidi(s){return String(s||"").replace(/[\u200E\u200F\u202A-\u202E]/g,"")}
 function clean(s){return stripBidi(String(s||"").replace(/^\uFEFF/,""))}
@@ -94,41 +80,63 @@ function norm(s){
   if(!s)return "";
   s=clean(s).toLowerCase();
   try{s=s.normalize("NFKD")}catch(e){}
-  s=s.replace(/[إأآٱ]/g,"ا").replace(/\s*و\s*/g,"و").replace(/[ىی]/g,"ي").replace(/ة/g,"ه").replace(/ک/g,"ك").replace(/\bعبد\s+ال/g,"عبدال")
+  s=s.replace(/[إأآٱ]/g,"ا")
+     .replace(/\s*و\s*/g,"و")
+     .replace(/[ىی]/g,"ي")
+     .replace(/ة/g,"ه")
+     .replace(/ک/g,"ك")
+     .replace(/\bعبد\s+ال/g,"عبدال")
      .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
      .replace(/[\u0660-\u0669]/g,d=>String.fromCharCode(d.charCodeAt(0)-1632+48))
      .replace(/[\u06F0-\u06F9]/g,d=>String.fromCharCode(d.charCodeAt(0)-1776+48))
-     .replace(/[^\p{L}\p{N}\s]/gu," ").replace(/\s+/g," ").trim();
+     .replace(/[^\p{L}\p{N}\s]/gu," ")
+     .replace(/\s+/g," ")
+     .trim();
   return s
 }
 function isArabic(s){return/[\u0600-\u06FF]/.test(s||"")}
+const FAMOUS_PEOPLE=new Set(["محمد بن زايد","محمد بن راشد","خليفة بن زايد","زايد بن سلطان","محمد بن زايد آل نهيان","sheikh mohamed","sheikh mohammed","sheikh khalifa","sheikh zayed","الشيخ محمد","الشيخ خليفة","الشيخ زايد"]);
 function looksLikeYear(q){return/^\d{4}$/.test(q.trim())}
+function isFamousPerson(q){const nq=norm(q);for(const p of FAMOUS_PEOPLE)if(nq.includes(norm(p)))return true;return/\b(president|رئيس|سمو|صاحب السمو)\b/i.test(q)}
+
+// ---------- FIELD CHOOSER ----------
 function chooseField(q){
   const raw=q.trim();
   if(/(ناشر|publisher|دار نشر|دار النشر|publishing house|press books)/i.test(raw)){MATCH_NOTE="Publisher keyword → Publisher field";return "pub"}
   if(looksLikeYear(raw))return "year";
   if(/^(what|how|why|when|where|who|which|ما|كيف|لماذا|متى|أين|من|ماذا|كيفية|هل)\b/i.test(raw)){MATCH_NOTE="Question → Summary";return "summary"}
-  // (keep the rest of your heuristics as-is)
-  MATCH_NOTE="Default → Subject";return "subject";
+  if(isFamousPerson(raw)){MATCH_NOTE="Famous person → Subject";return "subject"}
+  if(/(تراث|التراث|ثقافة|الثقافة|تاريخ|التاريخ|فن|الفن|علوم|العلوم|أدب|الأدب|شعر|الشعر|سياسة|السياسة|اقتصاد|الاقتصاد|تعليم|التعليم|صحة|الصحة|بيئة|البيئة|تكنولوجيا|التكنولوجيا|ذكاء|الذكاء|طاقة|الطاقة|مياه|المياه|زراعة|الزراعة|نفط|النفط|غاز|الغاز|امارات|الامارات|إمارات|الإمارات)/i.test(raw)){MATCH_NOTE="Topic keyword → Subject";return "subject"}
+  if(LOADED && INDEX.length>0){
+    const nq=norm(raw);let a=0,s=0;
+    for(let i=0;i<Math.min(500,INDEX.length);i++){
+      if(INDEX[i].nAuthorAll.includes(nq)) a++;
+      if(INDEX[i].nSubject.includes(nq) || INDEX[i].nTitle.includes(nq)) s++;
+    }
+    if(a>3 && a>s){MATCH_NOTE="Found in authors → Author";return "author"}
+    if(s>3){MATCH_NOTE="Found in subjects → Subject";return "subject"}
+  }
+  const words=raw.split(/\s+/).filter(Boolean);
+  if(words.length>=2 && words.length<=3 && isArabic(raw) && !/[a-zA-Z]/.test(raw)){MATCH_NOTE="2-3 Arabic words → Author";return "author"}
+  MATCH_NOTE="Default → Subject";return "subject"
 }
 
-/* ------------------- Load OPAC ------------------- */
+// ---------- DATA LOAD ----------
 async function ensureLoaded(){
   if(LOADED)return;
   try{
     setBusy(true,"Loading records…");
     const resp=await fetch(DATA_URL,{cache:"reload"});
     if(!resp.ok)throw new Error(`Fetch ${resp.status}`);
-    const text=await resp.text();
+    const text=new TextDecoder("utf-8").decode(await resp.arrayBuffer());
     const lines=text.split(/\r?\n/);
     if(lines.length<2)throw new Error("Empty catalog");
-    HEADERS=lines[0].split("\t").map(canonHeader);
+    const headers=lines[0].split("\t").map(canonHeader);
+    HEADERS=headers;
     for(let i=1;i<lines.length;i++){
       const cols=lines[i].split("\t");
       if(cols.length<2||(cols.length===1&&!cols[0]))continue;
-      const rec={};
-      HEADERS.forEach((h,idx)=>{rec[h]=clean(cols[idx]||"")});
-
+      const rec={}; headers.forEach((h,idx)=>{rec[h]=clean(cols[idx]||"")});
       const title=rec["full title"]||rec["title"]||rec["العنوان"]||"";
       const author=rec["author"]||rec["المؤلف"]||"";
       const otherAu=rec["other author"]||rec["المؤلف الآخر"]||"";
@@ -161,134 +169,115 @@ async function ensureLoaded(){
     status.textContent=`✅ Loaded ${INDEX.length} records`;
   }catch(e){
     status.textContent=`❌ Error: ${e.message}`;
-  }finally{
-    setBusy(false)
-  }
+  }finally{ setBusy(false) }
 }
 
-/* ------------------- Author matching (your rules) ------------------- */
+// ---------- AUTHOR MATCHING (surname anchor + non-common name) ----------
 const NAME_STOP = new Set(["بن","بنت","ابن","أبن","آل","ال","أبو","ابو","بو","بنّ","عبد","عبدال"]);
-const COMMON_GIVEN = new Set(["محمد","احمد","أحمد","علي","حسن","حسين","خالد","سعيد","سالم","يوسف","عبدالله","عبد الله","عبدالرحمن","عبد الرحمن","عبدالعزيز","عبد العزيز","عبدال","عبد","محمود","ابراهيم","إبراهيم","عمر","سامي","نادر","ماجد"]);
-function tokenizeName(n){ return (n||"").split(/\s+/).filter(t=>t.length>=2) }
-function tokenEq(a,b){ if(a===b) return true; if(a.length>=3 && b.startsWith(a)) return true; if(b.length>=3 && a.startsWith(b)) return true; return false; }
-function extractSurname(tokens){ for(let i=tokens.length-1;i>=0;i--){const t=tokens[i]; if(!NAME_STOP.has(t)) return t;} return tokens[tokens.length-1]||null; }
-function exactAuthorMatch(qTokens,name){
-  const aTokens=tokenizeName(name);
-  if(qTokens.length!==aTokens.length) return false;
-  return qTokens.every(qt=>aTokens.some(at=>tokenEq(qt,at))) &&
-         aTokens.every(at=>qTokens.some(qt=>tokenEq(qt,at)));
+// أسماء أولى شائعة جدًا تُضعِف المطابقة
+const COMMON_GIVEN = new Set(["محمد","احمد","أحمد","علي","حسن","حسين","خالد","سعيد","سالم","يوسف","عبدالله","عبد الله","عبدالرحمن","عبد الرحمن","عبدالعزيز","عبد العزيز","عبدال","عبد","محمود","ابراهيم","إبراهيم","عمر","سامي","سعيد","نادر","ماجد"]);
+
+function extractSurname(tokens){
+  for(let i=tokens.length-1;i>=0;i--){
+    const t = tokens[i];
+    if(!NAME_STOP.has(t)) return t;
+  }
+  return tokens[tokens.length-1] || null;
 }
-function flexibleAuthorMatch(qTokens,name){
-  const aTokens=tokenizeName(name);
-  if(aTokens.length===0||qTokens.length===0) return {hit:false,score:0};
-  const anchor=extractSurname(qTokens);
-  const hasAnchor=anchor?aTokens.some(at=>tokenEq(anchor,at)):false;
+function tokenizeName(n){ return (n||"").split(/\s+/).filter(t=>t.length>=2) }
+function tokenEq(a,b){
+  if(a===b) return true;
+  if(a.length>=3 && b.startsWith(a)) return true;
+  if(b.length>=3 && a.startsWith(b)) return true;
+  return false;
+}
+function exactAuthorMatch(qTokens, name){
+  const aTokens = tokenizeName(name);
+  if(qTokens.length!==aTokens.length) return false;
+  return qTokens.every(qt => aTokens.some(at=>tokenEq(qt,at))) &&
+         aTokens.every(at => qTokens.some(qt=>tokenEq(qt,at)));
+}
+// flexible match with mandatory surname anchor AND at least one non-common given name (if available)
+function flexibleAuthorMatch(qTokens, name){
+  const aTokens = tokenizeName(name);
+  if(aTokens.length===0 || qTokens.length===0) return {hit:false,score:0};
+
+  const anchor = extractSurname(qTokens);
+  const hasAnchor = anchor ? aTokens.some(at=>tokenEq(anchor, at)) : false;
   if(anchor && !hasAnchor) return {hit:false,score:0};
-  const qNonCommon=qTokens.filter(t=>t!==anchor && !COMMON_GIVEN.has(t) && !NAME_STOP.has(t));
-  if(qNonCommon.length>0){
-    const hasDistinct=qNonCommon.some(t=>aTokens.some(at=>tokenEq(t,at)));
+
+  // إن وُجدت أسماء غير شائعة في الاستعلام، ألزم مطابقة واحد منها
+  const qNonCommon = qTokens.filter(t => t !== anchor && !COMMON_GIVEN.has(t) && !NAME_STOP.has(t));
+  if(qNonCommon.length > 0){
+    const hasDistinct = qNonCommon.some(t => aTokens.some(at=>tokenEq(t,at)));
     if(!hasDistinct) return {hit:false,score:0};
   }
+
+  // greedy one-to-one overlap
   let overlap=0; const used=new Array(aTokens.length).fill(false);
-  for(const qt of qTokens){ const i=aTokens.findIndex((at,idx)=>!used[idx]&&tokenEq(qt,at)); if(i>=0){used[i]=true;overlap++;} }
+  for(const qt of qTokens){
+    const i=aTokens.findIndex((at,idx)=>!used[idx] && tokenEq(qt,at));
+    if(i>=0){ used[i]=true; overlap++; }
+  }
   const minLen=Math.min(qTokens.length,aTokens.length);
-  // tighten for >=3 tokens (need 3)
-  const need=(qTokens.length>=3)?3:Math.max(2,Math.ceil(minLen*0.66));
+  const need=Math.max(2, Math.ceil(minLen*0.66));
   if(overlap>=need){
-    const closeness=1-Math.abs(qTokens.length-aTokens.length)/5;
+    const closeness=1 - Math.abs(qTokens.length - aTokens.length)/5;
     const anchorBonus=hasAnchor?8:0;
+    // بونص إضافي لو الاسم المميّز موجود
     const distinctBonus=(qNonCommon.length>0)?5:0;
-    return {hit:true,score:70+overlap*10+closeness*5+anchorBonus+distinctBonus};
+    return {hit:true, score:70 + overlap*10 + closeness*5 + anchorBonus + distinctBonus};
   }
   return {hit:false,score:0};
 }
 
-/* ------------------- Search core ------------------- */
+// ---------- SEARCH ----------
 function searchField(field,q){
   const nq=norm(q);
-  const tokens=nq.split(/\s+/).filter(t=>t.length>=2);
-  const out=[]; MATCH_NOTE="";
-
-  // exact 2-token preference
-  let exactTwoTokenExists=false;
-  if(field==="author" && tokens.length===2){
-    for(const r of INDEX){
-      const a2 = tokenizeName(r.nAuthor).length===2 && exactAuthorMatch(tokens,r.nAuthor);
-      const o2 = tokenizeName(r.nOtherAuthor).length===2 && exactAuthorMatch(tokens,r.nOtherAuthor);
-      const c2 = tokenizeName(r.nCorporate).length===2 && exactAuthorMatch(tokens,r.nCorporate);
-      if(a2||o2||c2){ exactTwoTokenExists=true; break; }
-    }
-  }
-
-  // exact same-length preference for >=3 tokens
-  let exactSameLenExists=false;
-  if(field==="author" && tokens.length>=3){
-    for(const r of INDEX){
-      const aSL = tokenizeName(r.nAuthor).length===tokens.length && exactAuthorMatch(tokens,r.nAuthor);
-      const oSL = tokenizeName(r.nOtherAuthor).length===tokens.length && exactAuthorMatch(tokens,r.nOtherAuthor);
-      const cSL = tokenizeName(r.nCorporate).length===tokens.length && exactAuthorMatch(tokens,r.nCorporate);
-      if(aSL||oSL||cSL){ exactSameLenExists=true; break; }
-    }
-  }
+  const tokens = nq.split(/\s+/).filter(t=>t.length>=2);
+  const out=[];
+  MATCH_NOTE="";
 
   for(const r of INDEX){
     let hit=false,sc=0;
 
     if(field==="author"){
-      const aExact = exactAuthorMatch(tokens,r.nAuthor);
-      const oExact = exactAuthorMatch(tokens,r.nOtherAuthor);
-      const cExact = exactAuthorMatch(tokens,r.nCorporate);
-
-      if(tokens.length>=3 && exactSameLenExists){
-        if(aExact && tokenizeName(r.nAuthor).length===tokens.length){ sc=130; hit=true; }
-        else if(oExact && tokenizeName(r.nOtherAuthor).length===tokens.length){ sc=122; hit=true; }
-        else if(cExact && tokenizeName(r.nCorporate).length===tokens.length){ sc=115; hit=true; }
-      } else if(tokens.length===2 && exactTwoTokenExists){
-        if(aExact && tokenizeName(r.nAuthor).length===2){ sc=125; hit=true; }
-        else if(oExact && tokenizeName(r.nOtherAuthor).length===2){ sc=118; hit=true; }
-        else if(cExact && tokenizeName(r.nCorporate).length===2){ sc=112; hit=true; }
-      } else {
-        if      (aExact){ sc=120; hit=true; }
-        else if (oExact){ sc=112; hit=true; }
-        else if (cExact){ sc=105; hit=true; }
-        else{
-          const main=flexibleAuthorMatch(tokens,r.nAuthor);
-          const other=flexibleAuthorMatch(tokens,r.nOtherAuthor);
-          const corp=flexibleAuthorMatch(tokens,r.nCorporate);
-          const best=[main,other,corp].reduce((a,b)=>a.score>b.score?a:b,{hit:false,score:0});
-          if(best.hit){ sc=best.score; hit=true; }
-        }
+      if(exactAuthorMatch(tokens, r.nAuthor)){sc=120;hit=true}
+      else if(exactAuthorMatch(tokens, r.nOtherAuthor)){sc=112;hit=true}
+      else if(exactAuthorMatch(tokens, r.nCorporate)){sc=105;hit=true}
+      else {
+        const main=flexibleAuthorMatch(tokens, r.nAuthor);
+        const other=flexibleAuthorMatch(tokens, r.nOtherAuthor);
+        const corp=flexibleAuthorMatch(tokens, r.nCorporate);
+        const best=[main,other,corp].reduce((a,b)=>a.score>b.score?a:b,{hit:false,score:0});
+        if(best.hit){sc=best.score;hit=true}
       }
-
-      if(hit) MATCH_NOTE = (tokens.length===2 && exactTwoTokenExists)
-        ? "Author: exact 2-token match preferred"
-        : (tokens.length>=3 && exactSameLenExists)
-          ? "Author: exact same-length match preferred"
-          : "Author: surname anchor + distinct token";
+      if(hit) MATCH_NOTE="Author: surname + distinct name (if present)";
 
     } else if(field==="title"){
       const matchCount = tokens.filter(tok=>r.nTitle.includes(tok)).length;
-      if(matchCount === tokens.length){sc=90+matchCount*5;hit=true}
-      else if(matchCount>0 && matchCount>=tokens.length*0.5){sc=40+matchCount*5;hit=true}
+      if(matchCount === tokens.length){sc = 90 + matchCount * 5;hit=true}
+      else if(matchCount > 0 && matchCount >= tokens.length * 0.5){sc = 40 + matchCount * 5;hit=true}
 
     } else if(field==="subject"){
       if(r.nSubject.includes(nq)){sc=100;hit=true}
       else if(r.nTitle.includes(nq)){sc=90;hit=true}
       else {
-        const sm=tokens.filter(tok=>r.nSubject.includes(tok)).length;
-        const tm=tokens.filter(tok=>r.nTitle.includes(tok)).length;
-        const total=Math.max(sm,tm);
-        if(total>=tokens.length*0.5){sc=30+total*8;hit=true}
+        const subjectMatch = tokens.filter(tok=>r.nSubject.includes(tok)).length;
+        const titleMatch = tokens.filter(tok=>r.nTitle.includes(tok)).length;
+        const totalMatch = Math.max(subjectMatch, titleMatch);
+        if(totalMatch >= tokens.length * 0.5){sc = 30 + totalMatch * 8;hit=true}
       }
+      if(hit&&isFamousPerson(q))MATCH_NOTE="Books ABOUT this person"
 
     } else if(field==="summary"){
       if(r.nSummary.includes(nq)){sc=90;hit=true}
       else if(r.nContent.includes(nq)){sc=80;hit=true}
       else {
-        const sm=tokens.filter(tok=>r.nSummary.includes(tok)).length;
-        const cm=tokens.filter(tok=>r.nContent.includes(tok)).length;
-        const total=Math.max(sm,cm);
-        if(total>=tokens.length*0.4){sc=20+total*10;hit=true}
+        const summaryMatch = tokens.filter(tok=>r.nSummary.includes(tok)).length;
+        const contentMatch = tokens.filter(tok=>r.nContent.includes(tok)).length;
+        const totalMatch = Math.max(summaryMatch, contentMatch);
+        if(totalMatch >= tokens.length * 0.4){sc = 20 + totalMatch * 10;hit=true}
       }
 
     } else if(field==="year"){
@@ -297,8 +286,8 @@ function searchField(field,q){
     } else if(field==="pub"){
       if(r.nPub.includes(nq)){sc=100;hit=true}
       else {
-        const m=tokens.filter(tok=>r.nPub.includes(tok)).length;
-        if(m>=tokens.length*0.6){sc=40+m*10;hit=true}
+        const matchCount = tokens.filter(tok=>r.nPub.includes(tok)).length;
+        if(matchCount >= tokens.length * 0.6){sc = 40 + matchCount * 10;hit=true}
       }
     }
 
@@ -309,52 +298,32 @@ function searchField(field,q){
   return out
 }
 
-/* ------------------- Translate + AI ------------------- */
+// ---------- TRANSLATION + AI SUMMARY ----------
 async function translateText(text,targetLang){try{const sourceLang=isArabic(text)?"ar":"en";if(sourceLang===targetLang)return text;const url=`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceLang}|${targetLang}`,response=await fetch(url),data=await response.json();if(data.responseData&&data.responseData.translatedText)return data.responseData.translatedText;throw new Error("Translation failed")}catch(error){console.error("Translation error:",error);return null}}
 async function translateRecord(recordId,field,button){const book=INDEX.find(b=>b.id===recordId);if(!book)return;const text=book.raw[field];if(!text)return;button.textContent="⏳";button.disabled=true;const targetLang=isArabic(text)?"en":"ar",translated=await translateText(text,targetLang);if(translated){const div=document.createElement("div");div.className="translated";div.innerHTML=`<strong>${isArabic(translated)?"الترجمة:":"Translation:"}</strong> ${translated}`;button.parentElement.appendChild(div);button.remove()}else{button.textContent="🌐";button.disabled=false}}
+async function getAISummary(query,matchedBooks){if(matchedBooks.length===0)return null;try{const booksWithSummaries=matchedBooks.slice(0,20).map(b=>({id:b.id,title:b.raw.title,author:b.raw.author,subject:b.raw.subject||"",summary:b.raw.summary||b.raw.content||""})),response=await fetch(`${BACKEND_URL}/chat`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({query,matchedBooks:booksWithSummaries,searchField:LAST.field})});if(!response.ok)return null;const data=await response.json();return data.answer}catch(error){console.error("AI summary error:",error);return null}}
 
-/* ---- CALL BACKEND: keep payload (answer + bookIds + citations) ---- */
-async function getAISummary(query,matchedBooks){
-  if(matchedBooks.length===0) return null;
-  try{
-    const booksWithSummaries=matchedBooks.slice(0,20).map(b=>({
-      id:b.id,title:b.raw.title,author:b.raw.author,
-      subject:b.raw.subject||"",
-      summary:b.raw.summary||b.raw.content||"",
-      book_url:b.raw.book_url||""
-    }));
-    const response=await fetch(`${BACKEND_URL}/chat`,{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({query,matchedBooks:booksWithSummaries,searchField:LAST.field})
-    });
-    if(!response.ok) return null;
-    return await response.json(); // { answer, bookIds, citations }
-  }catch(error){
-    console.error("AI summary error:",error);
-    return null;
-  }
-}
-
-/* ------------------- Render ------------------- */
+// ---------- RENDER ----------
 function clearResults(){body.innerHTML=""}
 function renderChunk(items){
   const frag=document.createDocumentFragment();
   for(const it of items){
     const r=it.raw,div=document.createElement("div");
-    div.className="row";div.dir=isArabic(r.title||r.author)?"rtl":"ltr";
+    div.className="row";
+    div.dir=isArabic(r.title||r.author)?"rtl":"ltr";
     const authors=[r.author,r.other_author,r.corporate_name].filter(Boolean).join(" • ");
     const pubLine=[r.publisher,r.year].filter(Boolean).join(" • ");
     const translateTo=isArabic(r.title)?"EN":"AR";
-    div.innerHTML=`<button class="translate-icon" onclick="translateRecord(${it.id},'title',this)">🌐 ${translateTo}</button>
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding-left:60px">
-        <b style="font-size:15px;line-height:1.4;flex:1;min-width:0;word-break:break-word">${r.title||"(بدون عنوان)"}</b>
-        ${r.book_url?`<a class="btn" href="${r.book_url}" target="_blank" style="flex-shrink:0">Open</a>`:'<button class="btn" disabled style="flex-shrink:0">No URL</button>'}
-      </div>
-      ${authors?`<div class="meta">${isArabic(authors)?"المؤلف: ":"Author: "}${authors}</div>`:""}
-      ${r.subject?`<div class="meta">${isArabic(r.subject)?"الموضوع: ":"Subject: "}${r.subject}</div>`:""}
-      ${pubLine?`<div class="meta">${pubLine}</div>`:""}
-      ${r.summary?`<div style="margin-top:6px;font-size:13px">${r.summary.length>300?r.summary.slice(0,297)+"…":r.summary}</div>`:""}`;
+    div.innerHTML=
+      `<button class="translate-icon" onclick="translateRecord(${it.id},'title',this)">🌐 ${translateTo}</button>
+       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding-left:60px">
+         <b style="font-size:15px;line-height:1.4;flex:1;min-width:0;word-break:break-word">${r.title||"(بدون عنوان)"}</b>
+         ${r.book_url?`<a class="btn" href="${r.book_url}" target="_blank" style="flex-shrink:0">Open</a>`:'<button class="btn" disabled style="flex-shrink:0">No URL</button>'}
+       </div>
+       ${authors?`<div class="meta">${isArabic(authors)?"المؤلف: ":"Author: "}${authors}</div>`:""}
+       ${r.subject?`<div class="meta">${isArabic(r.subject)?"الموضوع: ":"Subject: "}${r.subject}</div>`:""}
+       ${pubLine?`<div class="meta">${pubLine}</div>`:""}
+       ${r.summary?`<div style="margin-top:6px;font-size:13px">${r.summary.length>300?r.summary.slice(0,297)+"…":r.summary}</div>`:""}`;
     frag.appendChild(div)
   }
   body.appendChild(frag)
@@ -368,8 +337,6 @@ function addShowMoreIfNeeded(){
   btn.onclick=()=>{const next=Math.min(LAST.shown+PAGE_SIZE,LAST.items.length);renderChunk(LAST.items.slice(LAST.shown,next));LAST.shown=next;addShowMoreIfNeeded()};
   row.appendChild(btn);body.appendChild(row)
 }
-
-/* ------------------- Render all, with AI + citations ------------------- */
 async function renderAll(list,field,query){
   clearResults();
   const labelAR={author:"المؤلف + المؤلف المشارك",title:"العنوان",subject:"الموضوع + العنوان",summary:"الملخص + المحتويات",year:"سنة النشر",pub:"الناشر"}[field]||field;
@@ -379,90 +346,25 @@ async function renderAll(list,field,query){
   body.appendChild(note);
 
   if(!list.length){
-    const empty=document.createElement("div");
-    empty.className="info";
+    const empty=document.createElement("div");empty.className="info";
     empty.textContent="لا توجد نتائج / No results found";
-    body.appendChild(empty);
-    return;
+    body.appendChild(empty);return
   }
 
-  // AI summary section
-  const aiSummaryDiv=document.createElement("div");
-  aiSummaryDiv.className="ai-summary";
+  const aiSummaryDiv=document.createElement("div");aiSummaryDiv.className="ai-summary";
   aiSummaryDiv.innerHTML="⏳ AI analyzing summaries...";
   body.appendChild(aiSummaryDiv);
+  getAISummary(query,list.slice(0,20)).then(aiAnswer=>{if(aiAnswer)aiSummaryDiv.innerHTML=aiAnswer;else aiSummaryDiv.remove()});
 
-  const sliceForAI=list.slice(0,20);
-  getAISummary(query,sliceForAI).then(payload=>{
-    if(!payload){ aiSummaryDiv.remove(); return; }
-
-    // 1) Render LLM answer with inline numbered citations:
-    // Replace (ID: 123) -> <sup><a href="#cite-123">[n]</a></sup>
-    let answer=payload.answer||"";
-    const idOrder=[];
-    answer=answer.replace(/\(ID:\s*(\d+)\)/g,(_,id)=>{
-      const idx=idOrder.indexOf(id);
-      const num=(idx>=0)?(idx+1):(idOrder.push(id),idOrder.length);
-      return `<sup><a href="#cite-${id}" style="color:#BF9849;text-decoration:none">[${num}]</a></sup>`;
-    });
-    aiSummaryDiv.innerHTML=answer;
-
-    // 2) Build a local map from the 20 books we sent (fallback)
-    const localMap=new Map();
-    for(const b of sliceForAI){
-      localMap.set(String(b.id),{
-        id:b.id,
-        title:b.raw?.title || b.title || 'Untitled',
-        author:b.raw?.author || b.author || 'Unknown',
-        url:b.raw?.book_url || b.book_url || ''
-      });
-    }
-
-    // 3) Prefer backend citations; fallback to ids extracted from text
-    let cites = Array.isArray(payload.citations) ? payload.citations : [];
-    if(!cites.length && Array.isArray(payload.bookIds)){
-      cites = payload.bookIds.map(id=>localMap.get(String(id))).filter(Boolean);
-    }
-    if(!cites.length) return;
-
-    // 4) Render the Sources / المراجع list
-    const wrap=document.createElement("div");
-    wrap.className="cites";
-    wrap.innerHTML=`<h4>${isArabic(query)?'المراجع':'Sources'}</h4>`;
-
-    const ul=document.createElement("div");
-    ul.className="cite-list";
-
-    let counter=1;
-    for(const c of cites){
-      const div=document.createElement("div");
-      div.className="cite";
-      div.id=`cite-${c.id}`;
-      div.innerHTML=`
-        <b>[${counter}]</b>
-        <span style="max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-          ${c.title || 'Untitled'} — <i>${c.author || 'Unknown'}</i>
-        </span>
-        ${c.url ? `<a href="${c.url}" target="_blank" rel="noopener">Open</a>`
-                : `<a aria-disabled="true" disabled>Open</a>`}
-      `;
-      ul.appendChild(div);
-      counter++;
-    }
-    wrap.appendChild(ul);
-    aiSummaryDiv.appendChild(wrap);
-  });
-
-  const info=document.createElement("div");
-  info.className="info";
+  const info=document.createElement("div");info.className="info";
   info.textContent=`وجدت ${list.length} نتيجة / Found ${list.length} results`;
   body.appendChild(info);
 
   LAST.items=list;LAST.shown=Math.min(PAGE_SIZE,list.length);LAST.field=field;
-  renderChunk(list.slice(0,LAST.shown));addShowMoreIfNeeded();
+  renderChunk(list.slice(0,LAST.shown));addShowMoreIfNeeded()
 }
 
-/* ------------------- Run ------------------- */
+// ---------- RUN ----------
 async function run(){
   setBusy(true,"Searching…");
   try{
@@ -470,9 +372,7 @@ async function run(){
     const raw=q.value.trim();if(!raw){setBusy(false);return}
     const field=chooseField(raw),results=searchField(field,raw);
     await renderAll(results,field,raw)
-  }finally{
-    setBusy(false)
-  }
+  }finally{setBusy(false)}
 }
 go.onclick=run;
 q.addEventListener("keydown",e=>{if(e.key==="Enter")run()});
