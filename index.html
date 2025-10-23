@@ -376,7 +376,7 @@ function renderChunk(items){
     const itemTypeBadge = r.item_type ? `<span class="item-type-badge">${r.item_type}</span>` : '';
     
     div.innerHTML=
-      `<button class="translate-icon" onclick="translateRecord(${it.id},'title',this)">🌐 ${translateTo}</button>
+      `<button class="translate-icon" data-record-id="${it.id}" data-field="title">🌐 ${translateTo}</button>
        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding-left:60px">
          <div style="flex:1;min-width:0">
            <b style="font-size:15px;line-height:1.4;word-break:break-word">${r.title||"(بدون عنوان)"}</b>
@@ -540,6 +540,19 @@ async function run(){
 }
 go.onclick=run;
 q.addEventListener("keydown",e=>{if(e.key==="Enter")run()});
+
+// Event delegation for translate buttons
+body.addEventListener('click', (e) => {
+  if (e.target.classList.contains('translate-icon')) {
+    const button = e.target;
+    const recordId = parseInt(button.getAttribute('data-record-id'));
+    const field = button.getAttribute('data-field');
+    if (recordId && field) {
+      translateRecord(recordId, field, button);
+    }
+  }
+});
+
 window.translateRecord=translateRecord;
 </script>
 </body>
