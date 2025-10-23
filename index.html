@@ -547,8 +547,11 @@ q.addEventListener("keydown",e=>{if(e.key==="Enter")run()});
 
 // Event delegation for translate buttons
 body.addEventListener('click', (e) => {
+  console.log('BODY CLICKED!', e.target, e.target.className);
+  
   // Check if clicked element or its parent is a translate button
   const button = e.target.closest('.translate-icon');
+  console.log('Found button?', button);
   
   if (button) {
     const recordId = parseInt(button.getAttribute('data-record-id'));
