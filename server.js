@@ -115,6 +115,94 @@ function filterAuthorBooks(query, books) {
   return out;
 }
 
+/* ========= /api/understand-query ========= */
+app.post('/api/understand-query', async (req, res) => {
+  const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+  if (!checkRateLimit(ip)) {
+    return res.status(429).json({ error: 'Rate limit exceeded' });
+  }
+
+  try {
+    const { query } = req.body || {};
+    if (!query) return res.status(400).json({ error: 'Query required' });
+
+    const analysisPrompt = `You are a search query analyzer for a library system. Analyze the following query and respond in JSON format.
+
+USER QUERY: "${query}"
+
+Determine:
+1. INTENT: What is the user looking for?
+   - "author_books" = books BY this author
+   - "about_topic" = books ABOUT this topic/person
+   - "question" = answering a specific question
+   - "title_search" = looking for a specific book title
+
+2. FIELD: Which field to search?
+   - "author" = search by author name
+   - "subject" = search by subject/topic
+   - "summary" = search in book summaries/contents
+   - "title" = search by book title
+   - "default" = search all fields
+
+3. KEY_TERMS: Extract the main search terms (names, topics, keywords)
+
+4. REASONING: Brief explanation of your decision
+
+EXAMPLES:
+Query: "كتب محمد بن راشد"
+Response: {"intent":"author_books","field":"author","key_terms":["محمد بن راشد"],"reasoning":"User wants books BY Mohammed bin Rashid"}
+
+Query: "معلومات عن الشيخ زايد"
+Response: {"intent":"question","field":"summary","key_terms":["الشيخ زايد"],"reasoning":"User wants information ABOUT Sheikh Zayed from book content"}
+
+Query: "كتب عن التراث الإماراتي"
+Response: {"intent":"about_topic","field":"subject","key_terms":["التراث الإماراتي"],"reasoning":"User wants books about UAE heritage topic"}
+
+Query: "ما هو دور الشيخ زايد في التنمية"
+Response: {"intent":"question","field":"summary","key_terms":["الشيخ زايد","التنمية"],"reasoning":"Specific question needs answer from summaries"}
+
+Respond ONLY with valid JSON. No other text.`;
+
+    const aiResponse = await callPerplexity([
+      { role: 'system', content: 'You are a JSON-only response system. Return only valid JSON.' },
+      { role: 'user', content: analysisPrompt }
+    ], PERPLEXITY_MODEL);
+
+    // Parse AI response
+    let analysis;
+    try {
+      // Try to extract JSON from response
+      const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        analysis = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error('No JSON found');
+      }
+    } catch (parseError) {
+      console.error('Failed to parse AI analysis:', aiResponse);
+      // Fallback to default
+      return res.json({
+        intent: 'default',
+        field: 'default',
+        key_terms: [query],
+        reasoning: 'AI analysis failed, using default',
+        fallback: true
+      });
+    }
+
+    res.json(analysis);
+  } catch (err) {
+    console.error('Query understanding error:', err);
+    res.json({
+      intent: 'default',
+      field: 'default',
+      key_terms: [req.body.query],
+      reasoning: 'Error occurred, using default',
+      fallback: true
+    });
+  }
+});
+
 /* ========= /api/chat ========= */
 app.post('/api/chat', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
