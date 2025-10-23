@@ -201,6 +201,9 @@ async function chooseFieldSmart(q){
   // Use AI for almost all queries (to distinguish topics from author names)
   const words=raw.split(/\s+/).filter(Boolean);
   
+  // TEMPORARY: AI disabled until backend deployed - prevents 404 errors
+  // TODO: Re-enable after deploying new server.js with /api/understand-query endpoint
+  /*
   // Use AI for: 2+ Arabic words, questions, or queries with context keywords
   const shouldUseAI = 
     words.length >= 2 || 
@@ -211,6 +214,7 @@ async function chooseFieldSmart(q){
     const aiField = await understandQueryWithAI(raw);
     if(aiField) return aiField; // Use AI decision if available
   }
+  */
   
   // Fall back to rule-based logic
   return chooseField(raw);
