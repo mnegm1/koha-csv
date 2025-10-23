@@ -176,8 +176,8 @@ function chooseField(q){
       if(INDEX[i].nAuthorAll.includes(nq)) a++;
       if(INDEX[i].nSubject.includes(nq) || INDEX[i].nTitle.includes(nq)) s++;
     }
-    if(a>3 && a>s){MATCH_NOTE="Found in authors → Author";return "author"}
     if(s>3){MATCH_NOTE="Found in subjects → Subject";return "subject"}
+    if(a>3 && a>s){MATCH_NOTE="Found in authors → Author";return "author"}
   }
   const words=raw.split(/\s+/).filter(Boolean);
   if(words.length>=2 && words.length<=3 && isArabic(raw) && !/[a-zA-Z]/.test(raw)){MATCH_NOTE="2-3 Arabic words → Author";return "author"}
