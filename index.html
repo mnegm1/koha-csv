@@ -376,7 +376,7 @@ function renderChunk(items){
     const itemTypeBadge = r.item_type ? `<span class="item-type-badge">${r.item_type}</span>` : '';
     
     div.innerHTML=
-      `<button class="translate-icon" onclick="translateRecord(${it.id},'title',this)">🌐 ${translateTo}</button>
+      `<button class="translate-icon" onclick="translateRecord('${it.id}','title',this)">🌐 ${translateTo}</button>
        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding-left:60px">
          <div style="flex:1;min-width:0">
            <b style="font-size:15px;line-height:1.4;word-break:break-word">${r.title||"(بدون عنوان)"}</b>
