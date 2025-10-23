@@ -392,8 +392,30 @@ async function renderAll(list,field,query){
     body.appendChild(empty);return
   }
 
-  // Set LAST.field BEFORE calling AI so it sends the correct field type
+  // Set LAST.field BEFORE calling AI
   LAST.field=field;
+
+  // 1. Show results count
+  const info=document.createElement("div");info.className="info";
+  info.textContent=`وجدت ${list.length} نتيجة / Found ${list.length} results`;
+  body.appendChild(info);
+
+  // 2. Show bibliographic records section header
+  const recordsHeader=document.createElement("div");
+  recordsHeader.style.cssText="background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;padding:12px;margin:15px 0 10px 0;border-radius:10px;font-weight:bold;text-align:center;font-size:16px";
+  recordsHeader.textContent="📚 التسجيلات الببليوغرافية / Bibliographic Records";
+  body.appendChild(recordsHeader);
+
+  // 3. Render bibliographic records FIRST
+  LAST.items=list;LAST.shown=Math.min(PAGE_SIZE,list.length);
+  renderChunk(list.slice(0,LAST.shown));
+  addShowMoreIfNeeded();
+
+  // 4. Add AI summary section AFTER records
+  const aiSectionHeader=document.createElement("div");
+  aiSectionHeader.style.cssText="background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;padding:12px;margin:25px 0 10px 0;border-radius:10px;font-weight:bold;text-align:center;font-size:16px;border-top:3px solid #BF9849";
+  aiSectionHeader.textContent="🤖 ملخص ذكي من محتوى الكتب / AI Summary from Book Content";
+  body.appendChild(aiSectionHeader);
 
   const aiSummaryDiv=document.createElement("div");aiSummaryDiv.className="ai-summary";
   aiSummaryDiv.innerHTML='<span style="display:inline-block;animation:rotate 1.5s linear infinite">⏳</span> AI analyzing data...';
@@ -405,10 +427,10 @@ async function renderAll(list,field,query){
       
       // Convert markdown to HTML
       answerWithLinks = answerWithLinks
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')  // **bold** to <strong>
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')              // *italic* to <em>
-        .replace(/~~(.*?)~~/g, '<del>$1</del>')            // ~~strikethrough~~ to <del>
-        .replace(/\n/g, '<br>');                            // newlines to <br>
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/~~(.*?)~~/g, '<del>$1</del>')
+        .replace(/\n/g, '<br>');
       
       // Find all [number] patterns and replace with clickable links
       answerWithLinks = answerWithLinks.replace(/\[(\d+)\]/g, (match, num) => {
@@ -428,30 +450,23 @@ async function renderAll(list,field,query){
       
       aiSummaryDiv.innerHTML=answerWithLinks;
       
-      // Add Data Source note after AI summary
+      // Add Data Source note after AI summary with correct terminology
       const sourceNote=document.createElement("div");
       sourceNote.className="info";
       sourceNote.style.marginTop="8px";
       sourceNote.style.fontSize="12px";
       sourceNote.style.background="linear-gradient(135deg,#fff9e6,#fffbf0)";
-      sourceNote.innerHTML="<strong>📚 Data Source:</strong> All information provided by the AI is based exclusively on the bibliographic data in the ECSSR library catalog, including titles, authors, publishers, years, subjects, and abstracts from the matched books shown below.";
+      sourceNote.innerHTML="<strong>📚 مصدر البيانات:</strong> جميع المعلومات التي قدمها الذكاء الاصطناعي تستند حصرياً إلى البيانات الببليوغرافية في فهرس مكتبة اتحاد الإمارات، بما في ذلك العناوين والمؤلفين والناشرين والسنوات والموضوعات والملخصات من الكتب المطابقة المعروضة أعلاه.<br><strong>📚 Data Source:</strong> All information provided by the AI is based exclusively on the bibliographic data in the UAE Federation Library catalog, including titles, authors, publishers, years, subjects, and abstracts from the matched books shown above.";
       aiSummaryDiv.after(sourceNote);
       
-      // Render citations after AI summary
       if(result.citations && result.citations.length > 0){
         renderCitations(result.citations);
       }
     }else{
-      aiSummaryDiv.remove()
+      aiSummaryDiv.remove();
+      aiSectionHeader.remove();
     }
   });
-
-  const info=document.createElement("div");info.className="info";
-  info.textContent=`وجدت ${list.length} نتيجة / Found ${list.length} results`;
-  body.appendChild(info);
-
-  LAST.items=list;LAST.shown=Math.min(PAGE_SIZE,list.length);
-  renderChunk(list.slice(0,LAST.shown));addShowMoreIfNeeded()
 }
 
 // ---------- RUN ----------
