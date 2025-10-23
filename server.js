@@ -200,12 +200,12 @@ FORBIDDEN: subject, summary.`;
 
     const systemPrompt =
       searchField === 'summary'
-        ? 'Answer using ONLY summaries/contents.'
+        ? 'Answer using ONLY summaries/contents. Books have been provided to you - answer based on them.'
         : searchField === 'subject'
-        ? 'List books using ONLY subject and title.'
+        ? 'List books using ONLY subject and title. Books have been provided to you - list them.'
         : searchField === 'author'
-        ? 'List books BY the author using ONLY author and title.'
-        : 'Use only provided fields. No external knowledge.';
+        ? 'List books BY the author using ONLY author and title. Books have been provided to you - list them.'
+        : 'Use only provided fields. Books have been provided to you - answer based on them.';
 
     const userPrompt = `You are a library assistant. Follow the field rules STRICTLY.
 
@@ -216,8 +216,10 @@ RULES:
 2) NEVER use forbidden fields.
 3) Do not invent info.
 4) If you cannot answer from allowed fields, say "المعلومات غير متوفرة / Information not available".
-5) When mentioning books, use their full citation in this format: Author. Title. Publisher, Year.
+5) When mentioning books, use their citation provided in the data.
 6) Answer in the same language as the query.
+7) NEVER say "I didn't find any books" or "لم أجد كتباً" - you have been provided with books data, so answer based on that data.
+8) Focus on answering the user's question using the available book data provided to you.
 
 USER QUERY: "${query}"
 SEARCH FIELD: ${searchField}
