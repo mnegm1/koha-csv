@@ -401,8 +401,14 @@ async function renderAll(list,field,query){
   
   getAISummary(query,list.slice(0,20)).then(result=>{
     if(result && result.answer){
-      // Convert [1], [2], etc. to clickable links
       let answerWithLinks = result.answer;
+      
+      // Convert markdown to HTML
+      answerWithLinks = answerWithLinks
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')  // **bold** to <strong>
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')              // *italic* to <em>
+        .replace(/~~(.*?)~~/g, '<del>$1</del>')            // ~~strikethrough~~ to <del>
+        .replace(/\n/g, '<br>');                            // newlines to <br>
       
       // Find all [number] patterns and replace with clickable links
       answerWithLinks = answerWithLinks.replace(/\[(\d+)\]/g, (match, num) => {
