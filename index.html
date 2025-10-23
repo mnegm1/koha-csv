@@ -543,19 +543,18 @@ q.addEventListener("keydown",e=>{if(e.key==="Enter")run()});
 
 // Event delegation for translate buttons
 body.addEventListener('click', (e) => {
-  console.log('Clicked element:', e.target);
-  console.log('Has translate-icon class:', e.target.classList.contains('translate-icon'));
+  // Check if clicked element or its parent is a translate button
+  const button = e.target.closest('.translate-icon');
   
-  if (e.target.classList.contains('translate-icon')) {
-    const button = e.target;
+  if (button) {
     const recordId = parseInt(button.getAttribute('data-record-id'));
     const field = button.getAttribute('data-field');
-    console.log('Translate button clicked:', { recordId, field });
+    console.log('Translate button clicked!', { recordId, field });
     
     if (recordId && field) {
       translateRecord(recordId, field, button);
     } else {
-      console.error('Missing recordId or field:', { recordId, field });
+      console.error('Missing data:', { recordId, field });
     }
   }
 });
