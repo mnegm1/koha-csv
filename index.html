@@ -189,11 +189,25 @@ async function understandQueryWithAI(query){
 async function chooseFieldSmart(q){
   const raw=q.trim();
   
-  // Try AI understanding first for complex queries
-  const words=raw.split(/\s+/).filter(Boolean);
-  const isComplexQuery = words.length >= 3 || /^(what|how|why|when|where|who|which|ما|كيف|لماذا|متى|أين|من|ماذا|كيفية|هل|كتب|معلومات|عن)/i.test(raw);
+  // Skip AI for obvious cases (faster)
+  if(/(ناشر|publisher|دار نشر|دار النشر|publishing house|press books)/i.test(raw)){
+    MATCH_NOTE="Publisher keyword → Publisher field";
+    return "pub";
+  }
+  if(looksLikeYear(raw)){
+    return "year";
+  }
   
-  if(isComplexQuery){
+  // Use AI for almost all queries (to distinguish topics from author names)
+  const words=raw.split(/\s+/).filter(Boolean);
+  
+  // Use AI for: 2+ Arabic words, questions, or queries with context keywords
+  const shouldUseAI = 
+    words.length >= 2 || 
+    /^(what|how|why|when|where|who|which|ما|كيف|لماذا|متى|أين|من|ماذا|كيفية|هل|كتب|معلومات|عن)/i.test(raw) ||
+    isArabic(raw);
+  
+  if(shouldUseAI){
     const aiField = await understandQueryWithAI(raw);
     if(aiField) return aiField; // Use AI decision if available
   }
