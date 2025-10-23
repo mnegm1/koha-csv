@@ -161,7 +161,7 @@ If info not present in summaries, say "المعلومات غير متوفرة / 
         const publisher=(b.publisher||'').toString().trim();
         const year=(b.year||'').toString().trim();
         const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
-        return `Book ${i+1}:\nCitation: ${citation}\nSummary: ${summary}\n---`;}).join('\n');
+        return `[${i+1}] Citation: ${citation}\nSummary: ${summary}\n---`;}).join('\n');
 
     } else if (searchField === 'subject') {
       fieldInstructions = `
@@ -174,7 +174,7 @@ FORBIDDEN: author, summary.`;
         const publisher=(b.publisher||'').toString().trim();
         const year=(b.year||'').toString().trim();
         const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
-        return `Book ${i+1}:\nCitation: ${citation}\nSubject: ${subject}\n---`;}).join('\n');
+        return `[${i+1}] Citation: ${citation}\nSubject: ${subject}\n---`;}).join('\n');
 
     } else if (searchField === 'author') {
       fieldInstructions = `
@@ -186,7 +186,7 @@ FORBIDDEN: subject, summary.`;
         const publisher=(b.publisher||'').toString().trim();
         const year=(b.year||'').toString().trim();
         const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
-        return `Book ${i+1}:\nCitation: ${citation}\n---`;}).join('\n');
+        return `[${i+1}] Citation: ${citation}\n---`;}).join('\n');
 
     } else {
       availableData = safeBooks.map((b,i)=>{
@@ -195,7 +195,7 @@ FORBIDDEN: subject, summary.`;
         const publisher=(b.publisher||'').toString().trim();
         const year=(b.year||'').toString().trim();
         const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
-        return `Book ${i+1}:\nCitation: ${citation}\nSubject: ${subject}\nSummary: ${summary}\n---`;}).join('\n');
+        return `[${i+1}] Citation: ${citation}\nSubject: ${subject}\nSummary: ${summary}\n---`;}).join('\n');
     }
 
     const systemPrompt =
