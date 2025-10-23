@@ -155,8 +155,13 @@ Use ONLY: summary, contents.
 FORBIDDEN: author, subject, title.
 If info not present in summaries, say "المعلومات غير متوفرة / Information not available".`;
       availableData = safeBooks.map((b,i)=>{
-        const id=b.id??i,summary=(b.summary||b.contents||b.content||'').toString().trim()||'No summary';
-        return `Book ID ${id}:\nSummary: ${summary}\n---`;}).join('\n');
+        const summary=(b.summary||b.contents||b.content||'').toString().trim()||'No summary';
+        const author=(b.author||'Unknown Author').toString().trim();
+        const title=(b.title||'Untitled').toString().trim();
+        const publisher=(b.publisher||'').toString().trim();
+        const year=(b.year||'').toString().trim();
+        const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
+        return `Book ${i+1}:\nCitation: ${citation}\nSummary: ${summary}\n---`;}).join('\n');
 
     } else if (searchField === 'subject') {
       fieldInstructions = `
@@ -164,8 +169,12 @@ If info not present in summaries, say "المعلومات غير متوفرة / 
 Use ONLY: subject, title.
 FORBIDDEN: author, summary.`;
       availableData = safeBooks.map((b,i)=>{
-        const id=b.id??i,title=(b.title||'Untitled').toString(),subject=(b.subject||'No subject').toString();
-        return `Book ID ${id}:\nTitle: ${title}\nSubject: ${subject}\n---`;}).join('\n');
+        const title=(b.title||'Untitled').toString(),subject=(b.subject||'No subject').toString();
+        const author=(b.author||'Unknown Author').toString().trim();
+        const publisher=(b.publisher||'').toString().trim();
+        const year=(b.year||'').toString().trim();
+        const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
+        return `Book ${i+1}:\nCitation: ${citation}\nSubject: ${subject}\n---`;}).join('\n');
 
     } else if (searchField === 'author') {
       fieldInstructions = `
@@ -173,14 +182,20 @@ FORBIDDEN: author, summary.`;
 Use ONLY: author, title.
 FORBIDDEN: subject, summary.`;
       availableData = safeBooks.map((b,i)=>{
-        const id=b.id??i,title=(b.title||'Untitled').toString(),author=(b.author||'Unknown').toString();
-        return `Book ID ${id}:\nTitle: ${title}\nAuthor: ${author}\n---`;}).join('\n');
+        const title=(b.title||'Untitled').toString(),author=(b.author||'Unknown').toString();
+        const publisher=(b.publisher||'').toString().trim();
+        const year=(b.year||'').toString().trim();
+        const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
+        return `Book ${i+1}:\nCitation: ${citation}\n---`;}).join('\n');
 
     } else {
       availableData = safeBooks.map((b,i)=>{
-        const id=b.id??i,title=(b.title||'Untitled').toString(),author=(b.author||'Unknown').toString(),
+        const title=(b.title||'Untitled').toString(),author=(b.author||'Unknown').toString(),
               subject=(b.subject||'').toString(),summary=(b.summary||'').toString();
-        return `Book ID ${id}:\nTitle: ${title}\nAuthor: ${author}\nSubject: ${subject}\nSummary: ${summary}\n---`;}).join('\n');
+        const publisher=(b.publisher||'').toString().trim();
+        const year=(b.year||'').toString().trim();
+        const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
+        return `Book ${i+1}:\nCitation: ${citation}\nSubject: ${subject}\nSummary: ${summary}\n---`;}).join('\n');
     }
 
     const systemPrompt =
@@ -201,7 +216,7 @@ RULES:
 2) NEVER use forbidden fields.
 3) Do not invent info.
 4) If you cannot answer from allowed fields, say "المعلومات غير متوفرة / Information not available".
-5) When mentioning books, include their ID like (ID: 123).
+5) When mentioning books, use their full citation in this format: Author. Title. Publisher, Year.
 6) Answer in the same language as the query.
 
 USER QUERY: "${query}"
