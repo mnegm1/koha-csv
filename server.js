@@ -165,7 +165,8 @@ If info not present in summaries, say "المعلومات غير متوفرة / 
       fieldInstructions = `
 ⚠️ SUBJECT/TOPIC SEARCH
 Use ONLY: subject, title.
-FORBIDDEN: author, summary.`;
+FORBIDDEN: author, summary.
+If the user asks a question, answer it using the subjects and titles. Cite every fact with [number].`;
       availableData = safeBooks.map((b,i)=>{
         const title=(b.title||'Untitled').toString(),subject=(b.subject||'No subject').toString();
         const author=(b.author||'Unknown Author').toString().trim();
@@ -200,7 +201,7 @@ FORBIDDEN: subject, summary.`;
       searchField === 'summary'
         ? 'Answer using ONLY summaries/contents. Cite every fact with [number]. Books have been provided to you - answer based on them.'
         : searchField === 'subject'
-        ? 'List books using ONLY subject and title. Cite each book with [number]. Books have been provided to you - list them.'
+        ? 'Answer questions or list books using ONLY subject and title. Cite each fact with [number]. Books have been provided to you - use them to answer.'
         : searchField === 'author'
         ? 'List books BY the author using ONLY author and title. Cite each book with [number]. Books have been provided to you - list them.'
         : 'Use only provided fields. Cite all information with [number]. Books have been provided to you - answer based on them.';
