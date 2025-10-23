@@ -1,327 +1,370 @@
-// backend/server.js
-// ECSSR AI Assistant — v3.2
-// - Health shows codeVersion
-// - Strict author matching with "exact 2-token author preferred" rule
-// - Safe availableData builders (no sampleBooks)
-// - Rate limiting + robust guards
+<!DOCTYPE html>
+<html lang="ar" dir="auto">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>ECSSR AI Assistant</title>
+<style>
+:root{--brand:#BF9849;--logo-url:url("https://assets.almanhal.com/platform/shared/Product/ECSSR/middlelogo.png");--fab-size:70px}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFED;margin:0;padding:2rem}
+.fab-wrap{position:fixed;right:18px;bottom:18px;z-index:9999;width:var(--fab-size);height:calc(var(--fab-size)+36px)}
+.fab-label{position:absolute;left:50%;bottom:calc(var(--fab-size)+4px);transform:translateX(-50%);width:calc(var(--fab-size)+36px);height:34px;pointer-events:none;filter:drop-shadow(0 1px 0 rgba(255,255,255,.65))}
+.fab-label text{fill:var(--brand);font-weight:700;font-size:12px;letter-spacing:.5px}
+.fab{position:absolute;left:0;bottom:0;width:var(--fab-size);height:var(--fab-size);background:#fff var(--logo-url) center/145% no-repeat;border:5px solid #BF9849;border-radius:50%;cursor:pointer;box-shadow:0 10px 30px rgba(191,152,73,0.4);transition:transform 0.3s ease, box-shadow 0.3s ease}
+.fab:hover{transform:scale(1.08);box-shadow:0 15px 40px rgba(191,152,73,0.6)}
+.slide-banner{position:fixed;right:calc(var(--fab-size) + 30px);bottom:calc(18px + (var(--fab-size) / 2) - 22px);background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;padding:14px 28px;border-radius:30px;font-weight:700;font-size:15px;box-shadow:0 8px 24px rgba(191,152,73,0.5);white-space:nowrap;z-index:9998;animation:slideFromBottom 7s ease-in-out forwards;opacity:0;letter-spacing:0.3px}
+@keyframes slideFromBottom{0%{transform:translateY(200px);opacity:0}15%{transform:translateY(0);opacity:1}85%{transform:translateY(0);opacity:1}100%{transform:translateY(200px);opacity:0}}
+.box{position:fixed;right:18px;bottom:calc(18px + var(--fab-size) + 12px);width:min(620px,94vw);max-height:85vh;background:#fff;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.25);display:none;flex-direction:column;overflow:hidden;z-index:9999}
+.head{background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;padding:12px 16px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+.close{background:none;border:none;color:#fff;font-size:20px;cursor:pointer}
+.status{font-size:12px;padding:8px 12px;background:#fafafa;border-bottom:1px solid #e8eef3}
+.body{padding:10px;overflow:auto;flex:1}
+.row{background:#f6f9fc;border:1px solid #e7edf4;border-radius:12px;padding:12px;margin:10px 0;position:relative}
+.row:hover{box-shadow:0 4px 12px rgba(0,0,0,0.08);border-color:#BF9849}
+.meta{opacity:.85;font-size:12px;margin-top:6px}
+.translate-icon{position:absolute;top:12px;left:12px;background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;transition:all 0.2s;z-index:10}
+.translate-icon:hover{background:#BF9849;color:#fff;border-color:#BF9849}
+.translated{background:#e8f4f8;padding:8px;margin-top:8px;border-radius:6px;font-size:13px;border-left:3px solid #BF9849}
+.ai-summary{background:linear-gradient(135deg,#e8f4f8,#f0f8ff);border-left:4px solid #BF9849;padding:12px;margin:10px 0;border-radius:8px;font-size:13px;line-height:1.6}
+.ai-summary::before{content:"🤖 ";margin-right:4px}
+.citations-box{background:#fffbf0;border:2px solid #BF9849;border-radius:8px;padding:12px;margin:10px 0;font-size:12px}
+.citations-box h4{margin:0 0 8px 0;color:#BF9849;font-size:13px}
+.citation-item{padding:6px 0;border-bottom:1px solid #e0e0e0}
+.citation-item:last-child{border-bottom:none}
+.citation-link{color:#BF9849;text-decoration:none;font-weight:600}
+.citation-link:hover{text-decoration:underline}
+.input-wrap{padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
+.input{display:flex;gap:8px}
+.input input{flex:1;padding:10px 12px;border-radius:10px;border:1px solid #cfd9e3}
+.input button{background:#BF9849;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-weight:600;cursor:pointer}
+.input button:disabled{opacity:.5}
+.btn{background:#BF9849;color:#fff;padding:6px 12px;border-radius:8px;text-decoration:none;font-weight:600;font-size:12px;display:inline-block;white-space:nowrap}
+.btn:hover{background:#D4AB5E}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.info{background:#e8f4f8;border-left:4px solid #BF9849;padding:10px;margin:10px 0;border-radius:8px;font-size:13px}
+.more-row{display:flex;justify-content:center;margin-top:10px}
+.more-row button{background:#BF9849;color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:700;cursor:pointer}
+.busybar{display:none;align-items:center;gap:10px;padding:8px 12px;background:#fff;border-bottom:1px solid #e8eef3}
+.box.busy .busybar{display:flex}
+.spinner{width:32px;height:32px;border-radius:50%;background:#fff var(--logo-url) center/90% no-repeat;border:3px solid rgba(0,0,0,.06);box-shadow:0 2px 8px rgba(0,0,0,.12);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes rotate{0%,100%{transform:rotate(0deg)}50%{transform:rotate(180deg)}}
+.busytext{font-weight:600;color:#555}
+.item-type-badge{display:inline-block;background:#BF9849;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px}
+</style>
+</head>
+<body>
+<div class="slide-banner" id="slideBanner">UAE Federation Library AI Assistant</div>
+<div class="fab-wrap">
+  <svg class="fab-label" viewBox="0 0 120 40"><defs><path id="arc" d="M 10,34 A 50,50 0 0 1 110,34"/></defs><text text-anchor="middle"><textPath href="#arc" startOffset="50%">AI Assist</textPath></text></svg>
+  <button class="fab" id="fab"></button>
+</div>
 
-const CODE_VERSION = "ecssr-backend-v3.2-2token-prefer";
+<div class="box" id="box">
+  <div class="head"><div>ECSSR AI Search</div><button class="close" id="close">×</button></div>
+  <div class="busybar" id="busybar"><div class="spinner"></div><div class="busytext" id="busytext">Loading...</div></div>
+  <div class="status" id="status">Ready</div>
+  <div class="body" id="body"></div>
+  <div class="input-wrap"><div class="input"><input id="q" type="text" placeholder="اكتب: اسم مؤلف / عنوان / موضوع / سنة" dir="auto"><button id="go">Search</button></div></div>
+</div>
 
-const express = require('express');
-const cors = require('cors');
-const fetch = require('node-fetch');
+<script>
+const DATA_URL="./opac-catalog.tab?delim=tab";
+const PAGE_SIZE=12;
+const BACKEND_URL="https://ecssr-ai-assistant.onrender.com/api";
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+let INDEX=[],HEADERS=[],LOADED=false,MATCH_NOTE="",LAST={items:[],shown:0,field:""};
 
-const PERPLEXITY_API_KEY =
-  process.env.PERPLEXITY_API_KEY || 'pplx-YOUR-API-KEY-HERE';
-const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
-const PERPLEXITY_MODEL = process.env.PPLX_MODEL || 'sonar-pro';
+const fab=document.getElementById("fab"),box=document.getElementById("box"),close=document.getElementById("close"),body=document.getElementById("body"),status=document.getElementById("status"),q=document.getElementById("q"),go=document.getElementById("go");
+setTimeout(()=>{const b=document.getElementById("slideBanner");if(b)b.remove()},7500);
+fab.onclick=()=>{box.style.display=(box.style.display==="flex")?"none":"flex";if(box.style.display==="flex"){if(!LOADED){setBusy(true,"Initializing…");ensureLoaded().then(()=>setBusy(false))}setTimeout(()=>q.focus(),50)}};
+close.onclick=()=>box.style.display="none";
 
-app.set('trust proxy', true);
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-
-/* ========= Rate limiting ========= */
-const requestCounts = new Map();
-const RATE_LIMIT = 100;
-const RATE_WINDOW = 60 * 60 * 1000;
-function checkRateLimit(ip) {
-  const now = Date.now();
-  const userRequests = requestCounts.get(ip) || [];
-  const recent = userRequests.filter((t) => now - t < RATE_WINDOW);
-  if (recent.length >= RATE_LIMIT) return false;
-  recent.push(now);
-  requestCounts.set(ip, recent);
-  return true;
-}
-
-/* ========= Perplexity wrapper ========= */
-async function callPerplexity(messages, model = PERPLEXITY_MODEL) {
-  const resp = await fetch(PERPLEXITY_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${PERPLEXITY_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model, messages, temperature: 0.05, max_tokens: 800,
-    }),
-  });
-  if (!resp.ok) {
-    const txt = await resp.text();
-    throw new Error(`Perplexity API error: ${resp.status} - ${txt}`);
-  }
-  const data = await resp.json();
-  return (data.choices && data.choices[0]?.message?.content) || '';
-}
-
-/* ========= Normalization + author utils ========= */
-function norm(s) {
-  if (!s) return '';
-  s = String(s).toLowerCase();
-  try { s = s.normalize('NFKD'); } catch {}
+function setBusy(on,label){const bar=document.getElementById("busybar"),txt=document.getElementById("busytext");if(label)txt.textContent=label;if(on){box.classList.add("busy");go.disabled=true;q.disabled=true}else{box.classList.remove("busy");go.disabled=false;q.disabled=false}}
+function stripBidi(s){return String(s||"").replace(/[\u200E\u200F\u202A-\u202E]/g,"")}
+function clean(s){return stripBidi(String(s||"").replace(/^\uFEFF/,""))}
+function canonHeader(h){return clean(h).toLowerCase().replace(/\s+/g," ").trim()}
+function norm(s){
+  if(!s)return "";
+  s=clean(s).toLowerCase();
+  try{s=s.normalize("NFKD")}catch(e){}
+  s=s.replace(/[إأآٱ]/g,"ا")
+     .replace(/\s*و\s*/g,"و")
+     .replace(/[ىی]/g,"ي")
+     .replace(/ة/g,"ه")
+     .replace(/ک/g,"ك")
+     .replace(/\bعبد\s+ال/g,"عبدال")
+     .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,"")
+     .replace(/[\u0660-\u0669]/g,d=>String.fromCharCode(d.charCodeAt(0)-1632+48))
+     .replace(/[\u06F0-\u06F9]/g,d=>String.fromCharCode(d.charCodeAt(0)-1776+48))
+     .replace(/[^\p{L}\p{N}\s]/gu," ")
+     .replace(/\s+/g," ")
+     .trim();
   return s
-    .replace(/[إأآٱ]/g,'ا').replace(/\s*و\s*/g,'و').replace(/[ىی]/g,'ي')
-    .replace(/ة/g,'ه').replace(/ک/g,'ك').replace(/\bعبد\s+ال/g,'عبدال')
-    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g,'')
-    .replace(/[\u0660-\u0669]/g, d => String.fromCharCode(d.charCodeAt(0)-1632+48))
-    .replace(/[\u06F0-\u06F9]/g, d => String.fromCharCode(d.charCodeAt(0)-1776+48))
-    .replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\s+/g,' ').trim();
 }
-function tokenizeName(n){ return norm(n).split(/\s+/).filter(t=>t.length>=2) }
-function exactAuthorMatch(qTokens, name){
-  if (!name) return false;
-  const aTokens = tokenizeName(name);
-  if (qTokens.length !== aTokens.length) return false;
-  for (const qt of qTokens) if (!aTokens.includes(qt)) return false;
-  for (const at of aTokens) if (!qTokens.includes(at)) return false;
-  return true;
+function isArabic(s){return/[\u0600-\u06FF]/.test(s||"")}
+const FAMOUS_PEOPLE=new Set(["محمد بن زايد","محمد بن راشد","خليفة بن زايد","زايد بن سلطان","محمد بن زايد آل نهيان","sheikh mohamed","sheikh mohammed","sheikh khalifa","sheikh zayed","الشيخ محمد","الشيخ خليفة","الشيخ زايد"]);
+function looksLikeYear(q){return/^\d{4}$/.test(q.trim())}
+function isFamousPerson(q){const nq=norm(q);for(const p of FAMOUS_PEOPLE)if(nq.includes(norm(p)))return true;return/\b(president|رئيس|سمو|صاحب السمو)\b/i.test(q)}
+
+// ---------- FIELD CHOOSER ----------
+function chooseField(q){
+  const raw=q.trim();
+  if(/(ناشر|publisher|دار نشر|دار النشر|publishing house|press books)/i.test(raw)){MATCH_NOTE="Publisher keyword → Publisher field";return "pub"}
+  if(looksLikeYear(raw))return "year";
+  if(/^(what|how|why|when|where|who|which|ما|كيف|لماذا|متى|أين|من|ماذا|كيفية|هل)\b/i.test(raw)){MATCH_NOTE="Question → Summary";return "summary"}
+  if(isFamousPerson(raw)){MATCH_NOTE="Famous person → Subject";return "subject"}
+  if(/(تراث|التراث|ثقافة|الثقافة|تاريخ|التاريخ|فن|الفن|علوم|العلوم|أدب|الأدب|شعر|الشعر|سياسة|السياسة|اقتصاد|الاقتصاد|تعليم|التعليم|صحة|الصحة|بيئة|البيئة|تكنولوجيا|التكنولوجيا|ذكاء|الذكاء|طاقة|الطاقة|مياه|المياه|زراعة|الزراعة|نفط|النفط|غاز|الغاز|امارات|الامارات|إمارات|الإمارات)/i.test(raw)){MATCH_NOTE="Topic keyword → Subject";return "subject"}
+  if(LOADED && INDEX.length>0){
+    const nq=norm(raw);let a=0,s=0;
+    for(let i=0;i<Math.min(500,INDEX.length);i++){
+      if(INDEX[i].nAuthorAll.includes(nq)) a++;
+      if(INDEX[i].nSubject.includes(nq) || INDEX[i].nTitle.includes(nq)) s++;
+    }
+    if(a>3 && a>s){MATCH_NOTE="Found in authors → Author";return "author"}
+    if(s>3){MATCH_NOTE="Found in subjects → Subject";return "subject"}
+  }
+  MATCH_NOTE="Default → Title+Subject+Author";return "default"
 }
 
-/* ========= Author filter with "exact 2-token preferred" ========= */
-function filterAuthorBooks(query, books) {
-  const qTokens = tokenizeName(query);
-  if (qTokens.length === 0) return [];
-  const list = (Array.isArray(books) ? books : []).filter(b => b && typeof b === 'object');
+// ---------- LOAD DATA ----------
+async function ensureLoaded(){
+  if(LOADED)return;
+  const resp=await fetch(DATA_URL);
+  if(!resp.ok)throw new Error("Failed to load data");
+  const txt=await resp.text(),lines=txt.split(/\r?\n/).filter(l=>l.trim());
+  if(lines.length<2)throw new Error("Empty or invalid data");
+  const rawHdrs=lines[0].split("\t");
+  HEADERS=rawHdrs.map(h=>canonHeader(h));
+  const idxMap={};
+  ["biblionumber","full title","author","abstract","publications data","content","subjects","corporate name","other authors","year","item type","book_url"].forEach(h=>{const i=HEADERS.indexOf(h);if(i>=0)idxMap[h]=i});
+  for(let i=1;i<lines.length;i++){
+    const cells=lines[i].split("\t");
+    if(cells.length!==rawHdrs.length)continue;
+    const obj={id:cells[idxMap["biblionumber"]]||"",title:clean(cells[idxMap["full title"]]||""),author:clean(cells[idxMap["author"]]||""),summary:clean(cells[idxMap["abstract"]]||""),publisher:clean(cells[idxMap["publications data"]]||""),content:clean(cells[idxMap["content"]]||""),subject:clean(cells[idxMap["subjects"]]||""),corporate_name:clean(cells[idxMap["corporate name"]]||""),other_author:clean(cells[idxMap["other authors"]]||""),year:clean(cells[idxMap["year"]]||""),item_type:clean(cells[idxMap["item type"]]||""),book_url:clean(cells[idxMap["book_url"]]||"")};
+    const combo=obj.author+" "+obj.other_author+" "+obj.corporate_name;
+    INDEX.push({id:obj.id,raw:obj,nTitle:norm(obj.title),nAuthor:norm(obj.author),nAuthorAll:norm(combo),nSummary:norm(obj.summary),nContent:norm(obj.content),nSubject:norm(obj.subject),nYear:norm(obj.year),nPub:norm(obj.publisher)})
+  }
+  LOADED=true;
+  status.textContent=`✅ Loaded ${INDEX.length} records`
+}
 
-  // Check if any exact 2-token author exists when query has 2 tokens
-  let exactTwoTokenExists = false;
-  if (qTokens.length === 2) {
-    for (const b of list) {
-      const aLen = tokenizeName(b.author || '').length;
-      if (aLen === 2 && exactAuthorMatch(qTokens, b.author || '')) {
-        exactTwoTokenExists = true; break;
+// ---------- SEARCH ----------
+function searchField(field,q){
+  const nq=norm(q),tokens=nq.split(/\s+/).filter(t=>t.length>=2),out=[];
+  for(const r of INDEX){
+    let sc=0,hit=false;
+    if(field==="default"){
+      if(r.nTitle.includes(nq)){sc=100;hit=true}
+      else if(r.nSubject.includes(nq)){sc=70;hit=true}
+      else if(r.nAuthorAll.includes(nq)){sc=60;hit=true}
+      else {
+        const titleMatch = tokens.filter(tok=>r.nTitle.includes(tok)).length;
+        const subjectMatch = tokens.filter(tok=>r.nSubject.includes(tok)).length;
+        const authorMatch = tokens.filter(tok=>r.nAuthorAll.includes(tok)).length;
+        const totalMatch = Math.max(titleMatch, subjectMatch, authorMatch);
+        if(totalMatch >= tokens.length * 0.5){sc = 30 + totalMatch * 8;hit=true}
+      }
+
+    } else if(field==="author"){
+      if(r.nAuthorAll.includes(nq)){sc=100;hit=true}
+      else {
+        const matchCount = tokens.filter(tok=>r.nAuthorAll.includes(tok)).length;
+        if(matchCount >= tokens.length * 0.6){sc = 40 + matchCount * 10;hit=true}
+      }
+
+    } else if(field==="subject"){
+      if(r.nSubject.includes(nq)){sc=100;hit=true}
+      else if(r.nTitle.includes(nq)){sc=80;hit=true}
+      else {
+        const subjectMatch = tokens.filter(tok=>r.nSubject.includes(tok)).length;
+        const titleMatch = tokens.filter(tok=>r.nTitle.includes(tok)).length;
+        const totalMatch = Math.max(subjectMatch, titleMatch);
+        if(totalMatch >= tokens.length * 0.5){sc = 30 + totalMatch * 8;hit=true}
+      }
+      if(hit&&isFamousPerson(q))MATCH_NOTE="Books ABOUT this person"
+
+    } else if(field==="summary"){
+      if(r.nSummary.includes(nq)){sc=90;hit=true}
+      else if(r.nContent.includes(nq)){sc=80;hit=true}
+      else {
+        const summaryMatch = tokens.filter(tok=>r.nSummary.includes(tok)).length;
+        const contentMatch = tokens.filter(tok=>r.nContent.includes(tok)).length;
+        const totalMatch = Math.max(summaryMatch, contentMatch);
+        if(totalMatch >= tokens.length * 0.4){sc = 20 + totalMatch * 10;hit=true}
+      }
+
+    } else if(field==="year"){
+      if(r.nYear.includes(nq)){sc=60;hit=true}
+
+    } else if(field==="pub"){
+      if(r.nPub.includes(nq)){sc=100;hit=true}
+      else {
+        const matchCount = tokens.filter(tok=>r.nPub.includes(tok)).length;
+        if(matchCount >= tokens.length * 0.6){sc = 40 + matchCount * 10;hit=true}
       }
     }
+
+    if(hit) out.push({sc,...r})
   }
 
-  const out = [];
-  for (const b of list) {
-    const author = b.author || '';
-    const isExact = exactAuthorMatch(qTokens, author);
-    const aLen    = tokenizeName(author).length;
-
-    if (qTokens.length === 2 && exactTwoTokenExists) {
-      // only allow exact 2-token matches
-      if (isExact && aLen === 2) out.push(b);
-      continue;
-    }
-
-    // Otherwise, only exact (as per your last backend version)
-    if (isExact) out.push(b);
-  }
-  return out;
+  out.sort((a,b)=>b.sc-a.sc);
+  return out
 }
 
-/* ========= /api/chat ========= */
-app.post('/api/chat', async (req, res) => {
-  const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
-  if (!checkRateLimit(ip)) {
-    return res.status(429).json({ error: 'Rate limit exceeded. Please try again later.' });
-  }
-
-  try {
-    const body = req.body || {};
-    const query = body.query || '';
-    let matchedBooks = Array.isArray(body.matchedBooks) ? body.matchedBooks : [];
-    const searchField = body.searchField || 'default';
-
-    if (!query) return res.status(400).json({ error: 'Query is required' });
-
-    // Author filtering (exact-only + 2-token preference)
-    if (searchField === 'author' && matchedBooks.length) {
-      matchedBooks = filterAuthorBooks(query, matchedBooks);
-    }
-
-    if (!matchedBooks.length) {
-      return res.json({
-        answer: "لم أجد كتباً تطابق سؤالك في الكتالوج.<br>I didn't find any matching books in the catalog.",
-        bookIds: []
-      });
-    }
-
-    const safeBooks = matchedBooks.filter(b => b && typeof b === 'object');
-
-    // Build field-specific data
-    let fieldInstructions = '';
-    let availableData = '';
-
-    if (searchField === 'summary') {
-      fieldInstructions = `
-⚠️ SUMMARY SEARCH
-Use ONLY: summary, contents.
-FORBIDDEN: author, subject, title.
-If info not present in summaries, say "المعلومات غير متوفرة / Information not available".`;
-      availableData = safeBooks.map((b,i)=>{
-        const summary=(b.summary||b.contents||b.content||'').toString().trim()||'No summary';
-        const author=(b.author||'Unknown Author').toString().trim();
-        const title=(b.title||'Untitled').toString().trim();
-        const publisher=(b.publisher||'').toString().trim();
-        const year=(b.year||'').toString().trim();
-        const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
-        return `Book ${i+1}:\nCitation: ${citation}\nSummary: ${summary}\n---`;}).join('\n');
-
-    } else if (searchField === 'subject') {
-      fieldInstructions = `
-⚠️ SUBJECT/TOPIC SEARCH
-Use ONLY: subject, title.
-FORBIDDEN: author, summary.`;
-      availableData = safeBooks.map((b,i)=>{
-        const title=(b.title||'Untitled').toString(),subject=(b.subject||'No subject').toString();
-        const author=(b.author||'Unknown Author').toString().trim();
-        const publisher=(b.publisher||'').toString().trim();
-        const year=(b.year||'').toString().trim();
-        const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
-        return `Book ${i+1}:\nCitation: ${citation}\nSubject: ${subject}\n---`;}).join('\n');
-
-    } else if (searchField === 'author') {
-      fieldInstructions = `
-⚠️ AUTHOR SEARCH
-Use ONLY: author, title.
-FORBIDDEN: subject, summary.`;
-      availableData = safeBooks.map((b,i)=>{
-        const title=(b.title||'Untitled').toString(),author=(b.author||'Unknown').toString();
-        const publisher=(b.publisher||'').toString().trim();
-        const year=(b.year||'').toString().trim();
-        const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
-        return `Book ${i+1}:\nCitation: ${citation}\n---`;}).join('\n');
-
-    } else {
-      availableData = safeBooks.map((b,i)=>{
-        const title=(b.title||'Untitled').toString(),author=(b.author||'Unknown').toString(),
-              subject=(b.subject||'').toString(),summary=(b.summary||'').toString();
-        const publisher=(b.publisher||'').toString().trim();
-        const year=(b.year||'').toString().trim();
-        const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
-        return `Book ${i+1}:\nCitation: ${citation}\nSubject: ${subject}\nSummary: ${summary}\n---`;}).join('\n');
-    }
-
-    const systemPrompt =
-      searchField === 'summary'
-        ? 'Answer using ONLY summaries/contents. Books have been provided to you - answer based on them.'
-        : searchField === 'subject'
-        ? 'List books using ONLY subject and title. Books have been provided to you - list them.'
-        : searchField === 'author'
-        ? 'List books BY the author using ONLY author and title. Books have been provided to you - list them.'
-        : 'Use only provided fields. Books have been provided to you - answer based on them.';
-
-    const userPrompt = `You are a library assistant. Follow the field rules STRICTLY.
-
-${fieldInstructions}
-
-RULES:
-1) ONLY use allowed fields above.
-2) NEVER use forbidden fields.
-3) Do not invent info.
-4) If you cannot answer from allowed fields, say "المعلومات غير متوفرة / Information not available".
-5) When mentioning books, use their citation provided in the data.
-6) Answer in the same language as the query.
-7) NEVER say "I didn't find any books" or "لم أجد كتباً" - you have been provided with books data, so answer based on that data.
-8) Focus on answering the user's question using the available book data provided to you.
-
-USER QUERY: "${query}"
-SEARCH FIELD: ${searchField}
-
-AVAILABLE DATA (${safeBooks.length} books):
-${availableData}
-
-Answer now using ONLY the allowed fields above.`;
-
-    const answer = await callPerplexity(
-      [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-      PERPLEXITY_MODEL
-    );
-
-    // best-effort ID extraction
-    const ids = [];
-    const m = answer.match(/\b(\d+)\b/g);
-    if (m) ids.push(...m.slice(0,10).map(Number));
-
-    res.json({ answer, bookIds: ids });
-  } catch (err) {
-    console.error('Chat error:', err);
-    res.status(500).json({ error: 'Internal server error', details: err.message });
-  }
-});
-
-/* ========= /api/enhance-search ========= */
-app.post('/api/enhance-search', async (req, res) => {
-  const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
-  if (!checkRateLimit(ip)) {
-    return res.status(429).json({ error: 'Rate limit exceeded' });
-  }
-
-  try {
-    const body = req.body || {};
-    const query = body.query || '';
-    const preFilteredBooks = Array.isArray(body.preFilteredBooks) ? body.preFilteredBooks : [];
-
-    if (!query || preFilteredBooks.length === 0) {
-      return res.json({ rankedBooks: preFilteredBooks, explanation: '' });
-    }
-
-    const booksData = preFilteredBooks.slice(0, 50).map((b, idx) => ({
-      id: b?.id ?? idx, title: b?.title || 'Untitled',
-      author: b?.author || 'Unknown', summary: b?.summary || ''
+// ---------- TRANSLATION + AI SUMMARY ----------
+async function translateText(text,targetLang){try{const sourceLang=isArabic(text)?"ar":"en";if(sourceLang===targetLang)return text;const url=`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceLang}|${targetLang}`,response=await fetch(url),data=await response.json();if(data.responseData&&data.responseData.translatedText)return data.responseData.translatedText;throw new Error("Translation failed")}catch(error){console.error("Translation error:",error);return null}}
+async function translateRecord(recordId,field,button){const book=INDEX.find(b=>b.id===recordId);if(!book)return;const text=book.raw[field];if(!text)return;button.textContent="⏳";button.disabled=true;const targetLang=isArabic(text)?"en":"ar",translated=await translateText(text,targetLang);if(translated){const div=document.createElement("div");div.className="translated";div.innerHTML=`<strong>${isArabic(translated)?"الترجمة:":"Translation:"}</strong> ${translated}`;button.parentElement.appendChild(div);button.remove()}else{button.textContent="🌐";button.disabled=false}}
+async function getAISummary(query,matchedBooks){
+  if(matchedBooks.length===0)return null;
+  try{
+    const booksWithSummaries=matchedBooks.slice(0,20).map(b=>({
+      id:b.id,
+      title:b.raw.title,
+      author:b.raw.author,
+      subject:b.raw.subject||"",
+      summary:b.raw.summary||b.raw.content||"",
+      year:b.raw.year||"",
+      item_type:b.raw.item_type||"",
+      book_url:b.raw.book_url||""
     }));
-
-    const prompt = `You are analyzing book summaries for a library search.
-
-User searched for: "${query}"
-
-BOOKS WITH SUMMARIES:
-${JSON.stringify(booksData,null,2)}
-
-Task:
-1) Read each SUMMARY.
-2) Rank by how well the SUMMARY matches the query.
-3) Return the top 20 IDs.
-
-IMPORTANT: Only use provided summaries.
-
-Format:
-EXPLANATION: <brief, same language as query>
-BOOK_IDS: <comma separated IDs>`;
-
-    const response = await callPerplexity(
-      [{ role: 'system', content: 'Rank only by provided summaries.' },
-       { role: 'user', content: prompt }],
-      PERPLEXITY_MODEL
-    );
-
-    const explanation = (response.match(/EXPLANATION:\s*(.+?)(?=BOOK_IDS:|$)/s)?.[1] || '').trim();
-    const bookIds = (response.match(/BOOK_IDS:\s*([\d,\s]+)/)?.[1] || '')
-      .split(',').map(s=>parseInt(s.trim(),10)).filter(n=>!Number.isNaN(n));
-
-    const rankedBooks = bookIds.map(id => preFilteredBooks.find(b=>b && b.id===id)).filter(Boolean);
-    res.json({ rankedBooks, explanation });
-  } catch (err) {
-    console.error('Enhance search error:', err);
-    res.status(500).json({ error: 'Internal server error', details: err.message });
+    const response=await fetch(`${BACKEND_URL}/chat`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({query,matchedBooks:booksWithSummaries,searchField:LAST.field})
+    });
+    if(!response.ok)return null;
+    const data=await response.json();
+    return {answer: data.answer, citations: data.citations || []};
+  }catch(error){
+    console.error("AI summary error:",error);
+    return null;
   }
-});
+}
 
-/* ========= Health ========= */
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    codeVersion: CODE_VERSION,
-    perplexityConfigured: !!PERPLEXITY_API_KEY && PERPLEXITY_API_KEY !== 'pplx-YOUR-API-KEY-HERE',
-    modelVersion: PERPLEXITY_MODEL,
-    features: 'Strict field separation • Exact 2-token author preference • Safe availableData',
+// ---------- RENDER ----------
+function clearResults(){body.innerHTML=""}
+function renderChunk(items){
+  const frag=document.createDocumentFragment();
+  for(const it of items){
+    const r=it.raw,div=document.createElement("div");
+    div.className="row";
+    div.dir=isArabic(r.title||r.author)?"rtl":"ltr";
+    const authors=[r.author,r.other_author,r.corporate_name].filter(Boolean).join(" • ");
+    const pubLine=[r.publisher,r.year].filter(Boolean).join(" • ");
+    const translateTo=isArabic(r.title)?"EN":"AR";
+    
+    // Add Item Type badge if available
+    const itemTypeBadge = r.item_type ? `<span class="item-type-badge">${r.item_type}</span>` : '';
+    
+    div.innerHTML=
+      `<button class="translate-icon" onclick="translateRecord(${it.id},'title',this)">🌐 ${translateTo}</button>
+       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding-left:60px">
+         <div style="flex:1;min-width:0">
+           <b style="font-size:15px;line-height:1.4;word-break:break-word">${r.title||"(بدون عنوان)"}</b>
+           ${itemTypeBadge}
+         </div>
+         ${r.book_url?`<a class="btn" href="${r.book_url}" target="_blank" style="flex-shrink:0">Open</a>`:'<button class="btn" disabled style="flex-shrink:0">No URL</button>'}
+       </div>
+       ${authors?`<div class="meta">${isArabic(authors)?"المؤلف: ":"Author: "}${authors}</div>`:""}
+       ${r.subject?`<div class="meta">${isArabic(r.subject)?"الموضوع: ":"Subject: "}${r.subject}</div>`:""}
+       ${pubLine?`<div class="meta">${pubLine}</div>`:""}
+       ${r.summary?`<div style="margin-top:6px;font-size:13px">${r.summary.length>300?r.summary.slice(0,297)+"…":r.summary}</div>`:""}`;
+    frag.appendChild(div)
+  }
+  body.appendChild(frag)
+}
+
+function renderCitations(citations){
+  if(!citations || citations.length === 0) return;
+  
+  const citationsDiv = document.createElement("div");
+  citationsDiv.className = "citations-box";
+  
+  const isAr = isArabic(citations[0].title || '');
+  const heading = isAr ? "📚 المراجع المستخدمة:" : "📚 Sources Referenced:";
+  
+  let html = `<h4>${heading}</h4>`;
+  
+  citations.forEach((cite, idx) => {
+    const num = idx + 1;
+    let citationText = '';
+    
+    if(cite.title) citationText += cite.title;
+    if(cite.author) citationText += (citationText ? ', by ' : '') + cite.author;
+    if(cite.year) citationText += (citationText ? ', ' : '') + cite.year;
+    if(cite.item_type) citationText += (citationText ? ' ' : '') + `[${cite.item_type}]`;
+    
+    html += `<div class="citation-item">
+      ${num}. ${citationText}
+      ${cite.url ? ` <a href="${cite.url}" target="_blank" class="citation-link">🔗</a>` : ''}
+    </div>`;
   });
-});
+  
+  citationsDiv.innerHTML = html;
+  body.appendChild(citationsDiv);
+}
 
-/* ========= Error middleware ========= */
-app.use((err, req, res, next) => {
-  console.error('Server error:', err);
-  res.status(500).json({ error: 'Internal server error', details: err.message });
-});
+function addShowMoreIfNeeded(){
+  const old=document.getElementById("more-btn");if(old)old.remove();
+  if(LAST.shown>=LAST.items.length)return;
+  const row=document.createElement("div");row.className="more-row";row.id="more-btn";
+  const btn=document.createElement("button"),remaining=LAST.items.length-LAST.shown;
+  btn.textContent=remaining>PAGE_SIZE?"Show more":"Show all";
+  btn.onclick=()=>{const next=Math.min(LAST.shown+PAGE_SIZE,LAST.items.length);renderChunk(LAST.items.slice(LAST.shown,next));LAST.shown=next;addShowMoreIfNeeded()};
+  row.appendChild(btn);body.appendChild(row)
+}
+async function renderAll(list,field,query){
+  clearResults();
+  const labelAR={author:"المؤلف + المؤلف المشارك",title:"العنوان",subject:"الموضوع + العنوان",summary:"الملخص + المحتويات",year:"سنة النشر",pub:"الناشر"}[field]||field;
+  const note=document.createElement("div");note.className="info";
+  const extra=MATCH_NOTE?" • "+MATCH_NOTE:"";
+  note.textContent=`Searching: ${labelAR}${extra}`;
+  body.appendChild(note);
 
-/* ========= Start ========= */
-app.listen(PORT, () => {
-  console.log(`🚀 ECSSR AI Backend http://localhost:${PORT}`);
-  console.log(`🔖 Version: ${CODE_VERSION}`);
-});
+  if(!list.length){
+    const empty=document.createElement("div");empty.className="info";
+    empty.textContent="لا توجد نتائج / No results found";
+    body.appendChild(empty);return
+  }
+
+  const aiSummaryDiv=document.createElement("div");aiSummaryDiv.className="ai-summary";
+  aiSummaryDiv.innerHTML='<span style="display:inline-block;animation:rotate 1.5s linear infinite">⏳</span> AI analyzing data...';
+  body.appendChild(aiSummaryDiv);
+  
+  getAISummary(query,list.slice(0,20)).then(result=>{
+    if(result && result.answer){
+      aiSummaryDiv.innerHTML=result.answer;
+      // Render citations after AI summary
+      if(result.citations && result.citations.length > 0){
+        renderCitations(result.citations);
+      }
+    }else{
+      aiSummaryDiv.remove()
+    }
+  });
+
+  const info=document.createElement("div");info.className="info";
+  info.textContent=`وجدت ${list.length} نتيجة / Found ${list.length} results`;
+  body.appendChild(info);
+
+  LAST.items=list;LAST.shown=Math.min(PAGE_SIZE,list.length);LAST.field=field;
+  renderChunk(list.slice(0,LAST.shown));addShowMoreIfNeeded()
+}
+
+// ---------- RUN ----------
+async function run(){
+  setBusy(true,"Searching…");
+  try{
+    await ensureLoaded();
+    const raw=q.value.trim();if(!raw){setBusy(false);return}
+    const field=chooseField(raw),results=searchField(field,raw);
+    await renderAll(results,field,raw)
+  }finally{setBusy(false)}
+}
+go.onclick=run;
+q.addEventListener("keydown",e=>{if(e.key==="Enter")run()});
+window.translateRecord=translateRecord;
+</script>
+</body>
+</html>
