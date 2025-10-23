@@ -162,7 +162,47 @@ function flexibleAuthorMatch(qTokens, name){
 }
 
 
-// ---------- FIELD CHOOSER ----------
+// ---------- AI QUERY UNDERSTANDING ----------
+async function understandQueryWithAI(query){
+  try{
+    const response = await fetch(`${BACKEND_URL}/understand-query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query })
+    });
+    if(!response.ok) throw new Error('AI understanding failed');
+    const analysis = await response.json();
+    
+    // Update MATCH_NOTE with AI reasoning
+    if(analysis.reasoning){
+      MATCH_NOTE = `AI: ${analysis.reasoning}`;
+    }
+    
+    return analysis.field || 'default';
+  }catch(error){
+    console.error('AI query understanding error:', error);
+    return null; // Fall back to rule-based
+  }
+}
+
+// ---------- FIELD CHOOSER (with AI fallback) ----------
+async function chooseFieldSmart(q){
+  const raw=q.trim();
+  
+  // Try AI understanding first for complex queries
+  const words=raw.split(/\s+/).filter(Boolean);
+  const isComplexQuery = words.length >= 3 || /^(what|how|why|when|where|who|which|ما|كيف|لماذا|متى|أين|من|ماذا|كيفية|هل|كتب|معلومات|عن)/i.test(raw);
+  
+  if(isComplexQuery){
+    const aiField = await understandQueryWithAI(raw);
+    if(aiField) return aiField; // Use AI decision if available
+  }
+  
+  // Fall back to rule-based logic
+  return chooseField(raw);
+}
+
+// ---------- FIELD CHOOSER (rule-based) ----------
 function chooseField(q){
   const raw=q.trim();
   if(/(ناشر|publisher|دار نشر|دار النشر|publishing house|press books)/i.test(raw)){MATCH_NOTE="Publisher keyword → Publisher field";return "pub"}
@@ -471,11 +511,16 @@ async function renderAll(list,field,query){
 
 // ---------- RUN ----------
 async function run(){
-  setBusy(true,"Searching…");
+  setBusy(true,"AI analyzing query…");
   try{
     await ensureLoaded();
     const raw=q.value.trim();if(!raw){setBusy(false);return}
-    const field=chooseField(raw),results=searchField(field,raw);
+    
+    // Use AI-powered smart field chooser
+    const field = await chooseFieldSmart(raw);
+    
+    setBusy(true,"Searching…");
+    const results=searchField(field,raw);
     await renderAll(results,field,raw)
   }finally{setBusy(false)}
 }
