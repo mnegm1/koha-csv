@@ -328,6 +328,9 @@ async function renderAll(list,field,query){
     body.appendChild(empty);return
   }
 
+  // Set LAST.field BEFORE calling AI so it sends the correct field type
+  LAST.field=field;
+
   const aiSummaryDiv=document.createElement("div");aiSummaryDiv.className="ai-summary";
   aiSummaryDiv.innerHTML='<span style="display:inline-block;animation:rotate 1.5s linear infinite">⏳</span> AI analyzing data...';
   body.appendChild(aiSummaryDiv);
@@ -373,7 +376,7 @@ async function renderAll(list,field,query){
   info.textContent=`وجدت ${list.length} نتيجة / Found ${list.length} results`;
   body.appendChild(info);
 
-  LAST.items=list;LAST.shown=Math.min(PAGE_SIZE,list.length);LAST.field=field;
+  LAST.items=list;LAST.shown=Math.min(PAGE_SIZE,list.length);
   renderChunk(list.slice(0,LAST.shown));addShowMoreIfNeeded()
 }
 
