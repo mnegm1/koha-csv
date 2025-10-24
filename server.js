@@ -239,7 +239,7 @@ app.post('/api/chat', async (req, res) => {
 ⚠️ SUMMARY SEARCH
 Use ONLY: summary, contents.
 FORBIDDEN: author, subject, title.
-If info not present in summaries, say "المعلومات غير متوفرة / Information not available".`;
+List ONLY the information present in summaries. Be direct and positive.`;
       availableData = safeBooks.map((b,i)=>{
         const summary=(b.summary||b.contents||b.content||'').toString().trim()||'No summary';
         const author=(b.author||'Unknown Author').toString().trim();
@@ -254,7 +254,7 @@ If info not present in summaries, say "المعلومات غير متوفرة / 
 ⚠️ SUBJECT/TOPIC SEARCH
 Use ONLY: subject, title.
 FORBIDDEN: author, summary.
-If the user asks a question, answer it using the subjects and titles. Cite every fact with [number].`;
+Answer using the subjects and titles. Cite every fact with [number]. Be direct and positive.`;
       availableData = safeBooks.map((b,i)=>{
         const title=(b.title||'Untitled').toString(),subject=(b.subject||'No subject').toString();
         const author=(b.author||'Unknown Author').toString().trim();
@@ -291,20 +291,22 @@ FORBIDDEN: subject, summary.`;
 You ONLY have access to the book summaries provided below. 
 DO NOT use any external knowledge about Sheikh Zayed, UAE, or any topic.
 ONLY cite sources [1] to [${safeBooks.length}] that are provided to you.
-If information is NOT in the summaries, say "المعلومات غير متوفرة في الملخصات / Information not available in summaries".
+List ONLY what exists in the data. NEVER write negative statements about missing information.
 FORBIDDEN: Using your general knowledge. FORBIDDEN: Creating citations beyond [${safeBooks.length}].`
         : searchField === 'subject'
         ? `🚨 CRITICAL: You ONLY have access to the subject and title fields provided below.
 DO NOT use general knowledge. ONLY cite [1] to [${safeBooks.length}].
-If information is NOT in subjects/titles, say "المعلومات غير متوفرة / Information not available".
+List ONLY what exists. NEVER write statements about missing or unavailable data.
 FORBIDDEN: Using external knowledge. FORBIDDEN: Citations beyond [${safeBooks.length}].`
         : searchField === 'author'
         ? `🚨 CRITICAL: You ONLY have access to the author and title fields provided below.
 List ONLY the books provided [1] to [${safeBooks.length}].
 DO NOT add books from external knowledge.
+List what exists. NEVER mention missing information.
 FORBIDDEN: Using general knowledge. FORBIDDEN: Citations beyond [${safeBooks.length}].`
         : `🚨 CRITICAL: You ONLY have access to the provided book data below.
 DO NOT use external knowledge. ONLY cite [1] to [${safeBooks.length}].
+List what exists. NEVER write about what's missing.
 FORBIDDEN: Using general knowledge. FORBIDDEN: Creating fake citations.`;
 
     const userPrompt = `🚨 ABSOLUTE RULES - VIOLATION WILL FAIL THE TASK:
@@ -312,21 +314,31 @@ FORBIDDEN: Using general knowledge. FORBIDDEN: Creating fake citations.`;
 1) ❌ FORBIDDEN: Using ANY external knowledge about topics, people, or events
 2) ❌ FORBIDDEN: Creating citations [${safeBooks.length + 1}] or higher - you ONLY have [1] to [${safeBooks.length}]
 3) ❌ FORBIDDEN: Inventing information not present in the data below
-4) ✅ REQUIRED: ONLY use the exact data provided below
-5) ✅ REQUIRED: Every fact MUST cite [1]-[${safeBooks.length}] immediately after it
-6) ✅ REQUIRED: If info is NOT in the data, say "المعلومات غير متوفرة / Information not available"
+4) ❌ ABSOLUTELY FORBIDDEN: Writing ANY of these phrases:
+   - "غير متوفرة" / "not available"
+   - "لا توجد معلومات" / "no information"
+   - "غير موجودة" / "not found"
+   - "ضمن البيانات المقدمة" / "in the provided data"
+   - ANY similar negative statements
+   Just list what EXISTS. Never mention what doesn't exist.
+5) ✅ REQUIRED: ONLY use the exact data provided below
+6) ✅ REQUIRED: Every fact MUST cite [1]-[${safeBooks.length}] immediately after it
+7) ✅ REQUIRED: Answer directly and positively - list books, don't explain limitations
 
 ${fieldInstructions}
 
 📚 YOUR ONLY DATA SOURCE (${safeBooks.length} books):
 ${availableData}
 
-⚠️ REMINDER: You have EXACTLY ${safeBooks.length} books. Citations must be [1] to [${safeBooks.length}] ONLY.
+⚠️ REMINDER: 
+- You have EXACTLY ${safeBooks.length} books
+- Citations must be [1] to [${safeBooks.length}] ONLY
+- List ONLY what exists - NEVER mention what's missing
 
 USER QUERY: "${query}"
 SEARCH FIELD: ${searchField}
 
-Answer using ONLY the data above. NO external knowledge allowed.`;
+Answer by listing the relevant books with citations. Be direct and positive. NO negative statements about missing data.`;
 
     const answer = await callPerplexity(
       [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
