@@ -287,34 +287,46 @@ FORBIDDEN: subject, summary.`;
 
     const systemPrompt =
       searchField === 'summary'
-        ? 'Answer using ONLY summaries/contents. Cite every fact with [number]. Books have been provided to you - answer based on them.'
+        ? `🚨 CRITICAL: You are DISCONNECTED from the internet and general knowledge. 
+You ONLY have access to the book summaries provided below. 
+DO NOT use any external knowledge about Sheikh Zayed, UAE, or any topic.
+ONLY cite sources [1] to [${safeBooks.length}] that are provided to you.
+If information is NOT in the summaries, say "المعلومات غير متوفرة في الملخصات / Information not available in summaries".
+FORBIDDEN: Using your general knowledge. FORBIDDEN: Creating citations beyond [${safeBooks.length}].`
         : searchField === 'subject'
-        ? 'Answer questions or list books using ONLY subject and title. Cite each fact with [number]. Books have been provided to you - use them to answer.'
+        ? `🚨 CRITICAL: You ONLY have access to the subject and title fields provided below.
+DO NOT use general knowledge. ONLY cite [1] to [${safeBooks.length}].
+If information is NOT in subjects/titles, say "المعلومات غير متوفرة / Information not available".
+FORBIDDEN: Using external knowledge. FORBIDDEN: Citations beyond [${safeBooks.length}].`
         : searchField === 'author'
-        ? 'List books BY the author using ONLY author and title. Cite each book with [number]. Books have been provided to you - list them.'
-        : 'Use only provided fields. Cite all information with [number]. Books have been provided to you - answer based on them.';
+        ? `🚨 CRITICAL: You ONLY have access to the author and title fields provided below.
+List ONLY the books provided [1] to [${safeBooks.length}].
+DO NOT add books from external knowledge.
+FORBIDDEN: Using general knowledge. FORBIDDEN: Citations beyond [${safeBooks.length}].`
+        : `🚨 CRITICAL: You ONLY have access to the provided book data below.
+DO NOT use external knowledge. ONLY cite [1] to [${safeBooks.length}].
+FORBIDDEN: Using general knowledge. FORBIDDEN: Creating fake citations.`;
 
-    const userPrompt = `You are a library assistant. Follow the field rules STRICTLY.
+    const userPrompt = `🚨 ABSOLUTE RULES - VIOLATION WILL FAIL THE TASK:
+
+1) ❌ FORBIDDEN: Using ANY external knowledge about topics, people, or events
+2) ❌ FORBIDDEN: Creating citations [${safeBooks.length + 1}] or higher - you ONLY have [1] to [${safeBooks.length}]
+3) ❌ FORBIDDEN: Inventing information not present in the data below
+4) ✅ REQUIRED: ONLY use the exact data provided below
+5) ✅ REQUIRED: Every fact MUST cite [1]-[${safeBooks.length}] immediately after it
+6) ✅ REQUIRED: If info is NOT in the data, say "المعلومات غير متوفرة / Information not available"
 
 ${fieldInstructions}
 
-RULES:
-1) ONLY use allowed fields above.
-2) NEVER use forbidden fields.
-3) Do not invent info.
-4) When providing information, ALWAYS cite your source using the reference numbers [1], [2], [3], etc. from the data above.
-5) Place citation numbers [1], [2], [3] immediately after the information from that source.
-6) Answer in the same language as the query.
-7) NEVER say "I didn't find any books" or "لم أجد كتباً" - you have been provided with books data, so answer based on that data.
-8) Every fact or piece of information MUST have a citation number [X] after it.
+📚 YOUR ONLY DATA SOURCE (${safeBooks.length} books):
+${availableData}
+
+⚠️ REMINDER: You have EXACTLY ${safeBooks.length} books. Citations must be [1] to [${safeBooks.length}] ONLY.
 
 USER QUERY: "${query}"
 SEARCH FIELD: ${searchField}
 
-AVAILABLE DATA (${safeBooks.length} books):
-${availableData}
-
-Answer now using ONLY the allowed fields above.`;
+Answer using ONLY the data above. NO external knowledge allowed.`;
 
     const answer = await callPerplexity(
       [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
