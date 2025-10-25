@@ -135,6 +135,17 @@ function flexibleAuthorMatch(qTokens, name){
   const aTokens = tokenizeName(name);
   if(aTokens.length===0 || qTokens.length===0) return {hit:false,score:0};
 
+  // 🔒 New guard: same surname but no shared given names → reject
+  // (prevents: "العصيمي سلطان محمد" ≠ "العصيمي سلطان عبيد سالم")
+  const surnameQ = extractSurname(qTokens);
+  const surnameA = extractSurname(aTokens);
+  if (surnameQ && surnameA && tokenEq(surnameQ, surnameA)) {
+    const givenQ = qTokens.filter(t => t !== surnameQ && !NAME_STOP.has(t));
+    const givenA = aTokens.filter(t => t !== surnameA && !NAME_STOP.has(t));
+    const hasSharedGiven = givenQ.some(qt => givenA.some(at => tokenEq(qt, at)));
+    if (!hasSharedGiven) return {hit:false,score:0};
+  }
+
   const anchor = extractSurname(qTokens);
   const hasAnchor = anchor ? aTokens.some(at=>tokenEq(anchor, at)) : false;
   if(anchor && !hasAnchor) return {hit:false,score:0};
@@ -160,6 +171,7 @@ function flexibleAuthorMatch(qTokens, name){
   }
   return {hit:false,score:0};
 }
+
 
 
 // ---------- AI QUERY UNDERSTANDING ----------
