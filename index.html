@@ -159,8 +159,8 @@ function flexibleAuthorMatch(qTokens, name){
       return { hit:false, score:0 };
     }
 
-    // 3) عند وجود ≥2 أسماء معطاة في الجانبين، لكن التشابه الدقيق ضعيف جدًا → رفض
-    if (givenQ.length >= 2 && givenA.length >= 2) {
+    // 3) عند وجود ≥3 أسماء معطاة في الجانبين، لكن التشابه الدقيق ضعيف جدًا → رفض
+    if (givenQ.length >= 2 && givenA.length >= 3) {
       const setQ = new Set(givenQ);
       let inter = 0;
       for (const a of givenA) if (setQ.has(a)) inter++;
