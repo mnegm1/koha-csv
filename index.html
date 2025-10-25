@@ -141,31 +141,24 @@ function flexibleAuthorMatch(qTokens, name){
 
   if (surnameQ && surnameA && tokenEq(surnameQ, surnameA)) {
     const isStop   = t => NAME_STOP.has(t);
-    const isCommon = t => COMMON_GIVEN.has(t);
 
+    // الأسماء المعطاة (بدون ألفاظ النسب وما شابه)
     const givenQ = qTokens.filter(t => t !== surnameQ && !isStop(t));
     const givenA = aTokens.filter(t => t !== surnameA && !isStop(t));
 
-    // تقاطع "دقيق" للأسماء المعطاة (بدون startsWith)
-    const sharedExact = [];
-    for (const q of givenQ) if (givenA.includes(q)) sharedExact.push(q);
+    // تقاطع "دقيق" فقط (بدون startsWith)
+    const setA = new Set(givenA);
+    const sharedExact = givenQ.filter(q => setA.has(q));
 
-    // 1) لا يوجد اسم معطى مشترك بدقة → رفض
+    // لا يوجد اسم معطى مشترك بدقة → رفض
     if (sharedExact.length === 0) return { hit:false, score:0 };
 
-    // 2) لو التشارك الوحيد اسم شائع (مثل "محمد") ومع وجود أسماء أخرى مختلفة → رفض
-    if (sharedExact.length === 1 && isCommon(sharedExact[0]) &&
-        (givenQ.length >= 2 || givenA.length >= 2)) {
-      return { hit:false, score:0 };
-    }
-
-    // 3) عند وجود ≥3 أسماء معطاة في الجانبين، لكن التشابه الدقيق ضعيف جدًا → رفض
-    if (givenQ.length >= 2 && givenA.length >= 3) {
+    // لو هناك أسماء معطاة مختلفة كثيرة (تشابه ضعيف) → رفض
+    if (givenQ.length >= 2 && givenA.length >= 2) {
       const setQ = new Set(givenQ);
-      let inter = 0;
-      for (const a of givenA) if (setQ.has(a)) inter++;
+      let inter = 0; for (const a of givenA) if (setQ.has(a)) inter++;
       const union = new Set([...givenQ, ...givenA]).size;
-      const jaccard = inter / union;   // تشابه جاكارد على الأسماء الدقيقة فقط
+      const jaccard = inter / union;
       if (jaccard < 0.34) return { hit:false, score:0 };
     }
   }
@@ -197,6 +190,7 @@ function flexibleAuthorMatch(qTokens, name){
   }
   return { hit:false, score:0 };
 }
+
 
 
 // ---------- AI QUERY UNDERSTANDING ----------
