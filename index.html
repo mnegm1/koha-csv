@@ -133,33 +133,70 @@ function exactAuthorMatch(qTokens, name){
 }
 function flexibleAuthorMatch(qTokens, name){
   const aTokens = tokenizeName(name);
-  if(aTokens.length===0 || qTokens.length===0) return {hit:false,score:0};
+  if (aTokens.length === 0 || qTokens.length === 0) return { hit:false, score:0 };
+
+  // ===== Strict guard when surnames match =====
+  const surnameQ = extractSurname(qTokens);
+  const surnameA = extractSurname(aTokens);
+
+  if (surnameQ && surnameA && tokenEq(surnameQ, surnameA)) {
+    const isStop   = t => NAME_STOP.has(t);
+    const isCommon = t => COMMON_GIVEN.has(t);
+
+    const givenQ = qTokens.filter(t => t !== surnameQ && !isStop(t));
+    const givenA = aTokens.filter(t => t !== surnameA && !isStop(t));
+
+    // Exact (not prefix) intersection of given names
+    const sharedExact = [];
+    for (const q of givenQ) if (givenA.includes(q)) sharedExact.push(q);
+
+    // 1) No exact shared given name → reject
+    if (sharedExact.length === 0) return { hit:false, score:0 };
+
+    // 2) If only shared token is a common given name (e.g., "محمد") and other names differ → reject
+    if (sharedExact.length === 1 && isCommon(sharedExact[0]) &&
+        (givenQ.length >= 2 || givenA.length >= 2)) {
+      return { hit:false, score:0 };
+    }
+
+    // 3) If both sides have ≥2 given tokens but exact overlap is weak → reject (Jaccard similarity)
+    if (givenQ.length >= 2 && givenA.length >= 2) {
+      const setQ = new Set(givenQ);
+      let inter = 0;
+      for (const a of givenA) if (setQ.has(a)) inter++;
+      const union = new Set([...givenQ, ...givenA]).size;
+      const jaccard = inter / union;
+      if (jaccard < 0.34) return { hit:false, score:0 };
+    }
+  }
+  // ===== end strict guard =====
 
   const anchor = extractSurname(qTokens);
-  const hasAnchor = anchor ? aTokens.some(at=>tokenEq(anchor, at)) : false;
-  if(anchor && !hasAnchor) return {hit:false,score:0};
+  const hasAnchor = anchor ? aTokens.some(at => tokenEq(anchor, at)) : false;
+  if (anchor && !hasAnchor) return { hit:false, score:0 };
 
   const qNonCommon = qTokens.filter(t => t !== anchor && !COMMON_GIVEN.has(t) && !NAME_STOP.has(t));
-  if(qNonCommon.length > 0){
-    const hasDistinct = qNonCommon.some(t => aTokens.some(at=>tokenEq(t,at)));
-    if(!hasDistinct) return {hit:false,score:0};
+  if (qNonCommon.length > 0){
+    const hasDistinct = qNonCommon.some(t => aTokens.some(at => tokenEq(t, at)));
+    if (!hasDistinct) return { hit:false, score:0 };
   }
 
-  let overlap=0; const used=new Array(aTokens.length).fill(false);
-  for(const qt of qTokens){
-    const i=aTokens.findIndex((at,idx)=>!used[idx] && tokenEq(qt,at));
-    if(i>=0){ used[i]=true; overlap++; }
+  let overlap = 0; const used = new Array(aTokens.length).fill(false);
+  for (const qt of qTokens){
+    const i = aTokens.findIndex((at, idx) => !used[idx] && tokenEq(qt, at));
+    if (i >= 0){ used[i] = true; overlap++; }
   }
-  const minLen=Math.min(qTokens.length,aTokens.length);
-  const need=Math.max(2, Math.ceil(minLen*0.66));
-  if(overlap>=need){
-    const closeness=1 - Math.abs(qTokens.length - aTokens.length)/5;
-    const anchorBonus=hasAnchor?8:0;
-    const distinctBonus=(qNonCommon.length>0)?5:0;
-    return {hit:true, score:70 + overlap*10 + closeness*5 + anchorBonus + distinctBonus};
+  const minLen = Math.min(qTokens.length, aTokens.length);
+  const need = Math.max(2, Math.ceil(minLen * 0.66));
+  if (overlap >= need){
+    const closeness = 1 - Math.abs(qTokens.length - aTokens.length)/5;
+    const anchorBonus = hasAnchor ? 8 : 0;
+    const distinctBonus = (qNonCommon.length > 0) ? 5 : 0;
+    return { hit:true, score: 70 + overlap*10 + closeness*5 + anchorBonus + distinctBonus };
   }
-  return {hit:false,score:0};
+  return { hit:false, score:0 };
 }
+
 
 
 // ---------- AI QUERY UNDERSTANDING ----------
