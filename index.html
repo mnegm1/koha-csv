@@ -135,7 +135,7 @@ function flexibleAuthorMatch(qTokens, name){
   const aTokens = tokenizeName(name);
   if (aTokens.length === 0 || qTokens.length === 0) return { hit:false, score:0 };
 
-  // ===== Strict guard when surnames match =====
+  // ===== حارس صارم عند تطابق اللقب =====
   const surnameQ = extractSurname(qTokens);
   const surnameA = extractSurname(aTokens);
 
@@ -146,31 +146,32 @@ function flexibleAuthorMatch(qTokens, name){
     const givenQ = qTokens.filter(t => t !== surnameQ && !isStop(t));
     const givenA = aTokens.filter(t => t !== surnameA && !isStop(t));
 
-    // Exact (not prefix) intersection of given names
+    // تقاطع "دقيق" للأسماء المعطاة (بدون startsWith)
     const sharedExact = [];
     for (const q of givenQ) if (givenA.includes(q)) sharedExact.push(q);
 
-    // 1) No exact shared given name → reject
+    // 1) لا يوجد اسم معطى مشترك بدقة → رفض
     if (sharedExact.length === 0) return { hit:false, score:0 };
 
-    // 2) If only shared token is a common given name (e.g., "محمد") and other names differ → reject
+    // 2) لو التشارك الوحيد اسم شائع (مثل "محمد") ومع وجود أسماء أخرى مختلفة → رفض
     if (sharedExact.length === 1 && isCommon(sharedExact[0]) &&
         (givenQ.length >= 2 || givenA.length >= 2)) {
       return { hit:false, score:0 };
     }
 
-    // 3) If both sides have ≥2 given tokens but exact overlap is weak → reject (Jaccard similarity)
+    // 3) عند وجود ≥2 أسماء معطاة في الجانبين، لكن التشابه الدقيق ضعيف جدًا → رفض
     if (givenQ.length >= 2 && givenA.length >= 2) {
       const setQ = new Set(givenQ);
       let inter = 0;
       for (const a of givenA) if (setQ.has(a)) inter++;
       const union = new Set([...givenQ, ...givenA]).size;
-      const jaccard = inter / union;
+      const jaccard = inter / union;   // تشابه جاكارد على الأسماء الدقيقة فقط
       if (jaccard < 0.34) return { hit:false, score:0 };
     }
   }
-  // ===== end strict guard =====
+  // ===== نهاية الحارس الصارم =====
 
+  // منطقك الأصلي كما هو
   const anchor = extractSurname(qTokens);
   const hasAnchor = anchor ? aTokens.some(at => tokenEq(anchor, at)) : false;
   if (anchor && !hasAnchor) return { hit:false, score:0 };
@@ -196,7 +197,6 @@ function flexibleAuthorMatch(qTokens, name){
   }
   return { hit:false, score:0 };
 }
-
 
 
 // ---------- AI QUERY UNDERSTANDING ----------
