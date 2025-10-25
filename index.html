@@ -132,39 +132,63 @@ function exactAuthorMatch(qTokens, name){
          aTokens.every(at => qTokens.some(qt=>tokenEq(qt,at)));
 }
 function flexibleAuthorMatch(qTokens, name){
+function flexibleAuthorMatch(qTokens, name){
   const aTokens = tokenizeName(name);
   if (aTokens.length === 0 || qTokens.length === 0) return { hit:false, score:0 };
 
-  // ===== حارس صارم عند تطابق اللقب =====
-  const surnameQ = extractSurname(qTokens);
-  const surnameA = extractSurname(aTokens);
+  // Helpers scoped to this function only (لا تغيّر دوالك العامة)
+  const firstNonStop = (tokens) => tokens.find(t => !NAME_STOP.has(t)) || null;
+  const pickMatchingSurname = (qT, aT) => {
+    const qFirst = firstNonStop(qT), qLast = extractSurname(qT);
+    const aFirst = firstNonStop(aT), aLast = extractSurname(aT);
+    // جرّب كل التركيبات لاختيار لقبين متطابقين فعليًا (تدعم العربية: اللقب أولًا)
+    const pairs = [
+      [qFirst, aFirst], [qFirst, aLast],
+      [qLast,  aFirst], [qLast,  aLast]
+    ];
+    for (const [qs, as] of pairs){
+      if (qs && as && tokenEq(qs, as)) return { qs, as };
+    }
+    return { qs: null, as: null };
+  };
 
-  if (surnameQ && surnameA && tokenEq(surnameQ, surnameA)) {
-    const isStop   = t => NAME_STOP.has(t);
+  // ===== حارس صارم عند تطابق اللقب (يدعم العربية: اللقب قد يكون أول كلمة) =====
+  const { qs: surnameQ, as: surnameA } = pickMatchingSurname(qTokens, aTokens);
 
-    // الأسماء المعطاة (بدون ألفاظ النسب وما شابه)
+  if (surnameQ && surnameA) {
+    const isStop = t => NAME_STOP.has(t);
+
+    // الأسماء المعطاة (نستبعد اللقب وألفاظ النسب)
     const givenQ = qTokens.filter(t => t !== surnameQ && !isStop(t));
     const givenA = aTokens.filter(t => t !== surnameA && !isStop(t));
 
-    // تقاطع "دقيق" فقط (بدون startsWith)
+    // تقاطع دقيق فقط (بدون startsWith) لمنع التطابقات الخاطئة
     const setA = new Set(givenA);
     const sharedExact = givenQ.filter(q => setA.has(q));
 
-    // لا يوجد اسم معطى مشترك بدقة → رفض
+    // لو مفيش اسم معطى مشترك بدقة → رفض
     if (sharedExact.length === 0) return { hit:false, score:0 };
 
-    // لو هناك أسماء معطاة مختلفة كثيرة (تشابه ضعيف) → رفض
+    // لو التشارك الوحيد هو اسم شائع جدًا → رفض (قائمة محلية ضيقة حتى لا نمس COMMON_GIVEN عالمية)
+    const VERY_COMMON = new Set(["محمد","احمد","أحمد","علي","حسن","حسين","خالد","سعيد","سالم","يوسف","ابراهيم","إبراهيم","محمود","عمر","سامي","نادر","ماجد","عبدالله","عبد","عبدالرحمن","عبدالعزيز","سلطان"]);
+    if (sharedExact.length === 1 && VERY_COMMON.has(sharedExact[0]) &&
+        (givenQ.length >= 2 || givenA.length >= 2)) {
+      return { hit:false, score:0 };
+    }
+
+    // لو كل طرف فيه ≥2 أسماء معطاة ولكن التقاطع الدقيق ضعيف → رفض
     if (givenQ.length >= 2 && givenA.length >= 2) {
       const setQ = new Set(givenQ);
       let inter = 0; for (const a of givenA) if (setQ.has(a)) inter++;
       const union = new Set([...givenQ, ...givenA]).size;
       const jaccard = inter / union;
-      if (jaccard < 0.34) return { hit:false, score:0 };
+      if (jaccard < 0.40) return { hit:false, score:0 }; // شدّينا العتبة قليلًا
     }
   }
   // ===== نهاية الحارس الصارم =====
 
-  // منطقك الأصلي كما هو
+  // نُبقي منطقك الأصلي كما هو
+  // ملاحظة: نستخدم anchor التقليدي حتى لا نمس بقية السلوك
   const anchor = extractSurname(qTokens);
   const hasAnchor = anchor ? aTokens.some(at => tokenEq(anchor, at)) : false;
   if (anchor && !hasAnchor) return { hit:false, score:0 };
@@ -190,6 +214,7 @@ function flexibleAuthorMatch(qTokens, name){
   }
   return { hit:false, score:0 };
 }
+
 
 
 
