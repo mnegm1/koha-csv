@@ -136,7 +136,7 @@ function flexibleAuthorMatch(qTokens, name){
   if(aTokens.length===0 || qTokens.length===0) return {hit:false,score:0};
 
   // 🔒 New guard: same surname but no shared given names → reject
-  // (prevents: "سلطان محمد النعيمي" ≠ "سلطان عبيد سالم النعيمي")
+  // (prevents: "سلطان محمد النعيمي" ≠ "النعيمي، سلطان عبيد سالم")
   const surnameQ = extractSurname(qTokens);
   const surnameA = extractSurname(aTokens);
   if (surnameQ && surnameA && tokenEq(surnameQ, surnameA)) {
