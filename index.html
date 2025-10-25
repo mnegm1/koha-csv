@@ -133,62 +133,46 @@ function exactAuthorMatch(qTokens, name){
 }
 function flexibleAuthorMatch(qTokens, name){
   const aTokens = tokenizeName(name);
-  if(aTokens.length===0 || qTokens.length===0) return {hit:false,score:0};
+  if (aTokens.length === 0 || qTokens.length === 0) return { hit:false, score:0 };
 
-function flexibleAuthorMatch(qTokens, name){
-  const aTokens = tokenizeName(name);
-  if(aTokens.length===0 || qTokens.length===0) return {hit:false,score:0};
-
-  // 🔒 Guard 1: if surnames match but given names are substantially different → reject
+  // HARD REJECT: same surname but no exact shared given name
   const surnameQ = extractSurname(qTokens);
   const surnameA = extractSurname(aTokens);
   if (surnameQ && surnameA && tokenEq(surnameQ, surnameA)) {
     const givenQ = qTokens.filter(t => t !== surnameQ && !NAME_STOP.has(t));
     const givenA = aTokens.filter(t => t !== surnameA && !NAME_STOP.has(t));
-
-    // strict equality (no prefix) just for disambiguation
-    const inter = new Set();
-    for (const q of givenQ) for (const a of givenA) if (q === a) inter.add(q);
-
-    const union = new Set([...givenQ, ...givenA]);
-    const interSize = inter.size;
-    const unionSize = union.size;
-
-    // No shared given names OR too many non-overlapping givens (e.g., "سلطان عبيد سالم" vs "سلطان محمد")
-    if (interSize === 0 || (unionSize - interSize) >= 2) {
-      return {hit:false,score:0};
+    let exactSharedGiven = false;
+    for (const q of givenQ) {
+      if (givenA.includes(q)) { exactSharedGiven = true; break; } // exact match only
     }
+    if (!exactSharedGiven) return { hit:false, score:0 };
   }
 
-  // Existing logic
   const anchor = extractSurname(qTokens);
-  const hasAnchor = anchor ? aTokens.some(at=>tokenEq(anchor, at)) : false;
-  if(anchor && !hasAnchor) return {hit:false,score:0};
+  const hasAnchor = anchor ? aTokens.some(at => tokenEq(anchor, at)) : false;
+  if (anchor && !hasAnchor) return { hit:false, score:0 };
 
   const qNonCommon = qTokens.filter(t => t !== anchor && !COMMON_GIVEN.has(t) && !NAME_STOP.has(t));
-  if(qNonCommon.length > 0){
-    const hasDistinct = qNonCommon.some(t => aTokens.some(at=>tokenEq(t,at)));
-    if(!hasDistinct) return {hit:false,score:0};
+  if (qNonCommon.length > 0){
+    const hasDistinct = qNonCommon.some(t => aTokens.some(at => tokenEq(t, at)));
+    if (!hasDistinct) return { hit:false, score:0 };
   }
 
-  let overlap=0; const used=new Array(aTokens.length).fill(false);
-  for(const qt of qTokens){
-    const i=aTokens.findIndex((at,idx)=>!used[idx] && tokenEq(qt,at));
-    if(i>=0){ used[i]=true; overlap++; }
+  let overlap = 0; const used = new Array(aTokens.length).fill(false);
+  for (const qt of qTokens){
+    const i = aTokens.findIndex((at, idx) => !used[idx] && tokenEq(qt, at));
+    if (i >= 0){ used[i] = true; overlap++; }
   }
-  const minLen=Math.min(qTokens.length,aTokens.length);
-  const need=Math.max(2, Math.ceil(minLen*0.66));
-  if(overlap>=need){
-    const closeness=1 - Math.abs(qTokens.length - aTokens.length)/5;
-    const anchorBonus=hasAnchor?8:0;
-    const distinctBonus=(qNonCommon.length>0)?5:0;
-    return {hit:true, score:70 + overlap*10 + closeness*5 + anchorBonus + distinctBonus};
+  const minLen = Math.min(qTokens.length, aTokens.length);
+  const need = Math.max(2, Math.ceil(minLen * 0.66));
+  if (overlap >= need){
+    const closeness   = 1 - Math.abs(qTokens.length - aTokens.length)/5;
+    const anchorBonus = hasAnchor ? 8 : 0;
+    const distinctBonus = (qNonCommon.length > 0) ? 5 : 0;
+    return { hit:true, score: 70 + overlap*10 + closeness*5 + anchorBonus + distinctBonus };
   }
-  return {hit:false,score:0};
+  return { hit:false, score:0 };
 }
-
-
-
 
 // ---------- AI QUERY UNDERSTANDING ----------
 async function understandQueryWithAI(query){
