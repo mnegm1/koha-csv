@@ -135,17 +135,32 @@ function flexibleAuthorMatch(qTokens, name){
   const aTokens = tokenizeName(name);
   if(aTokens.length===0 || qTokens.length===0) return {hit:false,score:0};
 
-  // 🔒 New guard: same surname but no shared given names → reject
-  // (prevents: "سلطان محمد النعيمي" ≠ "النعيمي، سلطان عبيد سالم")
+function flexibleAuthorMatch(qTokens, name){
+  const aTokens = tokenizeName(name);
+  if(aTokens.length===0 || qTokens.length===0) return {hit:false,score:0};
+
+  // 🔒 Guard 1: if surnames match but given names are substantially different → reject
   const surnameQ = extractSurname(qTokens);
   const surnameA = extractSurname(aTokens);
   if (surnameQ && surnameA && tokenEq(surnameQ, surnameA)) {
     const givenQ = qTokens.filter(t => t !== surnameQ && !NAME_STOP.has(t));
     const givenA = aTokens.filter(t => t !== surnameA && !NAME_STOP.has(t));
-    const hasSharedGiven = givenQ.some(qt => givenA.some(at => tokenEq(qt, at)));
-    if (!hasSharedGiven) return {hit:false,score:0};
+
+    // strict equality (no prefix) just for disambiguation
+    const inter = new Set();
+    for (const q of givenQ) for (const a of givenA) if (q === a) inter.add(q);
+
+    const union = new Set([...givenQ, ...givenA]);
+    const interSize = inter.size;
+    const unionSize = union.size;
+
+    // No shared given names OR too many non-overlapping givens (e.g., "سلطان عبيد سالم" vs "سلطان محمد")
+    if (interSize === 0 || (unionSize - interSize) >= 2) {
+      return {hit:false,score:0};
+    }
   }
 
+  // Existing logic
   const anchor = extractSurname(qTokens);
   const hasAnchor = anchor ? aTokens.some(at=>tokenEq(anchor, at)) : false;
   if(anchor && !hasAnchor) return {hit:false,score:0};
@@ -171,6 +186,7 @@ function flexibleAuthorMatch(qTokens, name){
   }
   return {hit:false,score:0};
 }
+
 
 
 
