@@ -75,6 +75,18 @@ function exactAuthorMatch(qTokens, name){
   if (!name) return false;
   const aTokens = tokenizeName(name);
   if (qTokens.length !== aTokens.length) return false;
+  
+  // For 3-name searches, check if LAST token (family name) matches
+  // Example: "سلطان محمد النعيمي" searches should match ANY author with family name "النعيمي"
+  if(qTokens.length === 3 && aTokens.length === 3) {
+    // Get the last token from both (family name)
+    const lastQuery = qTokens[qTokens.length - 1];
+    const lastAuthor = aTokens[aTokens.length - 1];
+    
+    // If family names match, it's a match!
+    return lastQuery === lastAuthor;
+  }
+  
   for (const qt of qTokens) if (!aTokens.includes(qt)) return false;
   for (const at of aTokens) if (!qTokens.includes(at)) return false;
   return true;
