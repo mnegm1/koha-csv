@@ -70,7 +70,11 @@ function norm(s) {
     .replace(/[\u06F0-\u06F9]/g, d => String.fromCharCode(d.charCodeAt(0)-1776+48))
     .replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\s+/g,' ').trim();
 }
-function tokenizeName(n){ return norm(n).split(/\s+/).filter(t=>t.length>=2) }
+function tokenizeName(n){ 
+  // Remove commas first, then normalize and split
+  n = norm(n.replace(/،/g, ' ').replace(/,/g, ' '));
+  return n.split(/\s+/).filter(t=>t.length>=2) 
+}
 function exactAuthorMatch(qTokens, name){
   if (!name) return false;
   const aTokens = tokenizeName(name);
