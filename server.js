@@ -103,6 +103,12 @@ function filterAuthorBooks(query, books) {
     const isExact = exactAuthorMatch(qTokens, author);
     const aLen    = tokenizeName(author).length;
 
+    // For 3-token searches: strict exact matching only (skip flexible matching)
+    if (qTokens.length === 3) {
+      if (isExact && aLen === 3) out.push(b);
+      continue;
+    }
+
     if (qTokens.length === 2 && exactTwoTokenExists) {
       // only allow exact 2-token matches
       if (isExact && aLen === 2) out.push(b);
