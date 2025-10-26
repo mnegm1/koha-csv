@@ -128,9 +128,6 @@ function tokenEq(a,b){
 function exactAuthorMatch(qTokens, name){
   const aTokens = tokenizeName(name);
   if(qTokens.length!==aTokens.length) return false;
-  
-  // For all cases: check that all query tokens exist in author tokens
-  // and all author tokens exist in query tokens (regardless of order)
   return qTokens.every(qt => aTokens.some(at=>tokenEq(qt,at))) &&
          aTokens.every(at => qTokens.some(qt=>tokenEq(qt,at)));
 }
@@ -282,16 +279,14 @@ function searchField(field,q){
 
     } else if(field==="author"){
       const tlen = tokens.length;
-      // If user entered exactly 3 tokens → enforce strict exact matching (all 3 names must match)
-      // Skip flexible/partial matching for 3-name searches
+      // If user entered exactly 3 tokens → enforce strict exact matching only
       if(tlen === 3){
         if(exactAuthorMatch(tokens, r.nAuthor)){sc=130;hit=true}
         else if(exactAuthorMatch(tokens, r.nOtherAuthor)){sc=122;hit=true}
         else if(exactAuthorMatch(tokens, r.nCorporate)){sc=115;hit=true}
         if(hit) MATCH_NOTE="Author: exact 3-name match (all names must match)";
-        // Skip flexible logic when searching for 3 names
       } else {
-        // Keep existing behavior for all other queries (1-2 names or 4+ names)
+        // For 1-2 names or 4+ names: use both exact AND flexible matching
         if(exactAuthorMatch(tokens, r.nAuthor)){sc=120;hit=true}
         else if(exactAuthorMatch(tokens, r.nOtherAuthor)){sc=112;hit=true}
         else if(exactAuthorMatch(tokens, r.nCorporate)){sc=105;hit=true}
