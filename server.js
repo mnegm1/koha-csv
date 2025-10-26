@@ -74,6 +74,17 @@ function tokenizeName(n){ return norm(n).split(/\s+/).filter(t=>t.length>=2) }
 function exactAuthorMatch(qTokens, name){
   if (!name) return false;
   const aTokens = tokenizeName(name);
+  
+  // For 3-name searches (first, middle, last), require EXACT positional match
+  if (qTokens.length === 3) {
+    if (aTokens.length !== 3) return false;
+    for (let i = 0; i < 3; i++) {
+      if (!tokenEq(qTokens[i], aTokens[i])) return false;
+    }
+    return true;
+  }
+  
+  // For other cases (1, 2, 4+ names), use token-based matching
   if (qTokens.length !== aTokens.length) return false;
   for (const qt of qTokens) if (!aTokens.includes(qt)) return false;
   for (const at of aTokens) if (!qTokens.includes(at)) return false;
