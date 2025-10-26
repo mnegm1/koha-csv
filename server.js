@@ -75,9 +75,8 @@ function exactAuthorMatch(qTokens, name){
   if (!name) return false;
   const aTokens = tokenizeName(name);
   
-  // For 3-name searches (first, middle, last), require EXACT positional match
-  if (qTokens.length === 3) {
-    if (aTokens.length !== 3) return false;
+  // For 3-name searches, require EXACT positional match
+  if (qTokens.length === 3 && aTokens.length === 3) {
     for (let i = 0; i < 3; i++) {
       if (!tokenEq(qTokens[i], aTokens[i])) return false;
     }
