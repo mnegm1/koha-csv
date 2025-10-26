@@ -126,7 +126,7 @@ function tokenEq(a,b){
   return false;
 }
 function partialAuthorMatch(qTokens, name){
-  // For partial matching: all query tokens must exist in author name (order doesn't matter)
+  // For partial matching: all query tokens must exist in author name
   const aTokens = tokenizeName(name);
   if(qTokens.length === 0 || aTokens.length === 0) return false;
   return qTokens.every(qt => aTokens.some(at=>tokenEq(qt,at)));
@@ -268,7 +268,7 @@ async function ensureLoaded(){
 
 // ---------- SEARCH ----------
 function searchField(field,q){
-  const nq=norm(q),tokens=nq.split(/\s+/).filter(t=>t.length>=2),out=[];
+  const nq=norm(q),tokens=tokenizeName(q),out=[];
   for(const r of INDEX){
     let sc=0,hit=false;
     if(field==="default"){
