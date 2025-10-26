@@ -118,7 +118,11 @@ function extractSurname(tokens){
   }
   return tokens[tokens.length-1] || null;
 }
-function tokenizeName(n){ return norm(n).split(/\s+/).filter(t=>t.length>=2) }
+function tokenizeName(n){ 
+  // Remove commas first, then normalize and split
+  n = norm(n.replace(/،/g, ' ').replace(/,/g, ' '));
+  return n.split(/\s+/).filter(t=>t.length>=2) 
+}
 function tokenEq(a,b){
   if(a===b) return true;
   if(a.length>=3 && b.startsWith(a)) return true;
