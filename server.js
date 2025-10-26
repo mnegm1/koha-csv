@@ -70,20 +70,14 @@ function norm(s) {
     .replace(/[\u06F0-\u06F9]/g, d => String.fromCharCode(d.charCodeAt(0)-1776+48))
     .replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\s+/g,' ').trim();
 }
-function tokenizeName(n){ return norm(n).split(/\s+/).filter(t=>t.length>=2) }
+function tokenizeName(n){ 
+  // Remove commas and split into tokens
+  n = norm(n).replace(/،/g, ' ').replace(/,/g, ' ');
+  return n.split(/\s+/).filter(t=>t.length>=2) 
+}
 function exactAuthorMatch(qTokens, name){
   if (!name) return false;
   const aTokens = tokenizeName(name);
-  
-  // For 3-name searches, require EXACT positional match
-  if (qTokens.length === 3 && aTokens.length === 3) {
-    for (let i = 0; i < 3; i++) {
-      if (!tokenEq(qTokens[i], aTokens[i])) return false;
-    }
-    return true;
-  }
-  
-  // For other cases (1, 2, 4+ names), use token-based matching
   if (qTokens.length !== aTokens.length) return false;
   for (const qt of qTokens) if (!aTokens.includes(qt)) return false;
   for (const at of aTokens) if (!qTokens.includes(at)) return false;
