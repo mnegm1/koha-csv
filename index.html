@@ -118,12 +118,18 @@ function extractSurname(tokens){
   }
   return tokens[tokens.length-1] || null;
 }
-function tokenizeName(n){ return norm(n).split(/\s+/).filter(t=>t.length>=2) }
+function tokenizeName(n){ return norm(n).split(/\s+/).filter(t=>t.length>=2 && !NAME_STOP.has(t)) }
 function tokenEq(a,b){
   if(a===b) return true;
   if(a.length>=3 && b.startsWith(a)) return true;
   if(b.length>=3 && a.startsWith(b)) return true;
   return false;
+}
+function partialAuthorMatch(qTokens, name){
+  // For partial matching: all query tokens must exist in author name (order doesn't matter)
+  const aTokens = tokenizeName(name);
+  if(qTokens.length === 0 || aTokens.length === 0) return false;
+  return qTokens.every(qt => aTokens.some(at=>tokenEq(qt,at)));
 }
 function exactAuthorMatch(qTokens, name){
   const aTokens = tokenizeName(name);
@@ -279,26 +285,29 @@ function searchField(field,q){
 
     } else if(field==="author"){
       const tlen = tokens.length;
-      // If user entered exactly 3 tokens → enforce strict exact matching only
-      if(tlen === 3){
-        if(exactAuthorMatch(tokens, r.nAuthor)){sc=130;hit=true}
-        else if(exactAuthorMatch(tokens, r.nOtherAuthor)){sc=122;hit=true}
-        else if(exactAuthorMatch(tokens, r.nCorporate)){sc=115;hit=true}
-        if(hit) MATCH_NOTE="Author: exact 3-name match (all names must match)";
-      } else {
-        // For 1-2 names or 4+ names: use both exact AND flexible matching
-        if(exactAuthorMatch(tokens, r.nAuthor)){sc=120;hit=true}
-        else if(exactAuthorMatch(tokens, r.nOtherAuthor)){sc=112;hit=true}
-        else if(exactAuthorMatch(tokens, r.nCorporate)){sc=105;hit=true}
-        else {
-          const main=flexibleAuthorMatch(tokens, r.nAuthor);
-          const other=flexibleAuthorMatch(tokens, r.nOtherAuthor);
-          const corp=flexibleAuthorMatch(tokens, r.nCorporate);
-          const best=[main,other,corp].reduce((a,b)=>a.score>b.score?a:b,{hit:false,score:0});
-          if(best.hit){sc=best.score;hit=true}
-        }
-        if(hit) MATCH_NOTE="Author: surname + distinct name (if present)";
+      
+      // Try exact match first (same number of tokens)
+      if(exactAuthorMatch(tokens, r.nAuthor)){sc=130;hit=true}
+      else if(exactAuthorMatch(tokens, r.nOtherAuthor)){sc=122;hit=true}
+      else if(exactAuthorMatch(tokens, r.nCorporate)){sc=115;hit=true}
+      
+      // If no exact match, try partial match (for 2-3 name searches matching 3+ name authors)
+      if(!hit){
+        if(partialAuthorMatch(tokens, r.nAuthor)){sc=110;hit=true}
+        else if(partialAuthorMatch(tokens, r.nOtherAuthor)){sc=105;hit=true}
+        else if(partialAuthorMatch(tokens, r.nCorporate)){sc=100;hit=true}
       }
+      
+      // If still no match, try flexible matching
+      if(!hit){
+        const main=flexibleAuthorMatch(tokens, r.nAuthor);
+        const other=flexibleAuthorMatch(tokens, r.nOtherAuthor);
+        const corp=flexibleAuthorMatch(tokens, r.nCorporate);
+        const best=[main,other,corp].reduce((a,b)=>a.score>b.score?a:b,{hit:false,score:0});
+        if(best.hit){sc=best.score;hit=true}
+      }
+      
+      if(hit) MATCH_NOTE="Author: name match";
 
 
     } else if(field==="subject"){
