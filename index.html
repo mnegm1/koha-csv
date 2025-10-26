@@ -128,6 +128,16 @@ function tokenEq(a,b){
 function exactAuthorMatch(qTokens, name){
   const aTokens = tokenizeName(name);
   if(qTokens.length!==aTokens.length) return false;
+  
+  // For 3+ tokens, enforce exact sequential order (first name = first name, etc.)
+  if(qTokens.length >= 3){
+    for(let i = 0; i < qTokens.length; i++){
+      if(!tokenEq(qTokens[i], aTokens[i])) return false;
+    }
+    return true;
+  }
+  
+  // For 1-2 tokens, use flexible matching (tokens can be in any order)
   return qTokens.every(qt => aTokens.some(at=>tokenEq(qt,at))) &&
          aTokens.every(at => qTokens.some(qt=>tokenEq(qt,at)));
 }
@@ -277,36 +287,32 @@ function searchField(field,q){
         if(totalMatch >= tokens.length * 0.5){sc = 30 + totalMatch * 8;hit=true}
       }
 
-    } else if (field === "author") {
+    } else if(field==="author"){
       const tlen = tokens.length;
-
       // If user entered exactly 3 tokens → enforce strict exact 3-name match
-      if (tlen === 3) {
+      if(tlen === 3){
         const aMain  = tokenizeName(r.nAuthor);
         const aOther = tokenizeName(r.nOtherAuthor);
         const aCorp  = tokenizeName(r.nCorporate);
-
-        if (aMain.length === 3 && exactAuthorMatch(tokens, r.nAuthor)) { sc = 130; hit = true; }
-        else if (aOther.length === 3 && exactAuthorMatch(tokens, r.nOtherAuthor)) { sc = 122; hit = true; }
-        else if (aCorp.length === 3 && exactAuthorMatch(tokens, r.nCorporate)) { sc = 115; hit = true; }
-
-        if (hit) MATCH_NOTE = "Author: exact 3-name match";
-        // Skip flexible logic in this case
+        if(aMain.length === 3 && exactAuthorMatch(tokens, r.nAuthor)){sc=130;hit=true}
+        else if(aOther.length === 3 && exactAuthorMatch(tokens, r.nOtherAuthor)){sc=122;hit=true}
+        else if(aCorp.length === 3 && exactAuthorMatch(tokens, r.nCorporate)){sc=115;hit=true}
+        if(hit) MATCH_NOTE="Author: exact 3-name match (First + Middle + Last)";
+        // Skip flexible logic when searching for 3-name
       } else {
-        // Keep existing behavior for all other queries
-        if (exactAuthorMatch(tokens, r.nAuthor)) { sc = 120; hit = true; }
-        else if (exactAuthorMatch(tokens, r.nOtherAuthor)) { sc = 112; hit = true; }
-        else if (exactAuthorMatch(tokens, r.nCorporate)) { sc = 105; hit = true; }
+        // Keep existing behavior for all other queries (1-2 names or 4+ names)
+        if(exactAuthorMatch(tokens, r.nAuthor)){sc=120;hit=true}
+        else if(exactAuthorMatch(tokens, r.nOtherAuthor)){sc=112;hit=true}
+        else if(exactAuthorMatch(tokens, r.nCorporate)){sc=105;hit=true}
         else {
-          const main  = flexibleAuthorMatch(tokens, r.nAuthor);
-          const other = flexibleAuthorMatch(tokens, r.nOtherAuthor);
-          const corp  = flexibleAuthorMatch(tokens, r.nCorporate);
-          const best  = [main, other, corp].reduce((a, b) => (a.score > b.score ? a : b), { hit: false, score: 0 });
-          if (best.hit) { sc = best.score; hit = true; }
+          const main=flexibleAuthorMatch(tokens, r.nAuthor);
+          const other=flexibleAuthorMatch(tokens, r.nOtherAuthor);
+          const corp=flexibleAuthorMatch(tokens, r.nCorporate);
+          const best=[main,other,corp].reduce((a,b)=>a.score>b.score?a:b,{hit:false,score:0});
+          if(best.hit){sc=best.score;hit=true}
         }
-        if (hit) MATCH_NOTE = "Author: surname + distinct name (if present)";
+        if(hit) MATCH_NOTE="Author: surname + distinct name (if present)";
       }
-
 
 
     } else if(field==="subject"){
