@@ -140,7 +140,13 @@ function exactAuthorMatch(qTokens, name){
            tokenEq(qTokens[2], aTokens[2]);
   }
   
-  // For other cases (1, 2, 4+ names), use flexible token matching
+  // For 1 and 2 name searches, use flexible token matching
+  if(qTokens.length <= 2) {
+    return qTokens.every(qt => aTokens.some(at=>tokenEq(qt,at))) &&
+           aTokens.every(at => qTokens.some(qt=>tokenEq(qt,at)));
+  }
+  
+  // For 4+ names, require exact token matching (no flexibility)
   return qTokens.every(qt => aTokens.some(at=>tokenEq(qt,at))) &&
          aTokens.every(at => qTokens.some(qt=>tokenEq(qt,at)));
 }
