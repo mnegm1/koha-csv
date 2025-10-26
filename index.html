@@ -292,7 +292,8 @@ function searchField(field,q){
       if(exactAuthorMatch(tokens, r.nAuthor)){sc=120;hit=true}
       else if(exactAuthorMatch(tokens, r.nOtherAuthor)){sc=112;hit=true}
       else if(exactAuthorMatch(tokens, r.nCorporate)){sc=105;hit=true}
-      else {
+      // For 3-name searches, do NOT use flexible matching - require exact match only
+      else if(tokens.length !== 3){
         const main=flexibleAuthorMatch(tokens, r.nAuthor);
         const other=flexibleAuthorMatch(tokens, r.nOtherAuthor);
         const corp=flexibleAuthorMatch(tokens, r.nCorporate);
