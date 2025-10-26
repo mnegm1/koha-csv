@@ -71,8 +71,18 @@ function norm(s) {
     .replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\s+/g,' ').trim();
 }
 function tokenizeName(n){ 
-  // Remove commas first, then normalize and split
-  n = norm(n.replace(/،/g, ' ').replace(/,/g, ' '));
+  // Handle comma-separated names: "Last, First Middle" -> "First Middle Last"
+  n = n.replace(/،/g, ','); // normalize Arabic comma to English
+  if(n.includes(',')) {
+    const parts = n.split(',').map(p => p.trim());
+    if(parts.length === 2) {
+      const last = parts[0];
+      const firstMiddle = parts[1];
+      n = firstMiddle + ' ' + last;
+    }
+  }
+  // Now normalize and split
+  n = norm(n);
   return n.split(/\s+/).filter(t=>t.length>=2) 
 }
 function exactAuthorMatch(qTokens, name){
