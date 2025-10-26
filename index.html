@@ -128,9 +128,8 @@ function tokenEq(a,b){
 function exactAuthorMatch(qTokens, name){
   const aTokens = tokenizeName(name);
   
-  // For 3-name searches (first, middle, last), require EXACT positional match
-  if (qTokens.length === 3) {
-    if (aTokens.length !== 3) return false;
+  // For 3-name searches, require EXACT positional match
+  if (qTokens.length === 3 && aTokens.length === 3) {
     for (let i = 0; i < 3; i++) {
       if (!tokenEq(qTokens[i], aTokens[i])) return false;
     }
@@ -138,7 +137,7 @@ function exactAuthorMatch(qTokens, name){
   }
   
   // For other cases (1, 2, 4+ names), use token-based matching
-  if(qTokens.length!==aTokens.length) return false;
+  if (qTokens.length !== aTokens.length) return false;
   return qTokens.every(qt => aTokens.some(at=>tokenEq(qt,at))) &&
          aTokens.every(at => qTokens.some(qt=>tokenEq(qt,at)));
 }
@@ -292,8 +291,7 @@ function searchField(field,q){
       if(exactAuthorMatch(tokens, r.nAuthor)){sc=120;hit=true}
       else if(exactAuthorMatch(tokens, r.nOtherAuthor)){sc=112;hit=true}
       else if(exactAuthorMatch(tokens, r.nCorporate)){sc=105;hit=true}
-      // For 3-name searches, do NOT use flexible matching - require exact match only
-      else if(tokens.length !== 3){
+      else {
         const main=flexibleAuthorMatch(tokens, r.nAuthor);
         const other=flexibleAuthorMatch(tokens, r.nOtherAuthor);
         const corp=flexibleAuthorMatch(tokens, r.nCorporate);
