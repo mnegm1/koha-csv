@@ -81,39 +81,61 @@ function exactAuthorMatch(qTokens, name){
 }
 
 /* ========= Author filter with "exact 2-token preferred" ========= */
+/* ========= Author filter with "exact 3-token rule" + multi-author fields ========= */
 function filterAuthorBooks(query, books) {
   const qTokens = tokenizeName(query);
   if (qTokens.length === 0) return [];
-  const list = (Array.isArray(books) ? books : []).filter(b => b && typeof b === 'object');
 
-  // Check if any exact 2-token author exists when query has 2 tokens
+  const list = (Array.isArray(books) ? books : []).filter(b => b && typeof b === 'object');
+  const AUTHOR_FIELDS = ['author', 'other_author', 'corporate_name'];
+
+  function isExactInAnyField(book) {
+    for (const f of AUTHOR_FIELDS) {
+      const name = (book[f] || '').toString();
+      if (!name) continue;
+      if (exactAuthorMatch(qTokens, name)) return true;
+    }
+    return false;
+  }
+
+  function isExactWithLen(book, N) {
+    for (const f of AUTHOR_FIELDS) {
+      const name = (book[f] || '').toString();
+      if (!name) continue;
+      const aLen = tokenizeName(name).length;
+      if (aLen === N && exactAuthorMatch(qTokens, name)) return true;
+    }
+    return false;
+  }
+
+  // --- Rule 1: 3-token query → only exact 3-token match in any author field
+  if (qTokens.length === 3) {
+    return list.filter(b => isExactWithLen(b, 3));
+  }
+
+  // --- Rule 2: 2-token query → prefer exact 2-token matches
   let exactTwoTokenExists = false;
   if (qTokens.length === 2) {
     for (const b of list) {
-      const aLen = tokenizeName(b.author || '').length;
-      if (aLen === 2 && exactAuthorMatch(qTokens, b.author || '')) {
-        exactTwoTokenExists = true; break;
-      }
+      if (isExactWithLen(b, 2)) { exactTwoTokenExists = true; break; }
     }
   }
 
   const out = [];
   for (const b of list) {
-    const author = b.author || '';
-    const isExact = exactAuthorMatch(qTokens, author);
-    const aLen    = tokenizeName(author).length;
+    const exactAny = isExactInAnyField(b);
 
     if (qTokens.length === 2 && exactTwoTokenExists) {
-      // only allow exact 2-token matches
-      if (isExact && aLen === 2) out.push(b);
+      if (isExactWithLen(b, 2)) out.push(b);
       continue;
     }
 
-    // Otherwise, only exact (as per your last backend version)
-    if (isExact) out.push(b);
+    if (exactAny) out.push(b);
   }
+
   return out;
 }
+
 
 /* ========= /api/understand-query ========= */
 app.post('/api/understand-query', async (req, res) => {
