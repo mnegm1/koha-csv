@@ -118,11 +118,7 @@ function extractSurname(tokens){
   }
   return tokens[tokens.length-1] || null;
 }
-function tokenizeName(n){ 
-  // Remove commas and split into tokens
-  n = norm(n).replace(/،/g, ' ').replace(/,/g, ' ');
-  return n.split(/\s+/).filter(t=>t.length>=2) 
-}
+function tokenizeName(n){ return norm(n).split(/\s+/).filter(t=>t.length>=2) }
 function tokenEq(a,b){
   if(a===b) return true;
   if(a.length>=3 && b.startsWith(a)) return true;
@@ -132,6 +128,15 @@ function tokenEq(a,b){
 function exactAuthorMatch(qTokens, name){
   const aTokens = tokenizeName(name);
   if(qTokens.length!==aTokens.length) return false;
+  
+  // For 3-name searches, require EXACT positional order
+  if(qTokens.length === 3 && aTokens.length === 3) {
+    return tokenEq(qTokens[0], aTokens[0]) && 
+           tokenEq(qTokens[1], aTokens[1]) && 
+           tokenEq(qTokens[2], aTokens[2]);
+  }
+  
+  // For other cases (1, 2, 4+ names), use flexible token matching
   return qTokens.every(qt => aTokens.some(at=>tokenEq(qt,at))) &&
          aTokens.every(at => qTokens.some(qt=>tokenEq(qt,at)));
 }
