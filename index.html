@@ -277,18 +277,36 @@ function searchField(field,q){
         if(totalMatch >= tokens.length * 0.5){sc = 30 + totalMatch * 8;hit=true}
       }
 
-    } else if(field==="author"){
-      if(exactAuthorMatch(tokens, r.nAuthor)){sc=120;hit=true}
-      else if(exactAuthorMatch(tokens, r.nOtherAuthor)){sc=112;hit=true}
-      else if(exactAuthorMatch(tokens, r.nCorporate)){sc=105;hit=true}
-      else {
-        const main=flexibleAuthorMatch(tokens, r.nAuthor);
-        const other=flexibleAuthorMatch(tokens, r.nOtherAuthor);
-        const corp=flexibleAuthorMatch(tokens, r.nCorporate);
-        const best=[main,other,corp].reduce((a,b)=>a.score>b.score?a:b,{hit:false,score:0});
-        if(best.hit){sc=best.score;hit=true}
+    } else if (field === "author") {
+      const tlen = tokens.length;
+
+      // If user entered exactly 3 tokens → enforce strict exact 3-name match
+      if (tlen === 3) {
+        const aMain  = tokenizeName(r.nAuthor);
+        const aOther = tokenizeName(r.nOtherAuthor);
+        const aCorp  = tokenizeName(r.nCorporate);
+
+        if (aMain.length === 3 && exactAuthorMatch(tokens, r.nAuthor)) { sc = 130; hit = true; }
+        else if (aOther.length === 3 && exactAuthorMatch(tokens, r.nOtherAuthor)) { sc = 122; hit = true; }
+        else if (aCorp.length === 3 && exactAuthorMatch(tokens, r.nCorporate)) { sc = 115; hit = true; }
+
+        if (hit) MATCH_NOTE = "Author: exact 3-name match";
+        // Skip flexible logic in this case
+      } else {
+        // Keep existing behavior for all other queries
+        if (exactAuthorMatch(tokens, r.nAuthor)) { sc = 120; hit = true; }
+        else if (exactAuthorMatch(tokens, r.nOtherAuthor)) { sc = 112; hit = true; }
+        else if (exactAuthorMatch(tokens, r.nCorporate)) { sc = 105; hit = true; }
+        else {
+          const main  = flexibleAuthorMatch(tokens, r.nAuthor);
+          const other = flexibleAuthorMatch(tokens, r.nOtherAuthor);
+          const corp  = flexibleAuthorMatch(tokens, r.nCorporate);
+          const best  = [main, other, corp].reduce((a, b) => (a.score > b.score ? a : b), { hit: false, score: 0 });
+          if (best.hit) { sc = best.score; hit = true; }
+        }
+        if (hit) MATCH_NOTE = "Author: surname + distinct name (if present)";
       }
-      if(hit) MATCH_NOTE="Author: surname + distinct name (if present)";
+
 
 
     } else if(field==="subject"){
