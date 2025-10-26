@@ -76,17 +76,15 @@ function exactAuthorMatch(qTokens, name){
   const aTokens = tokenizeName(name);
   if (qTokens.length !== aTokens.length) return false;
   
-  // For 3-name searches, check if LAST token (family name) matches
-  // Example: "سلطان محمد النعيمي" searches should match ANY author with family name "النعيمي"
-  if(qTokens.length === 3 && aTokens.length === 3) {
-    // Get the last token from both (family name)
-    const lastQuery = qTokens[qTokens.length - 1];
-    const lastAuthor = aTokens[aTokens.length - 1];
-    
-    // If family names match, it's a match!
-    return lastQuery === lastAuthor;
+  // For 3+ tokens, enforce exact order (first name, middle name, last name matching)
+  if (qTokens.length >= 3) {
+    for (let i = 0; i < qTokens.length; i++) {
+      if (qTokens[i] !== aTokens[i]) return false;
+    }
+    return true;
   }
   
+  // For 1-2 tokens, use original logic (check all tokens exist, regardless of order)
   for (const qt of qTokens) if (!aTokens.includes(qt)) return false;
   for (const at of aTokens) if (!qTokens.includes(at)) return false;
   return true;
