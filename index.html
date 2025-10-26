@@ -129,15 +129,8 @@ function exactAuthorMatch(qTokens, name){
   const aTokens = tokenizeName(name);
   if(qTokens.length!==aTokens.length) return false;
   
-  // For 3+ tokens, enforce exact sequential order (first name = first name, etc.)
-  if(qTokens.length >= 3){
-    for(let i = 0; i < qTokens.length; i++){
-      if(!tokenEq(qTokens[i], aTokens[i])) return false;
-    }
-    return true;
-  }
-  
-  // For 1-2 tokens, use flexible matching (tokens can be in any order)
+  // For all cases: check that all query tokens exist in author tokens
+  // and all author tokens exist in query tokens (regardless of order)
   return qTokens.every(qt => aTokens.some(at=>tokenEq(qt,at))) &&
          aTokens.every(at => qTokens.some(qt=>tokenEq(qt,at)));
 }
@@ -289,16 +282,14 @@ function searchField(field,q){
 
     } else if(field==="author"){
       const tlen = tokens.length;
-      // If user entered exactly 3 tokens → enforce strict exact 3-name match
+      // If user entered exactly 3 tokens → enforce strict exact matching (all 3 names must match)
+      // Skip flexible/partial matching for 3-name searches
       if(tlen === 3){
-        const aMain  = tokenizeName(r.nAuthor);
-        const aOther = tokenizeName(r.nOtherAuthor);
-        const aCorp  = tokenizeName(r.nCorporate);
-        if(aMain.length === 3 && exactAuthorMatch(tokens, r.nAuthor)){sc=130;hit=true}
-        else if(aOther.length === 3 && exactAuthorMatch(tokens, r.nOtherAuthor)){sc=122;hit=true}
-        else if(aCorp.length === 3 && exactAuthorMatch(tokens, r.nCorporate)){sc=115;hit=true}
-        if(hit) MATCH_NOTE="Author: exact 3-name match (First + Middle + Last)";
-        // Skip flexible logic when searching for 3-name
+        if(exactAuthorMatch(tokens, r.nAuthor)){sc=130;hit=true}
+        else if(exactAuthorMatch(tokens, r.nOtherAuthor)){sc=122;hit=true}
+        else if(exactAuthorMatch(tokens, r.nCorporate)){sc=115;hit=true}
+        if(hit) MATCH_NOTE="Author: exact 3-name match (all names must match)";
+        // Skip flexible logic when searching for 3 names
       } else {
         // Keep existing behavior for all other queries (1-2 names or 4+ names)
         if(exactAuthorMatch(tokens, r.nAuthor)){sc=120;hit=true}
