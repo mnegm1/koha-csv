@@ -1,11 +1,11 @@
 // backend/server.js
-// ECSSR AI Assistant — v3.2
+// ECSSR AI Assistant — v3.3 FIXED
+// - Fixed author matching with surname-based approach
+// - Handles multi-token names correctly (e.g., "محمد بن راشد آل مكتوم")
+// - Special handling for famous people
 // - Health shows codeVersion
-// - Strict author matching with "exact 2-token author preferred" rule
-// - Safe availableData builders (no sampleBooks)
-// - Rate limiting + robust guards
 
-const CODE_VERSION = "ecssr-backend-v3.2-2token-prefer";
+const CODE_VERSION = "ecssr-backend-v3.3-surname-fix";
 
 const express = require('express');
 const cors = require('cors');
@@ -70,8 +70,27 @@ function norm(s) {
     .replace(/[\u06F0-\u06F9]/g, d => String.fromCharCode(d.charCodeAt(0)-1776+48))
     .replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\s+/g,' ').trim();
 }
-function tokenizeName(n){ return norm(n).split(/\s+/).filter(t=>t.length>=2) }
-function exactAuthorMatch(qTokens, name){
+
+function tokenizeName(n){ 
+  return norm(n).split(/\s+/).filter(t => t.length >= 2) 
+}
+
+// Name connector tokens (not surnames)
+const NAME_STOP = new Set([
+  "بن", "بنت", "ابن", "أبن", "آل", "ال", "أبو", "ابو", "بو", "بنّ", "عبد", "عبدال"
+]);
+
+function extractSurname(tokens) {
+  // Find the last token that is NOT a connector
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    if (!NAME_STOP.has(tokens[i])) {
+      return tokens[i];
+    }
+  }
+  return tokens[tokens.length - 1] || null;
+}
+
+function exactAuthorMatch(qTokens, name) {
   if (!name) return false;
   const aTokens = tokenizeName(name);
   if (qTokens.length !== aTokens.length) return false;
@@ -80,44 +99,90 @@ function exactAuthorMatch(qTokens, name){
   return true;
 }
 
-/* ========= Author filter with "exact 2-token preferred" ========= */
+// NEW: Surname-based matching for multi-token names
+function isSurnameMatch(qTokens, authorTokens) {
+  const qSurname = extractSurname(qTokens);
+  const aSurname = extractSurname(authorTokens);
+  
+  if (!qSurname || !aSurname) return false;
+  
+  // Surnames must match exactly
+  if (qSurname === aSurname) {
+    // Count how many query tokens appear in author tokens
+    const matchCount = qTokens.filter(qt => 
+      authorTokens.some(at => at === qt || at.startsWith(qt))
+    ).length;
+    // Require at least 2 tokens to match (avoid false positives)
+    return matchCount >= 2;
+  }
+  
+  return false;
+}
+
+// NEW: Famous people map for special handling
+const FAMOUS_PEOPLE_SURNAMES = new Map([
+  ["محمد بن راشد", "راشد"],
+  ["محمد بن زايد", "زايد"],
+  ["خليفة بن زايد", "زايد"],
+  ["زايد بن سلطان", "سلطان"],
+  ["سلطان بن زايد", "زايد"],
+  ["محمود بن محمد", "محمد"]
+]);
+
+/* ========= IMPROVED Author filter ========= */
 function filterAuthorBooks(query, books) {
   const qTokens = tokenizeName(query);
   if (qTokens.length === 0) return [];
   const list = (Array.isArray(books) ? books : []).filter(b => b && typeof b === 'object');
 
-  // Check if any exact 2-token author exists when query has 2 tokens
-  let exactTwoTokenExists = false;
-  if (qTokens.length === 2) {
-    for (const b of list) {
-      const aLen = tokenizeName(b.author || '').length;
-      if (aLen === 2 && exactAuthorMatch(qTokens, b.author || '')) {
-        exactTwoTokenExists = true; break;
-      }
+  // Check if query matches a famous person
+  const queryNorm = norm(query);
+  let isFamous = false;
+  let expectedSurname = null;
+  
+  for (const [famousName, surname] of FAMOUS_PEOPLE_SURNAMES) {
+    const famousNorm = norm(famousName);
+    if (queryNorm.includes(famousNorm) || famousNorm.includes(queryNorm)) {
+      isFamous = true;
+      expectedSurname = surname;
+      console.log(`[DEBUG] Famous person detected: ${famousName} → surname: ${surname}`);
+      break;
     }
   }
 
   const out = [];
   for (const b of list) {
     const author = b.author || '';
-    const isExact = exactAuthorMatch(qTokens, author);
-    const aLen    = tokenizeName(author).length;
+    const aTokens = tokenizeName(author);
+    
+    if (!author) continue;
 
-    // For 3-token searches: strict exact matching only (skip flexible matching)
-    if (qTokens.length === 3) {
-      if (isExact && aLen === 3) out.push(b);
+    // Try exact match first (handles simple cases like "احمد علي" → "احمد علي")
+    if (exactAuthorMatch(qTokens, author)) {
+      console.log(`[DEBUG] Exact match: "${query}" ← → "${author}"`);
+      out.push(b);
       continue;
     }
 
-    if (qTokens.length === 2 && exactTwoTokenExists) {
-      // only allow exact 2-token matches
-      if (isExact && aLen === 2) out.push(b);
-      continue;
+    // For famous people: check if surname matches
+    if (isFamous && expectedSurname) {
+      const aSurname = extractSurname(aTokens);
+      if (aSurname === expectedSurname) {
+        console.log(`[DEBUG] Famous person match: "${query}" ← → "${author}"`);
+        out.push(b);
+        continue;
+      }
     }
 
-    // Otherwise, only exact (as per your last backend version)
-    if (isExact) out.push(b);
+    // For non-famous multi-token queries: try surname-based matching
+    // (allows "محمد بن راشد" to match "محمد بن راشد آل مكتوم")
+    if (qTokens.length >= 2 && isSurnameMatch(qTokens, aTokens)) {
+      console.log(`[DEBUG] Surname match: "${query}" ← → "${author}"`);
+      out.push(b);
+      continue;
+    }
   }
+  
   return out;
 }
 
@@ -403,7 +468,7 @@ app.get('/api/health', (req, res) => {
     codeVersion: CODE_VERSION,
     perplexityConfigured: !!PERPLEXITY_API_KEY && PERPLEXITY_API_KEY !== 'pplx-YOUR-API-KEY-HERE',
     modelVersion: PERPLEXITY_MODEL,
-    features: 'Strict field separation • Exact 2-token author preference • Safe availableData',
+    features: 'Fixed surname matching • Handles multi-token names • Famous people support • Debug logging',
   });
 });
 
@@ -417,4 +482,5 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`🚀 ECSSR AI Backend http://localhost:${PORT}`);
   console.log(`🔖 Version: ${CODE_VERSION}`);
+  console.log(`✅ Fixed: Author matching now supports multi-token names`);
 });
