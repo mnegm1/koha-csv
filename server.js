@@ -87,7 +87,14 @@ function exactAuthorMatch(qTokens, name){
            qTokens[2] === aTokens[2];
   }
   
-  // For other cases (1, 2, 4+ names), use flexible token matching
+  // For 1 and 2 name searches, use flexible token matching
+  if(qTokens.length <= 2) {
+    for (const qt of qTokens) if (!aTokens.includes(qt)) return false;
+    for (const at of aTokens) if (!qTokens.includes(at)) return false;
+    return true;
+  }
+  
+  // For 4+ names, require exact token matching (no flexibility)
   for (const qt of qTokens) if (!aTokens.includes(qt)) return false;
   for (const at of aTokens) if (!qTokens.includes(at)) return false;
   return true;
