@@ -288,15 +288,23 @@ function searchField(field,q){
       }
 
     } else if(field==="author"){
-      if(exactAuthorMatch(tokens, r.nAuthor)){sc=120;hit=true}
-      else if(exactAuthorMatch(tokens, r.nOtherAuthor)){sc=112;hit=true}
-      else if(exactAuthorMatch(tokens, r.nCorporate)){sc=105;hit=true}
-      else {
-        const main=flexibleAuthorMatch(tokens, r.nAuthor);
-        const other=flexibleAuthorMatch(tokens, r.nOtherAuthor);
-        const corp=flexibleAuthorMatch(tokens, r.nCorporate);
-        const best=[main,other,corp].reduce((a,b)=>a.score>b.score?a:b,{hit:false,score:0});
-        if(best.hit){sc=best.score;hit=true}
+      // For 3-name searches, ONLY exact match - no flexible fallback
+      if (tokens.length === 3) {
+        if(exactAuthorMatch(tokens, r.nAuthor)){sc=120;hit=true}
+        else if(exactAuthorMatch(tokens, r.nOtherAuthor)){sc=112;hit=true}
+        else if(exactAuthorMatch(tokens, r.nCorporate)){sc=105;hit=true}
+      } else {
+        // For 1, 2, or 4+ names, use both exact and flexible matching
+        if(exactAuthorMatch(tokens, r.nAuthor)){sc=120;hit=true}
+        else if(exactAuthorMatch(tokens, r.nOtherAuthor)){sc=112;hit=true}
+        else if(exactAuthorMatch(tokens, r.nCorporate)){sc=105;hit=true}
+        else {
+          const main=flexibleAuthorMatch(tokens, r.nAuthor);
+          const other=flexibleAuthorMatch(tokens, r.nOtherAuthor);
+          const corp=flexibleAuthorMatch(tokens, r.nCorporate);
+          const best=[main,other,corp].reduce((a,b)=>a.score>b.score?a:b,{hit:false,score:0});
+          if(best.hit){sc=best.score;hit=true}
+        }
       }
       if(hit) MATCH_NOTE="Author: surname + distinct name (if present)";
 
