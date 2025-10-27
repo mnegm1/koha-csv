@@ -162,28 +162,9 @@ function flexibleAuthorMatch(qTokens, name){
 }
 
 
-// ---------- AI QUERY UNDERSTANDING ----------
-async function understandQueryWithAI(query){
-  try{
-    const response = await fetch(`${BACKEND_URL}/understand-query`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query })
-    });
-    if(!response.ok) throw new Error('AI understanding failed');
-    const analysis = await response.json();
-    
-    // Update MATCH_NOTE with AI reasoning
-    if(analysis.reasoning){
-      MATCH_NOTE = `AI: ${analysis.reasoning}`;
-    }
-    
-    return analysis.field || 'default';
-  }catch(error){
-    console.error('AI query understanding error:', error);
-    return null; // Fall back to rule-based
-  }
-}
+// ---------- AI QUERY UNDERSTANDING - REMOVED (TOO SLOW) ----------
+// Removed this function to speed up search - was making extra API call
+
 
 // ---------- FIELD CHOOSER (with AI fallback) ----------
 async function chooseFieldSmart(q){
@@ -198,21 +179,7 @@ async function chooseFieldSmart(q){
     return "year";
   }
   
-  // Use AI for almost all queries (to distinguish topics from author names)
-  const words=raw.split(/\s+/).filter(Boolean);
-  
-  // Use AI for: 2+ Arabic words, questions, or queries with context keywords
-  const shouldUseAI = 
-    words.length >= 2 || 
-    /^(what|how|why|when|where|who|which|ما|كيف|لماذا|متى|أين|من|ماذا|كيفية|هل|كتب|معلومات|عن)/i.test(raw) ||
-    isArabic(raw);
-  
-  if(shouldUseAI){
-    const aiField = await understandQueryWithAI(raw);
-    if(aiField) return aiField; // Use AI decision if available
-  }
-  
-  // Fall back to rule-based logic
+  // Use FAST rule-based logic (no API call needed)
   return chooseField(raw);
 }
 
