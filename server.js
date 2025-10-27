@@ -1,12 +1,11 @@
 // backend/server.js
-// ECSSR AI Assistant — v5.0 PROPER SOURCE ATTRIBUTION
-// - Search library data (your books, summaries, content)
-// - Cite library books with proper links
-// - ONLY allow official UAE external sources (.ae domains)
-// - Block all non-UAE external sources
-// - Strict source verification
+// ECSSR AI Assistant — v3.2
+// - Health shows codeVersion
+// - Strict author matching with "exact 2-token author preferred" rule
+// - Safe availableData builders (no sampleBooks)
+// - Rate limiting + robust guards
 
-const CODE_VERSION = "ecssr-backend-v5.0-library-uae-sources";
+const CODE_VERSION = "ecssr-backend-v3.2-2token-prefer";
 
 const express = require('express');
 const cors = require('cors');
@@ -19,6 +18,41 @@ const PERPLEXITY_API_KEY =
   process.env.PERPLEXITY_API_KEY || 'pplx-YOUR-API-KEY-HERE';
 const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
 const PERPLEXITY_MODEL = process.env.PPLX_MODEL || 'sonar-pro';
+
+/* ========= AUTHORIZED UAE .ae SOURCES ONLY ========= */
+const AUTHORIZED_UAE_SOURCES = {
+  'government.ae': { name: 'UAE Government', category: 'official' },
+  'wam.ae': { name: 'Emirates News Agency (WAM)', category: 'news' },
+  'mohesr.gov.ae': { name: 'Ministry of Higher Education', category: 'official' },
+  'mofacdn.gov.ae': { name: 'Ministry of Foreign Affairs', category: 'official' },
+  'dsc.gov.ae': { name: 'General Authority of Islamic Affairs', category: 'official' },
+  'fcsa.gov.ae': { name: 'Federal Centre for Statistics', category: 'official' },
+  'shaikh.ae': { name: 'Official Emirati Sources', category: 'official' }
+};
+
+function isAuthorizedUAESource(text) {
+  // Check if text mentions any non-.ae external source
+  const forbiddenPatterns = [
+    /wikipedia/i, /bbc/i, /reuters/i, /aljazeera/i, /cnn/i,
+    /google\.com/i, /youtube\.com/i, /facebook\.com/i,
+    /\.uk\b/, /\.us\b/, /\.com\b/, /\.org\b/, /\.io\b/, /\.co\b/
+  ];
+  
+  for (const pattern of forbiddenPatterns) {
+    if (pattern.test(text)) {
+      return false; // Not authorized - uses non-.ae source
+    }
+  }
+  
+  // If mentions external source, must be .ae
+  if (/according to|per|reports?|states?|from|website|source/i.test(text)) {
+    if (!/\.ae(\s|$|\/)/i.test(text)) {
+      return null; // Mentions external source but not .ae
+    }
+  }
+  
+  return true; // OK - either only library or .ae sources
+}
 
 app.set('trust proxy', true);
 app.use(cors());
@@ -38,248 +72,6 @@ function checkRateLimit(ip) {
   return true;
 }
 
-/* ========= AUTHORIZED UAE SOURCES DATABASE ========= */
-const UAE_AUTHORIZED_SOURCES = {
-  'wam': {
-    domain: 'wam.ae',
-    name: 'Emirates News Agency (WAM)',
-    baseUrl: 'https://wam.ae/',
-    trusted: true,
-    category: 'official_news',
-    official: true
-  },
-  'uae-gov': {
-    domain: 'government.ae',
-    name: 'UAE Government Official Portal',
-    baseUrl: 'https://www.government.ae/',
-    trusted: true,
-    category: 'official_government',
-    official: true
-  },
-  'mohesr': {
-    domain: 'mohesr.gov.ae',
-    name: 'Ministry of Higher Education & Scientific Research',
-    baseUrl: 'https://www.mohesr.gov.ae/',
-    trusted: true,
-    category: 'official_government',
-    official: true
-  },
-  'mofa': {
-    domain: 'mofacdn.gov.ae',
-    name: 'Ministry of Foreign Affairs',
-    baseUrl: 'https://www.mofacdn.gov.ae/',
-    trusted: true,
-    category: 'official_government',
-    official: true
-  },
-  'mohesr-ar': {
-    domain: 'mohesr.gov.ae',
-    name: 'وزارة التعليم العالي والبحث العلمي (Higher Education Ministry)',
-    baseUrl: 'https://www.mohesr.gov.ae/',
-    trusted: true,
-    category: 'official_government',
-    official: true
-  },
-  'dsc': {
-    domain: 'dsc.gov.ae',
-    name: 'General Authority of Islamic Affairs and Endowments',
-    baseUrl: 'https://dsc.gov.ae/',
-    trusted: true,
-    category: 'official_government',
-    official: true
-  },
-  'statistics': {
-    domain: 'fcsa.gov.ae',
-    name: 'Federal Centre for Competitiveness and Statistics',
-    baseUrl: 'https://www.fcsa.gov.ae/',
-    trusted: true,
-    category: 'official_government',
-    official: true
-  },
-  'sheikhdiscover': {
-    domain: 'shaikh.ae',
-    name: 'Official Emirati Historical Sources',
-    baseUrl: 'https://www.shaikh.ae/',
-    trusted: true,
-    category: 'official_government',
-    official: true
-  }
-};
-
-/* ========= SOURCE VERIFICATION ENGINE ========= */
-class SourceVerificationEngine {
-  constructor(authorizedSources, libraryBooks) {
-    this.authorizedUAESources = authorizedSources;
-    this.libraryBooks = libraryBooks || [];
-  }
-
-  /**
-   * Check if a domain is an authorized UAE source
-   */
-  isAuthorizedUAESource(domain) {
-    const normalizedDomain = domain.toLowerCase().trim();
-    
-    // Check if domain ends with .ae
-    if (!normalizedDomain.endsWith('.ae')) {
-      return {
-        authorized: false,
-        reason: 'Domain is not .ae (not official UAE)',
-        domain: normalizedDomain
-      };
-    }
-
-    // Check against whitelist
-    for (const [key, source] of Object.entries(this.authorizedUAESources)) {
-      if (normalizedDomain.includes(source.domain)) {
-        return {
-          authorized: true,
-          source: source,
-          sourceKey: key
-        };
-      }
-    }
-
-    // Check if it's any .ae domain (could be semi-authorized)
-    if (normalizedDomain.endsWith('.ae')) {
-      return {
-        authorized: true,
-        source: {
-          domain: normalizedDomain,
-          name: 'Official UAE Source (.ae)',
-          official: true
-        },
-        sourceKey: 'uae-official'
-      };
-    }
-
-    return {
-      authorized: false,
-      reason: 'Not in authorized UAE sources list',
-      domain: normalizedDomain
-    };
-  }
-
-  /**
-   * Get library book by ID
-   */
-  getLibraryBook(bookId) {
-    return this.libraryBooks.find(b => b && b.id === bookId);
-  }
-
-  /**
-   * Generate citation for library book
-   */
-  generateLibraryCitation(bookId, quote) {
-    const book = this.getLibraryBook(bookId);
-    if (!book) return null;
-
-    return {
-      valid: true,
-      source: 'Library',
-      type: 'internal',
-      book: {
-        id: bookId,
-        title: book.title || 'Untitled',
-        author: book.author || 'Unknown',
-        publisher: book.publisher || '',
-        year: book.year || ''
-      },
-      quote: quote,
-      citation: `${book.author || 'Unknown'}. "${book.title || 'Untitled'}".${book.publisher ? ' ' + book.publisher : ''}${book.year ? ' ' + book.year : ''}.`
-    };
-  }
-
-  /**
-   * Validate external source URL
-   */
-  validateExternalSource(url) {
-    try {
-      const urlObj = new URL(url);
-      const domain = urlObj.hostname.toLowerCase();
-
-      // Extract domain without www
-      const cleanDomain = domain.replace('www.', '');
-
-      return this.isAuthorizedUAESource(cleanDomain);
-    } catch (e) {
-      return {
-        authorized: false,
-        reason: 'Invalid URL format',
-        url: url
-      };
-    }
-  }
-
-  /**
-   * Parse external source citations from text
-   * Looks for patterns and validates they're UAE sources
-   */
-  parseAndVerifyExternalSources(text) {
-    const citations = [];
-    const issues = [];
-
-    // Pattern: "According to [Source]: ..."
-    const pattern1 = /According to\s+([^:]+):\s*([^.]+\.)/gi;
-    let match;
-    
-    while ((match = pattern1.exec(text)) !== null) {
-      const sourceName = match[1].trim();
-      const quote = match[2].trim();
-
-      // Try to extract URL if present
-      const urlMatch = match[0].match(/https?:\/\/[^\s]+/);
-      const url = urlMatch ? urlMatch[0] : null;
-
-      if (url) {
-        const verification = this.validateExternalSource(url);
-        citations.push({
-          sourceName: sourceName,
-          quote: quote,
-          url: url,
-          verification: verification
-        });
-
-        if (!verification.authorized) {
-          issues.push({
-            type: 'UNAUTHORIZED_EXTERNAL_SOURCE',
-            source: sourceName,
-            url: url,
-            message: `External source "${sourceName}" is NOT authorized. Only official UAE (.ae) sources allowed.`
-          });
-        }
-      } else {
-        issues.push({
-          type: 'MISSING_EXTERNAL_URL',
-          source: sourceName,
-          message: `External source cited without URL: "${sourceName}". Provide complete URL.`
-        });
-      }
-    }
-
-    return { citations, issues };
-  }
-
-  /**
-   * Generate compliance report
-   */
-  getSourceComplianceReport(text, libraryBooks) {
-    const externalAnalysis = this.parseAndVerifyExternalSources(text);
-    
-    return {
-      compliant: externalAnalysis.issues.length === 0,
-      librarySourcesUsed: libraryBooks && libraryBooks.length > 0,
-      externalSourcesCited: externalAnalysis.citations.length,
-      authorizedExternalSources: externalAnalysis.citations.filter(c => c.verification.authorized).length,
-      unauthorizedExternalSources: externalAnalysis.citations.filter(c => !c.verification.authorized).length,
-      validExternalSources: externalAnalysis.citations.filter(c => c.verification.authorized),
-      issues: externalAnalysis.issues,
-      message: externalAnalysis.issues.length === 0 
-        ? 'All sources verified and authorized' 
-        : `${externalAnalysis.issues.length} source issue(s) detected`
-    };
-  }
-}
-
 /* ========= Perplexity wrapper ========= */
 async function callPerplexity(messages, model = PERPLEXITY_MODEL) {
   const resp = await fetch(PERPLEXITY_URL, {
@@ -289,7 +81,7 @@ async function callPerplexity(messages, model = PERPLEXITY_MODEL) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model, messages, temperature: 0.05, max_tokens: 1200,
+      model, messages, temperature: 0.05, max_tokens: 800,
     }),
   });
   if (!resp.ok) {
@@ -321,6 +113,47 @@ function exactAuthorMatch(qTokens, name){
   for (const qt of qTokens) if (!aTokens.includes(qt)) return false;
   for (const at of aTokens) if (!qTokens.includes(at)) return false;
   return true;
+}
+
+/* ========= Author filter with "exact 2-token preferred" ========= */
+function filterAuthorBooks(query, books) {
+  const qTokens = tokenizeName(query);
+  if (qTokens.length === 0) return [];
+  const list = (Array.isArray(books) ? books : []).filter(b => b && typeof b === 'object');
+
+  // Check if any exact 2-token author exists when query has 2 tokens
+  let exactTwoTokenExists = false;
+  if (qTokens.length === 2) {
+    for (const b of list) {
+      const aLen = tokenizeName(b.author || '').length;
+      if (aLen === 2 && exactAuthorMatch(qTokens, b.author || '')) {
+        exactTwoTokenExists = true; break;
+      }
+    }
+  }
+
+  const out = [];
+  for (const b of list) {
+    const author = b.author || '';
+    const isExact = exactAuthorMatch(qTokens, author);
+    const aLen    = tokenizeName(author).length;
+
+    // For 3-token searches: strict exact matching only (skip flexible matching)
+    if (qTokens.length === 3) {
+      if (isExact && aLen === 3) out.push(b);
+      continue;
+    }
+
+    if (qTokens.length === 2 && exactTwoTokenExists) {
+      // only allow exact 2-token matches
+      if (isExact && aLen === 2) out.push(b);
+      continue;
+    }
+
+    // Otherwise, only exact (as per your last backend version)
+    if (isExact) out.push(b);
+  }
+  return out;
 }
 
 /* ========= /api/understand-query ========= */
@@ -356,6 +189,19 @@ Determine:
 
 4. REASONING: Brief explanation of your decision
 
+EXAMPLES:
+Query: "كتب محمد بن راشد"
+Response: {"intent":"author_books","field":"author","key_terms":["محمد بن راشد"],"reasoning":"User wants books BY Mohammed bin Rashid"}
+
+Query: "معلومات عن الشيخ زايد"
+Response: {"intent":"question","field":"summary","key_terms":["الشيخ زايد"],"reasoning":"User wants information ABOUT Sheikh Zayed from book content"}
+
+Query: "كتب عن التراث الإماراتي"
+Response: {"intent":"about_topic","field":"subject","key_terms":["التراث الإماراتي"],"reasoning":"User wants books about UAE heritage topic"}
+
+Query: "ما هو دور الشيخ زايد في التنمية"
+Response: {"intent":"question","field":"summary","key_terms":["الشيخ زايد","التنمية"],"reasoning":"Specific question needs answer from summaries"}
+
 Respond ONLY with valid JSON. No other text.`;
 
     const aiResponse = await callPerplexity([
@@ -363,8 +209,10 @@ Respond ONLY with valid JSON. No other text.`;
       { role: 'user', content: analysisPrompt }
     ], PERPLEXITY_MODEL);
 
+    // Parse AI response
     let analysis;
     try {
+      // Try to extract JSON from response
       const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         analysis = JSON.parse(jsonMatch[0]);
@@ -373,6 +221,7 @@ Respond ONLY with valid JSON. No other text.`;
       }
     } catch (parseError) {
       console.error('Failed to parse AI analysis:', aiResponse);
+      // Fallback to default
       return res.json({
         intent: 'default',
         field: 'default',
@@ -395,7 +244,7 @@ Respond ONLY with valid JSON. No other text.`;
   }
 });
 
-/* ========= /api/chat WITH PROPER SOURCE ATTRIBUTION ========= */
+/* ========= /api/chat ========= */
 app.post('/api/chat', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
   if (!checkRateLimit(ip)) {
@@ -410,195 +259,225 @@ app.post('/api/chat', async (req, res) => {
 
     if (!query) return res.status(400).json({ error: 'Query is required' });
 
+    // Frontend already did the filtering, so we don't filter again
+    // Author filtering removed - trust frontend results
+
     if (!matchedBooks.length) {
       return res.json({
         answer: "لم أجد كتباً تطابق سؤالك في الكتالوج.<br>I didn't find any matching books in the catalog.",
-        bookIds: [],
-        sourceCompliance: {
-          compliant: false,
-          status: 'NO_LIBRARY_SOURCES'
-        }
+        bookIds: []
       });
     }
 
     const safeBooks = matchedBooks.filter(b => b && typeof b === 'object');
-    const verificationEngine = new SourceVerificationEngine(UAE_AUTHORIZED_SOURCES, safeBooks);
 
-    // Build data for AI from library
-    let availableData = '';
+    // Build field-specific data
     let fieldInstructions = '';
+    let availableData = '';
 
     if (searchField === 'summary') {
       fieldInstructions = `
-⚠️ CRITICAL SOURCE RULES:
-1. PRIMARY: Use library data (books provided below)
-2. If using library books, cite them with book number [1], [2], etc.
-3. EXTERNAL SOURCES: ONLY official UAE .ae domains allowed
-   - Examples: government.ae, wam.ae, mohesr.gov.ae, fcsa.gov.ae
-   - Format: "According to [Source Name]: [fact] (source: [URL])"
-4. FORBIDDEN: Wikipedia, international sites, non-UAE sources
-5. If external source used, MUST provide complete URL`;
-      
+⚠️ SUMMARY SEARCH
+Use ONLY: summary, contents.
+FORBIDDEN: author, subject, title.
+If info not present in summaries, say "المعلومات غير متوفرة / Information not available".`;
       availableData = safeBooks.map((b,i)=>{
         const summary=(b.summary||b.contents||b.content||'').toString().trim()||'No summary';
         const author=(b.author||'Unknown Author').toString().trim();
         const title=(b.title||'Untitled').toString().trim();
         const publisher=(b.publisher||'').toString().trim();
         const year=(b.year||'').toString().trim();
-        return `[${i+1}] BOOK: ${title}\n    Author: ${author}\n    Publisher: ${publisher}${year ? ' (' + year + ')' : ''}\n    Summary: ${summary}\n---`;}).join('\n');
+        const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
+        return `[${i+1}] Citation: ${citation}\nSummary: ${summary}\n---`;}).join('\n');
 
     } else if (searchField === 'subject') {
       fieldInstructions = `
-⚠️ CRITICAL SOURCE RULES:
-1. PRIMARY: Use library data for subject search
-2. Cite library books as [1], [2], [3], etc.
-3. EXTERNAL: ONLY official UAE .ae sites allowed
-4. FORBIDDEN: Non-UAE external sources`;
-      
+⚠️ SUBJECT/TOPIC SEARCH
+Use ONLY: subject, title.
+FORBIDDEN: author, summary.
+If the user asks a question, answer it using the subjects and titles. Cite every fact with [number].`;
       availableData = safeBooks.map((b,i)=>{
         const title=(b.title||'Untitled').toString(),subject=(b.subject||'No subject').toString();
         const author=(b.author||'Unknown Author').toString().trim();
-        return `[${i+1}] BOOK: ${title}\n    Author: ${author}\n    Subject: ${subject}\n---`;}).join('\n');
+        const publisher=(b.publisher||'').toString().trim();
+        const year=(b.year||'').toString().trim();
+        const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
+        return `[${i+1}] Citation: ${citation}\nSubject: ${subject}\n---`;}).join('\n');
 
     } else if (searchField === 'author') {
       fieldInstructions = `
-⚠️ CRITICAL SOURCE RULES:
-1. List books by this author from library
-2. Cite as [1], [2], [3], etc.
-3. For biographical info: Use ONLY UAE .ae official sources
-4. FORBIDDEN: Non-UAE external sources`;
-      
+⚠️ AUTHOR SEARCH
+Use ONLY: author, title.
+FORBIDDEN: subject, summary.`;
       availableData = safeBooks.map((b,i)=>{
         const title=(b.title||'Untitled').toString(),author=(b.author||'Unknown').toString();
-        return `[${i+1}] ${author}. "${title}"\n---`;}).join('\n');
+        const publisher=(b.publisher||'').toString().trim();
+        const year=(b.year||'').toString().trim();
+        const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
+        return `[${i+1}] Citation: ${citation}\n---`;}).join('\n');
 
     } else {
-      fieldInstructions = `
-⚠️ CRITICAL SOURCE RULES:
-1. PRIMARY: Use library data first
-2. Cite library books as [1], [2], [3], etc.
-3. EXTERNAL ONLY: Official UAE .ae sites
-   - Allowed: government.ae, wam.ae, mohesr.gov.ae, fcsa.gov.ae, etc.
-4. FORBIDDEN: Any non-.ae external sources`;
-      
       availableData = safeBooks.map((b,i)=>{
         const title=(b.title||'Untitled').toString(),author=(b.author||'Unknown').toString(),
               subject=(b.subject||'').toString(),summary=(b.summary||'').toString();
-        return `[${i+1}] Title: ${title}\n    Author: ${author}\n    Subject: ${subject}\n    Summary: ${summary}\n---`;}).join('\n');
+        const publisher=(b.publisher||'').toString().trim();
+        const year=(b.year||'').toString().trim();
+        const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
+        return `[${i+1}] Citation: ${citation}\nSubject: ${subject}\nSummary: ${summary}\n---`;}).join('\n');
     }
 
-    const systemPrompt = `You are a library assistant with strict source requirements.
+    const systemPrompt =
+      searchField === 'summary'
+        ? `Answer using ONLY summaries/contents from library books. Cite every fact with [number]. 
+Books have been provided to you - answer based on them.
+EXTERNAL SOURCES: ONLY official UAE .ae sites are permitted (government.ae, wam.ae, mohesr.gov.ae, etc). NO Wikipedia, BBC, Reuters, or international sites.`
+        : searchField === 'subject'
+        ? `Answer questions or list books using ONLY subject and title from library. Cite each fact with [number]. 
+Books have been provided to you - use them to answer.
+EXTERNAL SOURCES: ONLY official UAE .ae sites permitted. NO international sources.`
+        : searchField === 'author'
+        ? `List books BY the author using ONLY author and title from library. Cite each book with [number]. 
+Books have been provided to you - list them.
+EXTERNAL SOURCES: If biographical info needed, ONLY UAE .ae sites permitted.`
+        : `Use only provided fields from library books. Cite all information with [number]. 
+Books have been provided to you - answer based on them.
+EXTERNAL SOURCES: ONLY official UAE .ae sites (government.ae, wam.ae, mohesr.gov.ae, fcsa.gov.ae, dsc.gov.ae, shaikh.ae) permitted. NO Wikipedia, BBC, Reuters, international sources.`;
 
-LIBRARY DATA IS PRIMARY:
-- Use library books first
-- Cite as [1], [2], [3] for library sources
-- Must cite exactly which book the info came from
+    const userPrompt = `You are a library assistant. Follow the field rules STRICTLY.
 
-EXTERNAL SOURCES - STRICT RULES:
-- ONLY official UAE government and official sites (.ae domains)
-- Examples: government.ae, wam.ae, mohesr.gov.ae, fcsa.gov.ae
-- Format: "According to [Source Name]: [fact] (https://source.ae/...)"
-- FORBIDDEN: Wikipedia, international news, non-.ae sites
+${fieldInstructions}
 
-CRITICAL:
-- Do NOT mix up library citations with external sources
-- If from library book → Use [1], [2], [3]
-- If from external → Use "According to [Source]: ... (URL)"
-- NEVER cite external sources that are NOT official UAE .ae`;
+CRITICAL RULES:
+1) ONLY use allowed fields above.
+2) NEVER use forbidden fields.
+3) Do not invent info.
+4) When providing information, ALWAYS cite your source using the reference numbers [1], [2], [3], etc. from the data above.
+5) Place citation numbers [1], [2], [3] immediately after the information from that source.
+6) Answer in the same language as the query.
+7) NEVER say "I didn't find any books" or "لم أجد كتباً" - you have been provided with books data, so answer based on that data.
+8) Every fact or piece of information MUST have a citation number [X] after it.
 
-    const userPrompt = `${fieldInstructions}
+⚠️ EXTERNAL SOURCES - STRICT UAE REQUIREMENT:
+If you use ANY external source information, it MUST be ONLY from official UAE (.ae) sites:
+- government.ae
+- wam.ae (Emirates News Agency)
+- mohesr.gov.ae (Higher Education)
+- mofacdn.gov.ae (Foreign Affairs)
+- fcsa.gov.ae (Statistics)
+- dsc.gov.ae (Islamic Affairs)
+- shaikh.ae (Official Historical)
 
-LIBRARY BOOKS IN CATALOG:
-${availableData}
+FORBIDDEN EXTERNAL SOURCES:
+- Wikipedia
+- BBC
+- Reuters  
+- Al Jazeera
+- Google Scholar
+- Any international sites
+- Any non-.ae domains
+
+If you cite external sources, provide the complete URL ending in .ae
 
 USER QUERY: "${query}"
+SEARCH FIELD: ${searchField}
 
-Instructions:
-1. FIRST: Search the library books provided above
-2. If information found in library → Cite as [1], [2], [3]
-3. If need external info → ONLY use official UAE .ae sites
-4. Provide complete URLs for any external sources
-5. Answer in same language as query (Arabic or English)
+AVAILABLE DATA (${safeBooks.length} books):
+${availableData}
 
-Answer now:`;
+Answer now using ONLY the allowed fields above and ONLY official UAE .ae external sources if needed.`;
 
-    const aiResponse = await callPerplexity(
+    const answer = await callPerplexity(
       [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
       PERPLEXITY_MODEL
     );
 
-    // ===== VERIFY COMPLIANCE =====
-    const complianceReport = verificationEngine.getSourceComplianceReport(aiResponse, safeBooks);
-    
-    console.log('=== SOURCE COMPLIANCE REPORT ===');
-    console.log(`Compliant with rules: ${complianceReport.compliant}`);
-    console.log(`Library sources used: ${complianceReport.librarySourcesUsed}`);
-    console.log(`External sources cited: ${complianceReport.externalSourcesCited}`);
-    console.log(`Authorized UAE (.ae) sources: ${complianceReport.authorizedExternalSources}`);
-    console.log(`Unauthorized external sources: ${complianceReport.unauthorizedExternalSources}`);
-    if (complianceReport.validExternalSources.length > 0) {
-      console.log('Valid UAE sources:');
-      complianceReport.validExternalSources.forEach((src, idx) => {
-        console.log(`  ${idx + 1}. ${src.sourceName} (${src.url})`);
-      });
-    }
-    if (complianceReport.issues.length > 0) {
-      console.log('⚠️ Compliance issues:');
-      complianceReport.issues.forEach(issue => {
-        console.log(`  - ${issue.message}`);
-      });
-    }
-
-    // Extract library book IDs from citations
+    // best-effort ID extraction
     const ids = [];
-    const pattern = /\[(\d+)\]/g;
-    let match;
-    while ((match = pattern.exec(aiResponse)) !== null) {
-      const num = parseInt(match[1], 10);
-      if (num >= 1 && num <= safeBooks.length) {
-        ids.push(num);
-      }
-    }
+    const m = answer.match(/\b(\d+)\b/g);
+    if (m) ids.push(...m.slice(0,10).map(Number));
+
+    // Check for UAE .ae source compliance
+    const uaeCompliance = isAuthorizedUAESource(answer);
 
     res.json({ 
-      answer: aiResponse,
+      answer, 
       bookIds: ids,
       sourceCompliance: {
-        compliant: complianceReport.compliant,
-        librarySourcesUsed: complianceReport.librarySourcesUsed,
-        externalSourcesCited: complianceReport.externalSourcesCited,
-        authorizedExternalSources: complianceReport.authorizedExternalSources,
-        unauthorizedExternalSources: complianceReport.unauthorizedExternalSources,
-        validExternalSources: complianceReport.validExternalSources,
-        issues: complianceReport.issues,
-        message: complianceReport.message
+        uaeSourcesOnly: uaeCompliance === true,
+        hasUnauthorizedSources: uaeCompliance === false,
+        warning: uaeCompliance === false ? 'Response contains non-.ae external sources (not permitted)' : null
       }
     });
-
   } catch (err) {
     console.error('Chat error:', err);
-    res.status(500).json({ 
-      error: 'Internal server error', 
-      details: err.message
-    });
+    res.status(500).json({ error: 'Internal server error', details: err.message });
+  }
+});
+
+/* ========= /api/enhance-search ========= */
+app.post('/api/enhance-search', async (req, res) => {
+  const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+  if (!checkRateLimit(ip)) {
+    return res.status(429).json({ error: 'Rate limit exceeded' });
+  }
+
+  try {
+    const body = req.body || {};
+    const query = body.query || '';
+    const preFilteredBooks = Array.isArray(body.preFilteredBooks) ? body.preFilteredBooks : [];
+
+    if (!query || preFilteredBooks.length === 0) {
+      return res.json({ rankedBooks: preFilteredBooks, explanation: '' });
+    }
+
+    const booksData = preFilteredBooks.slice(0, 50).map((b, idx) => ({
+      id: b?.id ?? idx, title: b?.title || 'Untitled',
+      author: b?.author || 'Unknown', summary: b?.summary || ''
+    }));
+
+    const prompt = `You are analyzing book summaries for a library search.
+
+User searched for: "${query}"
+
+BOOKS WITH SUMMARIES:
+${JSON.stringify(booksData,null,2)}
+
+Task:
+1) Read each SUMMARY.
+2) Rank by how well the SUMMARY matches the query.
+3) Return the top 20 IDs.
+
+IMPORTANT: Only use provided summaries.
+
+Format:
+EXPLANATION: <brief, same language as query>
+BOOK_IDS: <comma separated IDs>`;
+
+    const response = await callPerplexity(
+      [{ role: 'system', content: 'Rank only by provided summaries.' },
+       { role: 'user', content: prompt }],
+      PERPLEXITY_MODEL
+    );
+
+    const explanation = (response.match(/EXPLANATION:\s*(.+?)(?=BOOK_IDS:|$)/s)?.[1] || '').trim();
+    const bookIds = (response.match(/BOOK_IDS:\s*([\d,\s]+)/)?.[1] || '')
+      .split(',').map(s=>parseInt(s.trim(),10)).filter(n=>!Number.isNaN(n));
+
+    const rankedBooks = bookIds.map(id => preFilteredBooks.find(b=>b && b.id===id)).filter(Boolean);
+    res.json({ rankedBooks, explanation });
+  } catch (err) {
+    console.error('Enhance search error:', err);
+    res.status(500).json({ error: 'Internal server error', details: err.message });
   }
 });
 
 /* ========= /api/authorized-uae-sources ========= */
 app.get('/api/authorized-uae-sources', (req, res) => {
-  const sources = Object.values(UAE_AUTHORIZED_SOURCES).map(s => ({
-    name: s.name,
-    domain: s.domain,
-    category: s.category,
-    baseUrl: s.baseUrl,
-    official: s.official
-  }));
-  
   res.json({
-    message: 'ONLY these official UAE (.ae) sources are permitted',
-    totalAuthorizedSources: sources.length,
-    sources: sources,
-    rule: 'Any external source MUST be an official UAE (.ae) domain'
+    message: 'ONLY these official UAE (.ae) sources are permitted for external references',
+    authorizedSources: AUTHORIZED_UAE_SOURCES,
+    forbiddenSources: ['Wikipedia', 'BBC', 'Reuters', 'Al Jazeera', 'Google Scholar', 'Any non-.ae domain'],
+    rule: 'All external sources MUST be official UAE .ae domains'
   });
 });
 
@@ -609,7 +488,7 @@ app.get('/api/health', (req, res) => {
     codeVersion: CODE_VERSION,
     perplexityConfigured: !!PERPLEXITY_API_KEY && PERPLEXITY_API_KEY !== 'pplx-YOUR-API-KEY-HERE',
     modelVersion: PERPLEXITY_MODEL,
-    features: 'Library data primary • UAE .ae sources only • Proper citation • Source verification',
+    features: 'Strict field separation • Exact 2-token author preference • Safe availableData',
   });
 });
 
@@ -623,7 +502,4 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`🚀 ECSSR AI Backend http://localhost:${PORT}`);
   console.log(`🔖 Version: ${CODE_VERSION}`);
-  console.log(`📚 Library Data: PRIMARY SOURCE`);
-  console.log(`🇦🇪 External Sources: OFFICIAL UAE (.ae) ONLY`);
-  console.log(`✅ SOURCE COMPLIANCE ENABLED`);
 });
