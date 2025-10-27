@@ -1,13 +1,12 @@
 // backend/server.js
-// ECSSR AI Assistant — v5.0 SOURCE ATTRIBUTION & VERIFICATION
-// - Real external source attribution (not fake citations)
-// - Source verification and validation
-// - Wikipedia, official sites, and verified external sources only
-// - Prevents intellectual property violations
-// - Direct links to actual sources
-// - Transparency about where information comes from
+// ECSSR AI Assistant — v5.0 PROPER SOURCE ATTRIBUTION
+// - Search library data (your books, summaries, content)
+// - Cite library books with proper links
+// - ONLY allow official UAE external sources (.ae domains)
+// - Block all non-UAE external sources
+// - Strict source verification
 
-const CODE_VERSION = "ecssr-backend-v5.0-source-attribution";
+const CODE_VERSION = "ecssr-backend-v5.0-library-uae-sources";
 
 const express = require('express');
 const cors = require('cors');
@@ -39,286 +38,250 @@ function checkRateLimit(ip) {
   return true;
 }
 
-/* ========= AUTHORIZED SOURCES DATABASE ========= */
-const AUTHORIZED_SOURCES = {
-  'wikipedia': {
-    domain: 'wikipedia.org',
-    name: 'Wikipedia',
-    baseUrl: 'https://en.wikipedia.org/wiki/',
+/* ========= AUTHORIZED UAE SOURCES DATABASE ========= */
+const UAE_AUTHORIZED_SOURCES = {
+  'wam': {
+    domain: 'wam.ae',
+    name: 'Emirates News Agency (WAM)',
+    baseUrl: 'https://wam.ae/',
     trusted: true,
-    category: 'general_reference'
-  },
-  'wikipedia-ar': {
-    domain: 'ar.wikipedia.org',
-    name: 'ويكيبيديا (Arabic Wikipedia)',
-    baseUrl: 'https://ar.wikipedia.org/wiki/',
-    trusted: true,
-    category: 'general_reference'
-  },
-  'britannica': {
-    domain: 'britannica.com',
-    name: 'Britannica Encyclopedia',
-    baseUrl: 'https://www.britannica.com/',
-    trusted: true,
-    category: 'encyclopedia'
-  },
-  'un-official': {
-    domain: 'un.org',
-    name: 'United Nations Official Website',
-    baseUrl: 'https://www.un.org/',
-    trusted: true,
-    category: 'official_government'
-  },
-  'world-bank': {
-    domain: 'worldbank.org',
-    name: 'World Bank',
-    baseUrl: 'https://www.worldbank.org/',
-    trusted: true,
-    category: 'official_organization'
+    category: 'official_news',
+    official: true
   },
   'uae-gov': {
     domain: 'government.ae',
     name: 'UAE Government Official Portal',
     baseUrl: 'https://www.government.ae/',
     trusted: true,
-    category: 'official_government'
+    category: 'official_government',
+    official: true
   },
-  'imf': {
-    domain: 'imf.org',
-    name: 'International Monetary Fund',
-    baseUrl: 'https://www.imf.org/',
+  'mohesr': {
+    domain: 'mohesr.gov.ae',
+    name: 'Ministry of Higher Education & Scientific Research',
+    baseUrl: 'https://www.mohesr.gov.ae/',
     trusted: true,
-    category: 'official_organization'
+    category: 'official_government',
+    official: true
   },
-  'bbc': {
-    domain: 'bbc.com',
-    name: 'BBC News',
-    baseUrl: 'https://www.bbc.com/',
+  'mofa': {
+    domain: 'mofacdn.gov.ae',
+    name: 'Ministry of Foreign Affairs',
+    baseUrl: 'https://www.mofacdn.gov.ae/',
     trusted: true,
-    category: 'news_media'
+    category: 'official_government',
+    official: true
   },
-  'aljazeera': {
-    domain: 'aljazeera.com',
-    name: 'Al Jazeera',
-    baseUrl: 'https://www.aljazeera.com/',
+  'mohesr-ar': {
+    domain: 'mohesr.gov.ae',
+    name: 'وزارة التعليم العالي والبحث العلمي (Higher Education Ministry)',
+    baseUrl: 'https://www.mohesr.gov.ae/',
     trusted: true,
-    category: 'news_media'
+    category: 'official_government',
+    official: true
   },
-  'reuters': {
-    domain: 'reuters.com',
-    name: 'Reuters',
-    baseUrl: 'https://www.reuters.com/',
+  'dsc': {
+    domain: 'dsc.gov.ae',
+    name: 'General Authority of Islamic Affairs and Endowments',
+    baseUrl: 'https://dsc.gov.ae/',
     trusted: true,
-    category: 'news_media'
+    category: 'official_government',
+    official: true
   },
-  'google-scholar': {
-    domain: 'scholar.google.com',
-    name: 'Google Scholar',
-    baseUrl: 'https://scholar.google.com/',
+  'statistics': {
+    domain: 'fcsa.gov.ae',
+    name: 'Federal Centre for Competitiveness and Statistics',
+    baseUrl: 'https://www.fcsa.gov.ae/',
     trusted: true,
-    category: 'academic'
+    category: 'official_government',
+    official: true
   },
-  'jstor': {
-    domain: 'jstor.org',
-    name: 'JSTOR Academic Database',
-    baseUrl: 'https://www.jstor.org/',
+  'sheikhdiscover': {
+    domain: 'shaikh.ae',
+    name: 'Official Emirati Historical Sources',
+    baseUrl: 'https://www.shaikh.ae/',
     trusted: true,
-    category: 'academic'
-  },
-  'oecd': {
-    domain: 'oecd.org',
-    name: 'OECD',
-    baseUrl: 'https://www.oecd.org/',
-    trusted: true,
-    category: 'official_organization'
-  },
-  'world-health-org': {
-    domain: 'who.int',
-    name: 'World Health Organization',
-    baseUrl: 'https://www.who.int/',
-    trusted: true,
-    category: 'official_organization'
+    category: 'official_government',
+    official: true
   }
 };
 
-/* ========= SOURCE ATTRIBUTION ENGINE ========= */
-class SourceAttributionEngine {
-  constructor() {
-    this.authorizedSources = AUTHORIZED_SOURCES;
+/* ========= SOURCE VERIFICATION ENGINE ========= */
+class SourceVerificationEngine {
+  constructor(authorizedSources, libraryBooks) {
+    this.authorizedUAESources = authorizedSources;
+    this.libraryBooks = libraryBooks || [];
   }
 
   /**
-   * Parse source citations from AI response
-   * Looks for patterns like:
-   * - According to Wikipedia: ...
-   * - Per UN official website: ...
-   * - World Bank reports: ...
+   * Check if a domain is an authorized UAE source
    */
-  parseSourceCitations(text) {
-    const citations = [];
+  isAuthorizedUAESource(domain) {
+    const normalizedDomain = domain.toLowerCase().trim();
     
-    // Pattern 1: "According to [Source Name]: ..."
-    const pattern1 = /According to\s+([^:]+):\s*([^.]+\.)/gi;
-    let match;
-    while ((match = pattern1.exec(text)) !== null) {
-      citations.push({
-        sourceName: match[1].trim(),
-        quote: match[2].trim(),
-        position: match.index
-      });
-    }
-
-    // Pattern 2: "Per [Source]: ..."
-    const pattern2 = /Per\s+([^:]+):\s*([^.]+\.)/gi;
-    while ((match = pattern2.exec(text)) !== null) {
-      citations.push({
-        sourceName: match[1].trim(),
-        quote: match[2].trim(),
-        position: match.index
-      });
-    }
-
-    // Pattern 3: "[Source Name] reports: ..."
-    const pattern3 = /([A-Za-z\s]+?)\s+reports?:\s*([^.]+\.)/gi;
-    while ((match = pattern3.exec(text)) !== null) {
-      citations.push({
-        sourceName: match[1].trim(),
-        quote: match[2].trim(),
-        position: match.index
-      });
-    }
-
-    return citations;
-  }
-
-  /**
-   * Verify that a source name matches an authorized source
-   */
-  verifySource(sourceName) {
-    const normalized = sourceName.toLowerCase().trim();
-    
-    // Exact match
-    for (const [key, source] of Object.entries(this.authorizedSources)) {
-      if (normalized.includes(source.name.toLowerCase()) || 
-          normalized.includes(source.domain.toLowerCase())) {
-        return { authorized: true, source: source, sourceKey: key };
-      }
-    }
-
-    // Fuzzy match
-    for (const [key, source] of Object.entries(this.authorizedSources)) {
-      if (normalized.includes('wikipedia') && key.includes('wikipedia')) {
-        return { authorized: true, source: source, sourceKey: key };
-      }
-      if (normalized.includes('un') && key === 'un-official') {
-        return { authorized: true, source: source, sourceKey: key };
-      }
-      if (normalized.includes('world bank') && key === 'world-bank') {
-        return { authorized: true, source: source, sourceKey: key };
-      }
-      if (normalized.includes('uae') && key === 'uae-gov') {
-        return { authorized: true, source: source, sourceKey: key };
-      }
-    }
-
-    return { authorized: false, source: null, sourceKey: null };
-  }
-
-  /**
-   * Generate proper source citation with URL
-   */
-  generateSourceCitation(sourceName, searchQuery) {
-    const verification = this.verifySource(sourceName);
-    
-    if (!verification.authorized) {
+    // Check if domain ends with .ae
+    if (!normalizedDomain.endsWith('.ae')) {
       return {
-        valid: false,
-        error: `"${sourceName}" is not an authorized source. Only use: Wikipedia, UN, World Bank, BBC, Reuters, etc.`
+        authorized: false,
+        reason: 'Domain is not .ae (not official UAE)',
+        domain: normalizedDomain
       };
     }
 
-    const source = verification.source;
-    const query = encodeURIComponent(searchQuery);
-    
-    // Generate appropriate URL based on source
-    let url = source.baseUrl;
-    
-    if (source.domain.includes('wikipedia')) {
-      url = `${source.baseUrl}${query.replace(/%20/g, '_')}`;
-    } else if (source.domain === 'scholar.google.com') {
-      url = `${source.baseUrl}?q=${query}`;
-    } else if (source.domain === 'un.org') {
-      url = `${source.baseUrl}en/search?query=${query}`;
+    // Check against whitelist
+    for (const [key, source] of Object.entries(this.authorizedUAESources)) {
+      if (normalizedDomain.includes(source.domain)) {
+        return {
+          authorized: true,
+          source: source,
+          sourceKey: key
+        };
+      }
+    }
+
+    // Check if it's any .ae domain (could be semi-authorized)
+    if (normalizedDomain.endsWith('.ae')) {
+      return {
+        authorized: true,
+        source: {
+          domain: normalizedDomain,
+          name: 'Official UAE Source (.ae)',
+          official: true
+        },
+        sourceKey: 'uae-official'
+      };
     }
 
     return {
-      valid: true,
-      source: source.name,
-      domain: source.domain,
-      url: url,
-      category: source.category,
-      verified: true
+      authorized: false,
+      reason: 'Not in authorized UAE sources list',
+      domain: normalizedDomain
     };
   }
 
   /**
-   * Validate all sources in response
+   * Get library book by ID
    */
-  validateAllSources(text) {
-    const citations = this.parseSourceCitations(text);
-    const validation = {
-      totalCitations: citations.length,
-      validCitations: [],
-      invalidCitations: [],
-      issues: []
-    };
+  getLibraryBook(bookId) {
+    return this.libraryBooks.find(b => b && b.id === bookId);
+  }
 
-    for (const citation of citations) {
-      const verification = this.verifySource(citation.sourceName);
-      
-      if (verification.authorized) {
-        validation.validCitations.push({
-          source: verification.source.name,
-          quote: citation.quote,
-          url: this.generateSourceCitation(citation.sourceName, citation.quote).url
+  /**
+   * Generate citation for library book
+   */
+  generateLibraryCitation(bookId, quote) {
+    const book = this.getLibraryBook(bookId);
+    if (!book) return null;
+
+    return {
+      valid: true,
+      source: 'Library',
+      type: 'internal',
+      book: {
+        id: bookId,
+        title: book.title || 'Untitled',
+        author: book.author || 'Unknown',
+        publisher: book.publisher || '',
+        year: book.year || ''
+      },
+      quote: quote,
+      citation: `${book.author || 'Unknown'}. "${book.title || 'Untitled'}".${book.publisher ? ' ' + book.publisher : ''}${book.year ? ' ' + book.year : ''}.`
+    };
+  }
+
+  /**
+   * Validate external source URL
+   */
+  validateExternalSource(url) {
+    try {
+      const urlObj = new URL(url);
+      const domain = urlObj.hostname.toLowerCase();
+
+      // Extract domain without www
+      const cleanDomain = domain.replace('www.', '');
+
+      return this.isAuthorizedUAESource(cleanDomain);
+    } catch (e) {
+      return {
+        authorized: false,
+        reason: 'Invalid URL format',
+        url: url
+      };
+    }
+  }
+
+  /**
+   * Parse external source citations from text
+   * Looks for patterns and validates they're UAE sources
+   */
+  parseAndVerifyExternalSources(text) {
+    const citations = [];
+    const issues = [];
+
+    // Pattern: "According to [Source]: ..."
+    const pattern1 = /According to\s+([^:]+):\s*([^.]+\.)/gi;
+    let match;
+    
+    while ((match = pattern1.exec(text)) !== null) {
+      const sourceName = match[1].trim();
+      const quote = match[2].trim();
+
+      // Try to extract URL if present
+      const urlMatch = match[0].match(/https?:\/\/[^\s]+/);
+      const url = urlMatch ? urlMatch[0] : null;
+
+      if (url) {
+        const verification = this.validateExternalSource(url);
+        citations.push({
+          sourceName: sourceName,
+          quote: quote,
+          url: url,
+          verification: verification
         });
+
+        if (!verification.authorized) {
+          issues.push({
+            type: 'UNAUTHORIZED_EXTERNAL_SOURCE',
+            source: sourceName,
+            url: url,
+            message: `External source "${sourceName}" is NOT authorized. Only official UAE (.ae) sources allowed.`
+          });
+        }
       } else {
-        validation.invalidCitations.push(citation.sourceName);
-        validation.issues.push({
-          type: 'UNAUTHORIZED_SOURCE',
-          source: citation.sourceName,
-          message: `"${citation.sourceName}" is not an authorized source. Must use: Wikipedia, UN, World Bank, BBC, Reuters, or other official sources.`
+        issues.push({
+          type: 'MISSING_EXTERNAL_URL',
+          source: sourceName,
+          message: `External source cited without URL: "${sourceName}". Provide complete URL.`
         });
       }
     }
 
-    return validation;
+    return { citations, issues };
   }
 
   /**
    * Generate compliance report
    */
-  getComplianceReport(text) {
-    const validation = this.validateAllSources(text);
+  getSourceComplianceReport(text, libraryBooks) {
+    const externalAnalysis = this.parseAndVerifyExternalSources(text);
     
     return {
-      compliant: validation.invalidCitations.length === 0,
-      sourcesFound: validation.totalCitations,
-      authorizedSources: validation.validCitations.length,
-      unauthorizedSources: validation.invalidCitations.length,
-      validSources: validation.validCitations,
-      issues: validation.issues,
-      authorizedSourcesList: Object.values(this.authorizedSources).map(s => ({
-        name: s.name,
-        domain: s.domain,
-        category: s.category
-      }))
+      compliant: externalAnalysis.issues.length === 0,
+      librarySourcesUsed: libraryBooks && libraryBooks.length > 0,
+      externalSourcesCited: externalAnalysis.citations.length,
+      authorizedExternalSources: externalAnalysis.citations.filter(c => c.verification.authorized).length,
+      unauthorizedExternalSources: externalAnalysis.citations.filter(c => !c.verification.authorized).length,
+      validExternalSources: externalAnalysis.citations.filter(c => c.verification.authorized),
+      issues: externalAnalysis.issues,
+      message: externalAnalysis.issues.length === 0 
+        ? 'All sources verified and authorized' 
+        : `${externalAnalysis.issues.length} source issue(s) detected`
     };
   }
 }
 
-/* ========= Perplexity wrapper with source enforcement ========= */
-async function callPerplexityWithSources(messages, model = PERPLEXITY_MODEL) {
+/* ========= Perplexity wrapper ========= */
+async function callPerplexity(messages, model = PERPLEXITY_MODEL) {
   const resp = await fetch(PERPLEXITY_URL, {
     method: 'POST',
     headers: {
@@ -395,7 +358,7 @@ Determine:
 
 Respond ONLY with valid JSON. No other text.`;
 
-    const aiResponse = await callPerplexityWithSources([
+    const aiResponse = await callPerplexity([
       { role: 'system', content: 'You are a JSON-only response system. Return only valid JSON.' },
       { role: 'user', content: analysisPrompt }
     ], PERPLEXITY_MODEL);
@@ -432,7 +395,7 @@ Respond ONLY with valid JSON. No other text.`;
   }
 });
 
-/* ========= /api/chat WITH SOURCE ATTRIBUTION ========= */
+/* ========= /api/chat WITH PROPER SOURCE ATTRIBUTION ========= */
 app.post('/api/chat', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
   if (!checkRateLimit(ip)) {
@@ -451,187 +414,191 @@ app.post('/api/chat', async (req, res) => {
       return res.json({
         answer: "لم أجد كتباً تطابق سؤالك في الكتالوج.<br>I didn't find any matching books in the catalog.",
         bookIds: [],
-        sourceAttribution: {
+        sourceCompliance: {
           compliant: false,
-          status: 'NO_SOURCES_PROVIDED'
+          status: 'NO_LIBRARY_SOURCES'
         }
       });
     }
 
     const safeBooks = matchedBooks.filter(b => b && typeof b === 'object');
-    const attributionEngine = new SourceAttributionEngine();
+    const verificationEngine = new SourceVerificationEngine(UAE_AUTHORIZED_SOURCES, safeBooks);
 
-    // Build data for AI
+    // Build data for AI from library
     let availableData = '';
     let fieldInstructions = '';
 
     if (searchField === 'summary') {
       fieldInstructions = `
-⚠️ CRITICAL SOURCE ATTRIBUTION RULES:
-- You MUST attribute every fact to a real external source
-- Use ONLY authorized sources: Wikipedia, UN, World Bank, BBC, Reuters, etc.
-- Format: "According to [Source Name]: [fact]"
-- FORBIDDEN: Making up sources or citations
-- FORBIDDEN: Using internal book numbers as citations
-- FORBIDDEN: Citing sources that don't actually contain the information
-- If information cannot be found in authorized sources, say "Information not available in authorized sources"`;
+⚠️ CRITICAL SOURCE RULES:
+1. PRIMARY: Use library data (books provided below)
+2. If using library books, cite them with book number [1], [2], etc.
+3. EXTERNAL SOURCES: ONLY official UAE .ae domains allowed
+   - Examples: government.ae, wam.ae, mohesr.gov.ae, fcsa.gov.ae
+   - Format: "According to [Source Name]: [fact] (source: [URL])"
+4. FORBIDDEN: Wikipedia, international sites, non-UAE sources
+5. If external source used, MUST provide complete URL`;
       
       availableData = safeBooks.map((b,i)=>{
         const summary=(b.summary||b.contents||b.content||'').toString().trim()||'No summary';
         const author=(b.author||'Unknown Author').toString().trim();
         const title=(b.title||'Untitled').toString().trim();
-        return `Title: ${title}\nAuthor: ${author}\nSummary: ${summary}\n---`;}).join('\n');
+        const publisher=(b.publisher||'').toString().trim();
+        const year=(b.year||'').toString().trim();
+        return `[${i+1}] BOOK: ${title}\n    Author: ${author}\n    Publisher: ${publisher}${year ? ' (' + year + ')' : ''}\n    Summary: ${summary}\n---`;}).join('\n');
 
     } else if (searchField === 'subject') {
       fieldInstructions = `
-⚠️ CRITICAL SOURCE ATTRIBUTION RULES:
-- You MUST attribute every fact to a real external source
-- Use ONLY authorized sources: Wikipedia, UN, World Bank, BBC, Reuters, etc.
-- Format: "According to [Source Name]: [fact]"
-- FORBIDDEN: Making up sources or citations
-- FORBIDDEN: Using internal book numbers as citations`;
+⚠️ CRITICAL SOURCE RULES:
+1. PRIMARY: Use library data for subject search
+2. Cite library books as [1], [2], [3], etc.
+3. EXTERNAL: ONLY official UAE .ae sites allowed
+4. FORBIDDEN: Non-UAE external sources`;
       
       availableData = safeBooks.map((b,i)=>{
         const title=(b.title||'Untitled').toString(),subject=(b.subject||'No subject').toString();
         const author=(b.author||'Unknown Author').toString().trim();
-        return `Title: ${title}\nAuthor: ${author}\nSubject: ${subject}\n---`;}).join('\n');
+        return `[${i+1}] BOOK: ${title}\n    Author: ${author}\n    Subject: ${subject}\n---`;}).join('\n');
 
     } else if (searchField === 'author') {
       fieldInstructions = `
-⚠️ CRITICAL SOURCE ATTRIBUTION RULES:
-- List books by this author from the provided library data
-- When providing biographical information, cite real external sources
-- Format: "According to [Source]: [biographical fact]"
-- Use ONLY authorized sources: Wikipedia, UN, World Bank, BBC, Reuters, etc.`;
+⚠️ CRITICAL SOURCE RULES:
+1. List books by this author from library
+2. Cite as [1], [2], [3], etc.
+3. For biographical info: Use ONLY UAE .ae official sources
+4. FORBIDDEN: Non-UAE external sources`;
       
       availableData = safeBooks.map((b,i)=>{
         const title=(b.title||'Untitled').toString(),author=(b.author||'Unknown').toString();
-        return `Title: ${title}\nAuthor: ${author}\n---`;}).join('\n');
+        return `[${i+1}] ${author}. "${title}"\n---`;}).join('\n');
 
     } else {
       fieldInstructions = `
-⚠️ CRITICAL SOURCE ATTRIBUTION RULES:
-- Use real external sources for factual claims
-- Use ONLY authorized sources: Wikipedia, UN, World Bank, BBC, Reuters, etc.
-- Format: "According to [Source Name]: [fact]"
-- FORBIDDEN: Making up citations or sources
-- FORBIDDEN: Referencing sources without proper attribution
-- Every factual claim must have proper external source attribution`;
+⚠️ CRITICAL SOURCE RULES:
+1. PRIMARY: Use library data first
+2. Cite library books as [1], [2], [3], etc.
+3. EXTERNAL ONLY: Official UAE .ae sites
+   - Allowed: government.ae, wam.ae, mohesr.gov.ae, fcsa.gov.ae, etc.
+4. FORBIDDEN: Any non-.ae external sources`;
       
       availableData = safeBooks.map((b,i)=>{
         const title=(b.title||'Untitled').toString(),author=(b.author||'Unknown').toString(),
               subject=(b.subject||'').toString(),summary=(b.summary||'').toString();
-        return `Title: ${title}\nAuthor: ${author}\nSubject: ${subject}\nSummary: ${summary}\n---`;}).join('\n');
+        return `[${i+1}] Title: ${title}\n    Author: ${author}\n    Subject: ${subject}\n    Summary: ${summary}\n---`;}).join('\n');
     }
 
-    const systemPrompt = `You are a library research assistant with strict source attribution requirements.
+    const systemPrompt = `You are a library assistant with strict source requirements.
 
-CRITICAL RULES:
-1. Every factual claim MUST be attributed to a real external source
-2. ONLY use these authorized sources:
-   - Wikipedia (en and ar)
-   - BBC News
-   - Reuters
-   - World Bank
-   - UN Official
-   - Al Jazeera
-   - OECD
-   - WHO
-   - IMF
-   - Britannica
-   - Google Scholar
-   - JSTOR
-3. Format citations as: "According to [Source Name]: [fact]"
-4. NEVER make up sources or citations
-5. NEVER cite sources that don't actually contain the information
-6. If you cannot find information in authorized sources, say so explicitly
-7. Provide direct links to sources when possible
-8. This is legally and ethically critical - incorrect attribution is intellectual property violation`;
+LIBRARY DATA IS PRIMARY:
+- Use library books first
+- Cite as [1], [2], [3] for library sources
+- Must cite exactly which book the info came from
+
+EXTERNAL SOURCES - STRICT RULES:
+- ONLY official UAE government and official sites (.ae domains)
+- Examples: government.ae, wam.ae, mohesr.gov.ae, fcsa.gov.ae
+- Format: "According to [Source Name]: [fact] (https://source.ae/...)"
+- FORBIDDEN: Wikipedia, international news, non-.ae sites
+
+CRITICAL:
+- Do NOT mix up library citations with external sources
+- If from library book → Use [1], [2], [3]
+- If from external → Use "According to [Source]: ... (URL)"
+- NEVER cite external sources that are NOT official UAE .ae`;
 
     const userPrompt = `${fieldInstructions}
 
-LIBRARY DATA:
+LIBRARY BOOKS IN CATALOG:
 ${availableData}
 
 USER QUERY: "${query}"
 
-IMPORTANT:
-- Provide information with proper external source attribution
-- Use format: "According to [Official Source Name]: [information]"
-- NEVER fake citations
-- NEVER cite sources unless you're certain they contain this information
-- Include direct links to sources when available
-- Format sources as clickable URLs
+Instructions:
+1. FIRST: Search the library books provided above
+2. If information found in library → Cite as [1], [2], [3]
+3. If need external info → ONLY use official UAE .ae sites
+4. Provide complete URLs for any external sources
+5. Answer in same language as query (Arabic or English)
 
-Answer now with proper source attribution:`;
+Answer now:`;
 
-    const aiResponse = await callPerplexityWithSources(
+    const aiResponse = await callPerplexity(
       [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
       PERPLEXITY_MODEL
     );
 
-    // ===== SOURCE ATTRIBUTION VERIFICATION =====
-    const complianceReport = attributionEngine.getComplianceReport(aiResponse);
+    // ===== VERIFY COMPLIANCE =====
+    const complianceReport = verificationEngine.getSourceComplianceReport(aiResponse, safeBooks);
     
-    console.log('=== SOURCE ATTRIBUTION COMPLIANCE REPORT ===');
-    console.log(`Response compliant with source rules: ${complianceReport.compliant}`);
-    console.log(`Total sources cited: ${complianceReport.sourcesFound}`);
-    console.log(`Authorized sources: ${complianceReport.authorizedSources}`);
-    console.log(`Unauthorized sources detected: ${complianceReport.unauthorizedSources}`);
-    if (complianceReport.validSources.length > 0) {
-      console.log('Valid sources with URLs:');
-      complianceReport.validSources.forEach((src, idx) => {
-        console.log(`  ${idx + 1}. ${src.source}: ${src.url}`);
+    console.log('=== SOURCE COMPLIANCE REPORT ===');
+    console.log(`Compliant with rules: ${complianceReport.compliant}`);
+    console.log(`Library sources used: ${complianceReport.librarySourcesUsed}`);
+    console.log(`External sources cited: ${complianceReport.externalSourcesCited}`);
+    console.log(`Authorized UAE (.ae) sources: ${complianceReport.authorizedExternalSources}`);
+    console.log(`Unauthorized external sources: ${complianceReport.unauthorizedExternalSources}`);
+    if (complianceReport.validExternalSources.length > 0) {
+      console.log('Valid UAE sources:');
+      complianceReport.validExternalSources.forEach((src, idx) => {
+        console.log(`  ${idx + 1}. ${src.sourceName} (${src.url})`);
       });
     }
     if (complianceReport.issues.length > 0) {
-      console.log('Compliance issues:');
+      console.log('⚠️ Compliance issues:');
       complianceReport.issues.forEach(issue => {
         console.log(`  - ${issue.message}`);
       });
     }
 
-    // Extract book IDs from response
+    // Extract library book IDs from citations
     const ids = [];
-    if (matchedBooks.length > 0) {
-      for (let i = 0; i < Math.min(matchedBooks.length, 5); i++) {
-        ids.push(i + 1);
+    const pattern = /\[(\d+)\]/g;
+    let match;
+    while ((match = pattern.exec(aiResponse)) !== null) {
+      const num = parseInt(match[1], 10);
+      if (num >= 1 && num <= safeBooks.length) {
+        ids.push(num);
       }
     }
 
     res.json({ 
       answer: aiResponse,
       bookIds: ids,
-      sourceAttribution: complianceReport
+      sourceCompliance: {
+        compliant: complianceReport.compliant,
+        librarySourcesUsed: complianceReport.librarySourcesUsed,
+        externalSourcesCited: complianceReport.externalSourcesCited,
+        authorizedExternalSources: complianceReport.authorizedExternalSources,
+        unauthorizedExternalSources: complianceReport.unauthorizedExternalSources,
+        validExternalSources: complianceReport.validExternalSources,
+        issues: complianceReport.issues,
+        message: complianceReport.message
+      }
     });
 
   } catch (err) {
     console.error('Chat error:', err);
     res.status(500).json({ 
       error: 'Internal server error', 
-      details: err.message,
-      sourceAttribution: {
-        status: 'ERROR',
-        message: 'Source attribution verification could not be completed'
-      }
+      details: err.message
     });
   }
 });
 
-/* ========= /api/authorized-sources ========= */
-app.get('/api/authorized-sources', (req, res) => {
-  const sources = Object.values(AUTHORIZED_SOURCES).map(s => ({
+/* ========= /api/authorized-uae-sources ========= */
+app.get('/api/authorized-uae-sources', (req, res) => {
+  const sources = Object.values(UAE_AUTHORIZED_SOURCES).map(s => ({
     name: s.name,
     domain: s.domain,
     category: s.category,
     baseUrl: s.baseUrl,
-    trusted: s.trusted
+    official: s.official
   }));
   
   res.json({
+    message: 'ONLY these official UAE (.ae) sources are permitted',
     totalAuthorizedSources: sources.length,
     sources: sources,
-    message: 'Only these sources are permitted for attribution'
+    rule: 'Any external source MUST be an official UAE (.ae) domain'
   });
 });
 
@@ -642,7 +609,7 @@ app.get('/api/health', (req, res) => {
     codeVersion: CODE_VERSION,
     perplexityConfigured: !!PERPLEXITY_API_KEY && PERPLEXITY_API_KEY !== 'pplx-YOUR-API-KEY-HERE',
     modelVersion: PERPLEXITY_MODEL,
-    features: 'Real external source attribution • Source verification • Compliance enforcement • IP protection • No fake citations',
+    features: 'Library data primary • UAE .ae sources only • Proper citation • Source verification',
   });
 });
 
@@ -656,6 +623,7 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`🚀 ECSSR AI Backend http://localhost:${PORT}`);
   console.log(`🔖 Version: ${CODE_VERSION}`);
-  console.log(`✅ REAL SOURCE ATTRIBUTION ENABLED`);
-  console.log(`🔐 Intellectual Property Protection: ACTIVE`);
+  console.log(`📚 Library Data: PRIMARY SOURCE`);
+  console.log(`🇦🇪 External Sources: OFFICIAL UAE (.ae) ONLY`);
+  console.log(`✅ SOURCE COMPLIANCE ENABLED`);
 });
