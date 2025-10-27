@@ -1,11 +1,12 @@
 // backend/server.js
-// ECSSR AI Assistant — v3.2
-// - Health shows codeVersion
-// - Strict author matching with "exact 2-token author preferred" rule
-// - Safe availableData builders (no sampleBooks)
+// ECSSR AI Assistant — v4.0 ENHANCED
+// - STRICT citation validation and enforcement
+// - Source data verification
+// - Citation post-processing and cleanup
+// - Disallowed external references detection
 // - Rate limiting + robust guards
 
-const CODE_VERSION = "ecssr-backend-v3.2-2token-prefer";
+const CODE_VERSION = "ecssr-backend-v4.0-strict-citations";
 
 const express = require('express');
 const cors = require('cors');
@@ -35,6 +36,108 @@ function checkRateLimit(ip) {
   recent.push(now);
   requestCounts.set(ip, recent);
   return true;
+}
+
+/* ========= Citation Validation Engine ========= */
+class CitationValidator {
+  constructor(sourceBooks) {
+    this.sourceBooks = sourceBooks || [];
+    this.validCitationRange = this.sourceBooks.length;
+  }
+
+  /**
+   * Extract all citation references [1], [2], etc. from text
+   */
+  extractCitations(text) {
+    const pattern = /\[(\d+)\]/g;
+    const citations = [];
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      const num = parseInt(match[1], 10);
+      citations.push({
+        original: match[0],
+        number: num,
+        position: match.index
+      });
+    }
+    return citations;
+  }
+
+  /**
+   * Check if a citation number is valid (within source book range)
+   */
+  isValidCitationNumber(num) {
+    return num >= 1 && num <= this.validCitationRange;
+  }
+
+  /**
+   * Get all invalid citations from text
+   */
+  findInvalidCitations(text) {
+    const citations = this.extractCitations(text);
+    return citations.filter(c => !this.isValidCitationNumber(c.number));
+  }
+
+  /**
+   * Remove invalid citations and replace with plaintext
+   */
+  removeInvalidCitations(text) {
+    const citations = this.extractCitations(text);
+    const invalidCitations = citations.filter(c => !this.isValidCitationNumber(c.number));
+    
+    let cleanedText = text;
+    // Sort in reverse order to maintain position accuracy
+    invalidCitations.sort((a, b) => b.position - a.position);
+    
+    for (const citation of invalidCitations) {
+      cleanedText = cleanedText.replace(citation.original, '');
+    }
+    
+    return cleanedText.replace(/\s+/g, ' ').trim();
+  }
+
+  /**
+   * Verify that every citation number has a corresponding source
+   */
+  validateAllCitations(text) {
+    const citations = this.extractCitations(text);
+    const issues = [];
+    
+    for (const citation of citations) {
+      if (!this.isValidCitationNumber(citation.number)) {
+        issues.push({
+          type: 'INVALID_CITATION_NUMBER',
+          citation: citation.number,
+          validRange: `1-${this.validCitationRange}`,
+          message: `Citation [${citation.number}] exceeds available sources (max: ${this.validCitationRange})`
+        });
+      }
+    }
+    
+    return {
+      isValid: issues.length === 0,
+      totalCitationsFound: citations.length,
+      validCitationsCount: citations.filter(c => this.isValidCitationNumber(c.number)).length,
+      issues: issues
+    };
+  }
+
+  /**
+   * Create detailed validation report
+   */
+  getValidationReport(text) {
+    const validation = this.validateAllCitations(text);
+    const invalidCitations = this.findInvalidCitations(text);
+    
+    return {
+      validation: validation,
+      sourceCount: this.validCitationRange,
+      invalidCitationsFound: invalidCitations.length,
+      invalidCitationNumbers: invalidCitations.map(c => c.number),
+      cleanedText: validation.isValid ? text : this.removeInvalidCitations(text),
+      hasExternalReferences: invalidCitations.length > 0
+    };
+  }
 }
 
 /* ========= Perplexity wrapper ========= */
@@ -86,7 +189,6 @@ function filterAuthorBooks(query, books) {
   if (qTokens.length === 0) return [];
   const list = (Array.isArray(books) ? books : []).filter(b => b && typeof b === 'object');
 
-  // Check if any exact 2-token author exists when query has 2 tokens
   let exactTwoTokenExists = false;
   if (qTokens.length === 2) {
     for (const b of list) {
@@ -103,19 +205,16 @@ function filterAuthorBooks(query, books) {
     const isExact = exactAuthorMatch(qTokens, author);
     const aLen    = tokenizeName(author).length;
 
-    // For 3-token searches: strict exact matching only (skip flexible matching)
     if (qTokens.length === 3) {
       if (isExact && aLen === 3) out.push(b);
       continue;
     }
 
     if (qTokens.length === 2 && exactTwoTokenExists) {
-      // only allow exact 2-token matches
       if (isExact && aLen === 2) out.push(b);
       continue;
     }
 
-    // Otherwise, only exact (as per your last backend version)
     if (isExact) out.push(b);
   }
   return out;
@@ -174,10 +273,8 @@ Respond ONLY with valid JSON. No other text.`;
       { role: 'user', content: analysisPrompt }
     ], PERPLEXITY_MODEL);
 
-    // Parse AI response
     let analysis;
     try {
-      // Try to extract JSON from response
       const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         analysis = JSON.parse(jsonMatch[0]);
@@ -186,7 +283,6 @@ Respond ONLY with valid JSON. No other text.`;
       }
     } catch (parseError) {
       console.error('Failed to parse AI analysis:', aiResponse);
-      // Fallback to default
       return res.json({
         intent: 'default',
         field: 'default',
@@ -209,7 +305,7 @@ Respond ONLY with valid JSON. No other text.`;
   }
 });
 
-/* ========= /api/chat ========= */
+/* ========= /api/chat WITH STRICT CITATION VALIDATION ========= */
 app.post('/api/chat', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
   if (!checkRateLimit(ip)) {
@@ -224,17 +320,21 @@ app.post('/api/chat', async (req, res) => {
 
     if (!query) return res.status(400).json({ error: 'Query is required' });
 
-    // Frontend already did the filtering, so we don't filter again
-    // Author filtering removed - trust frontend results
-
     if (!matchedBooks.length) {
       return res.json({
         answer: "لم أجد كتباً تطابق سؤالك في الكتالوج.<br>I didn't find any matching books in the catalog.",
-        bookIds: []
+        bookIds: [],
+        validationReport: {
+          citationValidation: 'NO_SOURCES_PROVIDED',
+          externalReferencesFound: false
+        }
       });
     }
 
     const safeBooks = matchedBooks.filter(b => b && typeof b === 'object');
+    
+    // Initialize citation validator with the number of source books
+    const citationValidator = new CitationValidator(safeBooks);
 
     // Build field-specific data
     let fieldInstructions = '';
@@ -242,10 +342,14 @@ app.post('/api/chat', async (req, res) => {
 
     if (searchField === 'summary') {
       fieldInstructions = `
-⚠️ SUMMARY SEARCH
-Use ONLY: summary, contents.
-FORBIDDEN: author, subject, title.
-If info not present in summaries, say "المعلومات غير متوفرة / Information not available".`;
+⚠️ CRITICAL CITATION RULES:
+- You MUST cite EVERY fact with [1], [2], [3], etc.
+- Citation numbers MUST be between [1] and [${safeBooks.length}] ONLY
+- FORBIDDEN: Any citation outside this range
+- FORBIDDEN: References to external sources, Wikipedia, or internet
+- If information is not in the provided summaries, say "المعلومات غير متوفرة / Information not available"
+- NEVER invent or assume information`;
+      
       availableData = safeBooks.map((b,i)=>{
         const summary=(b.summary||b.contents||b.content||'').toString().trim()||'No summary';
         const author=(b.author||'Unknown Author').toString().trim();
@@ -257,10 +361,14 @@ If info not present in summaries, say "المعلومات غير متوفرة / 
 
     } else if (searchField === 'subject') {
       fieldInstructions = `
-⚠️ SUBJECT/TOPIC SEARCH
-Use ONLY: subject, title.
-FORBIDDEN: author, summary.
-If the user asks a question, answer it using the subjects and titles. Cite every fact with [number].`;
+⚠️ CRITICAL CITATION RULES:
+- You MUST cite EVERY fact with [1], [2], [3], etc.
+- Citation numbers MUST be between [1] and [${safeBooks.length}] ONLY
+- FORBIDDEN: Any citation outside this range
+- FORBIDDEN: References to external sources, Wikipedia, or internet
+- Use ONLY subject and title fields
+- If the user asks a question, answer using the subjects and titles`;
+      
       availableData = safeBooks.map((b,i)=>{
         const title=(b.title||'Untitled').toString(),subject=(b.subject||'No subject').toString();
         const author=(b.author||'Unknown Author').toString().trim();
@@ -271,9 +379,13 @@ If the user asks a question, answer it using the subjects and titles. Cite every
 
     } else if (searchField === 'author') {
       fieldInstructions = `
-⚠️ AUTHOR SEARCH
-Use ONLY: author, title.
-FORBIDDEN: subject, summary.`;
+⚠️ CRITICAL CITATION RULES:
+- You MUST cite EVERY book with [1], [2], [3], etc.
+- Citation numbers MUST be between [1] and [${safeBooks.length}] ONLY
+- FORBIDDEN: Any citation outside this range
+- FORBIDDEN: References to external sources or additional information
+- Use ONLY author and title fields`;
+      
       availableData = safeBooks.map((b,i)=>{
         const title=(b.title||'Untitled').toString(),author=(b.author||'Unknown').toString();
         const publisher=(b.publisher||'').toString().trim();
@@ -282,6 +394,14 @@ FORBIDDEN: subject, summary.`;
         return `[${i+1}] Citation: ${citation}\n---`;}).join('\n');
 
     } else {
+      fieldInstructions = `
+⚠️ CRITICAL CITATION RULES:
+- You MUST cite EVERY fact with [1], [2], [3], etc.
+- Citation numbers MUST be between [1] and [${safeBooks.length}] ONLY
+- FORBIDDEN: Any citation outside this range
+- FORBIDDEN: References to external sources, Wikipedia, or internet
+- Use only provided book data`;
+      
       availableData = safeBooks.map((b,i)=>{
         const title=(b.title||'Untitled').toString(),author=(b.author||'Unknown').toString(),
               subject=(b.subject||'').toString(),summary=(b.summary||'').toString();
@@ -293,49 +413,99 @@ FORBIDDEN: subject, summary.`;
 
     const systemPrompt =
       searchField === 'summary'
-        ? 'Answer using ONLY summaries/contents. Cite every fact with [number]. Books have been provided to you - answer based on them.'
+        ? 'You are a strict library assistant. Answer using ONLY summaries/contents. Cite every fact with [number]. FORBIDDEN: External sources.'
         : searchField === 'subject'
-        ? 'Answer questions or list books using ONLY subject and title. Cite each fact with [number]. Books have been provided to you - use them to answer.'
+        ? 'You are a strict library assistant. Answer using ONLY subject and title. Cite each fact with [number]. FORBIDDEN: External sources.'
         : searchField === 'author'
-        ? 'List books BY the author using ONLY author and title. Cite each book with [number]. Books have been provided to you - list them.'
-        : 'Use only provided fields. Cite all information with [number]. Books have been provided to you - answer based on them.';
+        ? 'You are a strict library assistant. List books BY the author using ONLY author and title. Cite each book with [number]. FORBIDDEN: External sources.'
+        : 'You are a strict library assistant. Use only provided fields. Cite all information with [number]. FORBIDDEN: External sources.';
 
-    const userPrompt = `You are a library assistant. Follow the field rules STRICTLY.
+    const userPrompt = `${fieldInstructions}
 
-${fieldInstructions}
-
-RULES:
-1) ONLY use allowed fields above.
-2) NEVER use forbidden fields.
-3) Do not invent info.
-4) When providing information, ALWAYS cite your source using the reference numbers [1], [2], [3], etc. from the data above.
-5) Place citation numbers [1], [2], [3] immediately after the information from that source.
-6) Answer in the same language as the query.
-7) NEVER say "I didn't find any books" or "لم أجد كتباً" - you have been provided with books data, so answer based on that data.
-8) Every fact or piece of information MUST have a citation number [X] after it.
+CRITICAL RULES:
+1) ONLY cite sources from the AVAILABLE DATA below [1-${safeBooks.length}]
+2) NEVER reference external websites, Wikipedia, internet sources, or any source not in AVAILABLE DATA
+3) NEVER use citations like [100] or any number outside the provided range
+4) Do not invent information
+5) When providing information, ALWAYS cite your source using [1], [2], [3], etc.
+6) Place citation numbers [X] immediately after the information from that source
+7) Answer in the same language as the query
+8) Every fact or piece of information MUST have a citation number [X]
 
 USER QUERY: "${query}"
 SEARCH FIELD: ${searchField}
 
-AVAILABLE DATA (${safeBooks.length} books):
+AVAILABLE DATA (${safeBooks.length} books ONLY):
 ${availableData}
 
-Answer now using ONLY the allowed fields above.`;
+Answer now. REMEMBER: Only use citations [1] through [${safeBooks.length}].`;
 
-    const answer = await callPerplexity(
+    const aiResponse = await callPerplexity(
       [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
       PERPLEXITY_MODEL
     );
 
-    // best-effort ID extraction
-    const ids = [];
-    const m = answer.match(/\b(\d+)\b/g);
-    if (m) ids.push(...m.slice(0,10).map(Number));
+    // ===== STRICT CITATION VALIDATION =====
+    const validationReport = citationValidator.getValidationReport(aiResponse);
+    
+    console.log('=== CITATION VALIDATION REPORT ===');
+    console.log(`Total sources available: ${validationReport.sourceCount}`);
+    console.log(`Citations found in response: ${validationReport.validation.totalCitationsFound}`);
+    console.log(`Valid citations: ${validationReport.validation.validCitationsCount}`);
+    console.log(`Invalid citations: ${validationReport.invalidCitationsFound}`);
+    if (validationReport.invalidCitationNumbers.length > 0) {
+      console.log(`Invalid citation numbers detected: ${validationReport.invalidCitationNumbers.join(', ')}`);
+    }
+    console.log(`Has external references: ${validationReport.hasExternalReferences}`);
+    if (validationReport.validation.issues.length > 0) {
+      console.log('Issues found:');
+      validationReport.validation.issues.forEach(issue => {
+        console.log(`  - ${issue.message}`);
+      });
+    }
 
-    res.json({ answer, bookIds: ids });
+    // Use cleaned text if there are invalid citations
+    const finalAnswer = validationReport.hasExternalReferences 
+      ? validationReport.cleanedText 
+      : aiResponse;
+
+    // Extract valid book IDs from citations
+    const validCitations = validationReport.validation.validCitationsCount > 0 
+      ? validationReport.validation.validCitationsCount 
+      : 0;
+    const ids = [];
+    const pattern = /\[(\d+)\]/g;
+    let match;
+    while ((match = pattern.exec(finalAnswer)) !== null) {
+      const num = parseInt(match[1], 10);
+      if (num >= 1 && num <= safeBooks.length) {
+        ids.push(num);
+      }
+    }
+
+    res.json({ 
+      answer: finalAnswer,
+      bookIds: ids,
+      validationReport: {
+        citationsFound: validationReport.validation.totalCitationsFound,
+        validCitations: validationReport.validation.validCitationsCount,
+        invalidCitationsRemoved: validationReport.invalidCitationsFound,
+        externalReferencesDetected: validationReport.hasExternalReferences,
+        validationIssues: validationReport.validation.issues,
+        sourceCount: validationReport.sourceCount
+      }
+    });
+
   } catch (err) {
     console.error('Chat error:', err);
-    res.status(500).json({ error: 'Internal server error', details: err.message });
+    res.status(500).json({ 
+      error: 'Internal server error', 
+      details: err.message,
+      validationReport: {
+        status: 'ERROR',
+        message: 'Citation validation could not be completed'
+      }
+    });
   }
 });
 
@@ -372,14 +542,14 @@ Task:
 2) Rank by how well the SUMMARY matches the query.
 3) Return the top 20 IDs.
 
-IMPORTANT: Only use provided summaries.
+IMPORTANT: Only use provided summaries. Do not reference external sources.
 
 Format:
 EXPLANATION: <brief, same language as query>
 BOOK_IDS: <comma separated IDs>`;
 
     const response = await callPerplexity(
-      [{ role: 'system', content: 'Rank only by provided summaries.' },
+      [{ role: 'system', content: 'Rank only by provided summaries. Do not reference external sources.' },
        { role: 'user', content: prompt }],
       PERPLEXITY_MODEL
     );
@@ -403,7 +573,7 @@ app.get('/api/health', (req, res) => {
     codeVersion: CODE_VERSION,
     perplexityConfigured: !!PERPLEXITY_API_KEY && PERPLEXITY_API_KEY !== 'pplx-YOUR-API-KEY-HERE',
     modelVersion: PERPLEXITY_MODEL,
-    features: 'Strict field separation • Exact 2-token author preference • Safe availableData',
+    features: 'STRICT citation validation • Source enforcement • External reference detection • Invalid citation removal',
   });
 });
 
@@ -417,4 +587,5 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`🚀 ECSSR AI Backend http://localhost:${PORT}`);
   console.log(`🔖 Version: ${CODE_VERSION}`);
+  console.log(`✅ STRICT CITATION VALIDATION ENABLED`);
 });
