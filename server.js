@@ -1,10 +1,10 @@
 // backend/server.js
-// ECSSR AI Assistant — v13.0 - ChatGPT Only (No Perplexity)
-// - Uses ChatGPT for library books
-// - Uses ChatGPT for UAE website information
-// - Simple, reliable, one API
+// ECSSR AI Assistant — v14.0 - FIXED Perplexity with Verified URLs
+// - Fixed model name
+// - Verifies URLs before using
+// - No more 404 errors
 
-const CODE_VERSION = "ecssr-backend-v13.0-chatgpt-only";
+const CODE_VERSION = "ecssr-backend-v14.0-perplexity-fixed";
 
 const express = require('express');
 const cors = require('cors');
@@ -16,6 +16,9 @@ const PORT = process.env.PORT || 3000;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'sk-YOUR-API-KEY-HERE';
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
+
+const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY || '';
+const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
 
 app.set('trust proxy', true);
 app.use(cors());
@@ -33,6 +36,54 @@ function checkRateLimit(ip) {
   recent.push(now);
   requestCounts.set(ip, recent);
   return true;
+}
+
+/* ========= Verify URL (check if it returns 200) ========= */
+async function verifyURL(url) {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    
+    const response = await fetch(url, {
+      method: 'HEAD',
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+    
+    clearTimeout(timeout);
+    
+    if (response.ok) {
+      console.log(`✅ Valid URL: ${url}`);
+      return true;
+    } else {
+      console.log(`❌ Invalid URL (${response.status}): ${url}`);
+      return false;
+    }
+  } catch (error) {
+    console.log(`❌ URL check failed: ${url} - ${error.message}`);
+    return false;
+  }
+}
+
+/* ========= Verify multiple URLs ========= */
+async function verifyURLs(urls) {
+  if (!urls || urls.length === 0) return [];
+  
+  console.log(`🔍 Verifying ${urls.length} URLs...`);
+  
+  const results = await Promise.all(
+    urls.map(async (url) => ({
+      url,
+      valid: await verifyURL(url)
+    }))
+  );
+  
+  const validUrls = results.filter(r => r.valid).map(r => r.url);
+  console.log(`✅ Valid: ${validUrls.length}/${urls.length} URLs`);
+  
+  return validUrls;
 }
 
 /* ========= OpenAI wrapper ========= */
@@ -62,6 +113,95 @@ async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
   return (data.choices && data.choices[0]?.message?.content) || '';
 }
 
+/* ========= FIXED Perplexity Search ========= */
+async function searchWithPerplexity(query) {
+  if (!PERPLEXITY_API_KEY) {
+    console.log('⚠️ Perplexity API key not set');
+    return null;
+  }
+  
+  try {
+    const isArabic = /[\u0600-\u06FF]/.test(query);
+    
+    // Simple search query for UAE sites
+    const searchQuery = isArabic 
+      ? `ابحث في المواقع الإماراتية عن: ${query}`
+      : `Search UAE websites for: ${query}`;
+
+    console.log(`🌐 Perplexity search: "${searchQuery}"`);
+
+    // FIXED: Use correct model name
+    const requestBody = {
+      model: 'sonar',  // FIXED: New model name
+      messages: [{
+        role: 'user',
+        content: searchQuery
+      }],
+      temperature: 0.1,
+      max_tokens: 1500,
+      return_citations: true
+    };
+
+    console.log('📤 Perplexity request:', JSON.stringify(requestBody, null, 2));
+
+    const response = await fetch(PERPLEXITY_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${PERPLEXITY_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    console.log(`📥 Perplexity status: ${response.status}`);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.log(`❌ Perplexity error: ${response.status}`);
+      console.log(`❌ Error details: ${errorText}`);
+      return null;
+    }
+
+    const data = await response.json();
+    console.log('📦 Perplexity response:', JSON.stringify(data).substring(0, 300));
+    
+    const answer = data.choices?.[0]?.message?.content || '';
+    let citations = data.citations || [];
+    
+    console.log(`📚 Raw citations: ${citations.length}`);
+    console.log(`📋 Citations:`, citations);
+    
+    // Filter to UAE domains only
+    const uaeCitations = citations.filter(url => 
+      url.includes('.ae')
+    );
+    
+    console.log(`🇦🇪 UAE citations: ${uaeCitations.length}`);
+    
+    if (uaeCitations.length === 0) {
+      console.log('⚠️ No UAE citations found');
+      return null;
+    }
+    
+    // VERIFY URLs
+    const validUrls = await verifyURLs(uaeCitations);
+    
+    if (validUrls.length === 0) {
+      console.log('⚠️ No valid URLs after verification');
+      return null;
+    }
+    
+    return {
+      answer,
+      citations: validUrls
+    };
+    
+  } catch (error) {
+    console.error('❌ Perplexity exception:', error.message);
+    return null;
+  }
+}
+
 /* ========= Normalization ========= */
 function norm(s) {
   if (!s) return '';
@@ -74,25 +214,6 @@ function norm(s) {
     .replace(/[\u0660-\u0669]/g, d => String.fromCharCode(d.charCodeAt(0)-1632+48))
     .replace(/[\u06F0-\u06F9]/g, d => String.fromCharCode(d.charCodeAt(0)-1776+48))
     .replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\s+/g,' ').trim();
-}
-
-/* ========= Extract web sources from answer ========= */
-function extractWebSources(answer) {
-  // Extract all markdown links [text](url)
-  const linkRegex = /\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g;
-  const sources = [];
-  let match;
-  
-  while ((match = linkRegex.exec(answer)) !== null) {
-    const url = match[2];
-    // Only UAE .ae domains
-    if (url.includes('.ae')) {
-      sources.push(url);
-    }
-  }
-  
-  // Remove duplicates
-  return [...new Set(sources)];
 }
 
 /* ========= /api/understand-query ========= */
@@ -117,7 +238,7 @@ app.post('/api/understand-query', async (req, res) => {
   }
 });
 
-/* ========= /api/chat - ChatGPT Only ========= */
+/* ========= /api/chat - Books + Verified Web Links ========= */
 app.post('/api/chat', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
   if (!checkRateLimit(ip)) {
@@ -134,7 +255,7 @@ app.post('/api/chat', async (req, res) => {
 
     console.log(`\n========================================`);
     console.log(`📚 Query: "${query}"`);
-    console.log(`📚 Number of books: ${safeBooks.length}`);
+    console.log(`📚 Books: ${safeBooks.length}`);
     console.log(`========================================\n`);
 
     let answer = '';
@@ -142,144 +263,71 @@ app.post('/api/chat', async (req, res) => {
     let webSources = [];
     let answerSource = 'library';
 
-    // If we have books
     if (safeBooks.length > 0) {
       
-      // Build book sources
-      const bookSources = safeBooks.map((b, i) => {
+      // Build book context
+      const bookContext = safeBooks.map((b, i) => {
         const num = i + 1;
-        const title = (b.title || 'Untitled').toString();
-        const author = (b.author || 'Unknown').toString();
-        const summary = (b.summary || '').toString().substring(0, 500);
-        
-        return `SOURCE [${num}]:
-Title: ${title}
-Author: ${author}
-Summary: ${summary}`;
-      }).join('\n\n---\n\n');
+        return `[${num}] ${b.title || 'Untitled'} by ${b.author || 'Unknown'}\n${(b.summary || '').substring(0, 400)}`;
+      }).join('\n\n');
+
+      // Search web for VERIFIED links
+      const webResults = await searchWithPerplexity(query);
+      
+      let webContext = '';
+      if (webResults && webResults.citations.length > 0) {
+        webSources = webResults.citations;
+        console.log(`✅ Got ${webSources.length} VERIFIED web links`);
+        webContext = `\n\nVERIFIED WEB LINKS (these URLs work):\n${webSources.map((url, i) => `[W${i+1}] ${url}`).join('\n')}`;
+      }
 
       const isArabic = /[\u0600-\u06FF]/.test(query);
 
-      const systemPrompt = `You are a professional research assistant for UAE libraries.
+      const prompt = `You are answering: "${query}"
 
-CITATION RULES:
-1. For library books → Cite as [1], [2], [3]
-2. For UAE official websites → Mention in text with general references
+LIBRARY BOOKS:
+${bookContext}
+${webContext}
 
-UAE WEBSITE REFERENCES:
-When you reference information that would typically be found on UAE official websites, mention the source naturally:
-- Arabic: "وفقاً لوكالة أنباء الإمارات" or "حسب البوابة الرسمية لحكومة الإمارات"
-- English: "according to Emirates News Agency" or "as per UAE Government Portal"
+RULES:
+1. For book info → cite [1], [2], [3]
+2. For web info → create markdown links: [text](url) using ONLY URLs from "VERIFIED WEB LINKS"
+3. Answer in ${isArabic ? 'Arabic' : 'English'}
 
-AUTHORIZED UAE SOURCES TO MENTION:
-- wam.ae (وكالة أنباء الإمارات / Emirates News Agency)
-- government.ae (البوابة الرسمية لحكومة الإمارات / UAE Government Portal)
-- uae.gov.ae (البوابة الرسمية لدولة الإمارات / UAE Official Portal)
-- moe.gov.ae (وزارة التربية والتعليم / Ministry of Education)
-
-NEVER mention: Wikipedia, BBC, Reuters, or non-.ae sources
-
-YOUR TASK:
-1. Answer using library books primarily
-2. Supplement with general knowledge about UAE from official sources
-3. Cite books with [numbers]
-4. Mention UAE sources by name when relevant
-5. Be accurate and professional`;
-
-      const userPrompt = `USER QUERY: "${query}"
-
-LIBRARY BOOKS AVAILABLE:
-${bookSources}
-
-INSTRUCTIONS:
-1. Answer the question comprehensively
-2. Use library books as primary sources → cite with [1], [2], [3]
-3. Supplement with UAE official knowledge when relevant → mention source name
-4. Answer in ${isArabic ? 'Arabic' : 'English'}
-5. Be concise but thorough (4-6 sentences)
+Example:
+"الشيخ زايد [كان مؤسس دولة الإمارات](https://wam.ae/actual-url) وفقاً لوكالة أنباء الإمارات [1]."
 
 Answer now:`;
 
-      console.log('🤖 Calling ChatGPT...');
-      
       answer = await callOpenAI(
-        [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
+        [{ role: 'user', content: prompt }],
         OPENAI_MODEL,
-        { temperature: 0.1, max_tokens: 2000 }
+        { temperature: 0.1 }
       );
 
-      console.log('✅ ChatGPT response received');
-
-      // Extract book citations [1], [2], [3]
-      const citationMatches = answer.match(/\[(\d+)\]/g);
-      if (citationMatches) {
-        const uniqueIds = new Set();
-        citationMatches.forEach(match => {
-          const num = parseInt(match.replace(/[\[\]]/g, ''));
-          if (num > 0 && num <= safeBooks.length) {
-            uniqueIds.add(num);
-          }
-        });
-        bookIds = Array.from(uniqueIds).sort((a, b) => a - b);
+      // Extract book citations
+      const matches = answer.match(/\[(\d+)\]/g);
+      if (matches) {
+        bookIds = [...new Set(matches.map(m => parseInt(m.replace(/[\[\]]/g, ''))))].filter(n => n > 0 && n <= safeBooks.length).sort((a,b) => a-b);
       }
 
-      // Extract mentioned UAE sources
-      const uaeSites = ['wam.ae', 'government.ae', 'uae.gov.ae', 'moe.gov.ae'];
-      const mentionedSites = [];
-      uaeSites.forEach(site => {
-        if (answer.toLowerCase().includes(site) || 
-            answer.includes('وكالة أنباء الإمارات') ||
-            answer.includes('حكومة الإمارات') ||
-            answer.includes('emirates news') ||
-            answer.includes('government portal')) {
-          mentionedSites.push(site);
-        }
-      });
+      console.log(`✅ Books cited: ${bookIds.join(', ')}`);
+      console.log(`✅ Web links: ${webSources.length}`);
+
+      answerSource = webSources.length > 0 ? 'dual' : 'library';
       
-      webSources = mentionedSites;
-
-      console.log(`\n✅ Response complete:`);
-      console.log(`📚 Book citations: ${bookIds.join(', ') || 'none'}`);
-      console.log(`🌐 UAE sources mentioned: ${webSources.join(', ') || 'none'}\n`);
-
-      answerSource = 'library';
+    } else {
+      // No books
+      const webResults = await searchWithPerplexity(query);
       
-    } 
-    // No books - general UAE knowledge
-    else {
-      console.log('🤖 No books, using general UAE knowledge...');
-      
-      const isArabic = /[\u0600-\u06FF]/.test(query);
-
-      const systemPrompt = `You are a UAE information assistant. Provide accurate information about UAE topics based on official sources.
-
-When providing information, mention the authoritative source:
-- Arabic: "وفقاً لوكالة أنباء الإمارات" or "حسب البوابة الرسمية لحكومة الإمارات"
-- English: "according to Emirates News Agency" or "as per UAE Government Portal"
-
-Only reference UAE official .ae websites.`;
-
-      const userPrompt = `Query: "${query}"
-
-Provide a concise answer (3-5 sentences) in ${isArabic ? 'Arabic' : 'English'}, mentioning UAE official sources when relevant.`;
-
-      answer = await callOpenAI(
-        [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        OPENAI_MODEL,
-        { temperature: 0.2, max_tokens: 600 }
-      );
-
-      console.log('✅ ChatGPT response received');
-
-      answerSource = 'ai_knowledge';
-      bookIds = [];
-      webSources = [];
+      if (webResults && webResults.citations.length > 0) {
+        webSources = webResults.citations;
+        answer = webResults.answer;
+        answerSource = 'web';
+      } else {
+        answer = 'عذراً، لم أتمكن من العثور على معلومات موثوقة.';
+        answerSource = 'none';
+      }
     }
 
     res.json({ 
@@ -290,7 +338,7 @@ Provide a concise answer (3-5 sentences) in ${isArabic ? 'Arabic' : 'English'}, 
     });
     
   } catch (err) {
-    console.error('❌ Chat error:', err);
+    console.error('❌ Error:', err);
     res.status(500).json({ error: 'Error', details: err.message });
   }
 });
@@ -310,10 +358,11 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     codeVersion: CODE_VERSION,
-    aiProvider: 'OpenAI ChatGPT Only',
+    aiProvider: 'OpenAI + Perplexity (FIXED)',
     openaiConfigured: !!OPENAI_API_KEY && OPENAI_API_KEY !== 'sk-YOUR-API-KEY-HERE',
+    perplexityConfigured: !!PERPLEXITY_API_KEY,
     modelVersion: OPENAI_MODEL,
-    features: 'ChatGPT Only • Library Books [1][2][3] • UAE Knowledge • No Perplexity',
+    features: 'FIXED Perplexity • Verified URLs • Books [1][2][3] • Real Web Links',
   });
 });
 
@@ -325,10 +374,9 @@ app.use((err, req, res, next) => {
 
 /* ========= Start ========= */
 app.listen(PORT, () => {
-  console.log(`\n🚀 ECSSR AI Backend http://localhost:${PORT}`);
+  console.log(`\n🚀 ECSSR Backend http://localhost:${PORT}`);
   console.log(`🔖 Version: ${CODE_VERSION}`);
-  console.log(`🤖 AI: ChatGPT Only (no Perplexity)`);
-  console.log(`📚 Library books → [1][2][3] citations`);
-  console.log(`🌐 UAE sources → Mentioned by name`);
-  console.log(`✅ Simple, reliable, one API\n`);
+  console.log(`✅ FIXED: Perplexity model name`);
+  console.log(`✅ URL verification enabled`);
+  console.log(`✅ No more 404 errors!\n`);
 });
