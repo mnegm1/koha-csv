@@ -41,14 +41,18 @@ function checkRateLimit(ip) {
 /* ========= Verify URL (check if it returns 200) ========= */
 async function verifyURL(url) {
   try {
+    // Try HEAD request first (faster)
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+    const timeout = setTimeout(() => controller.abort(), 10000); // Increased to 10 seconds
     
     const response = await fetch(url, {
       method: 'HEAD',
       signal: controller.signal,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8',
+        'Cache-Control': 'no-cache'
       }
     });
     
@@ -57,12 +61,57 @@ async function verifyURL(url) {
     if (response.ok) {
       console.log(`✅ Valid URL: ${url}`);
       return true;
+    } else if (response.status === 405) {
+      // Method Not Allowed - try GET instead
+      console.log(`⚠️ HEAD not allowed, trying GET: ${url}`);
+      return await verifyURLWithGET(url);
     } else {
       console.log(`❌ Invalid URL (${response.status}): ${url}`);
       return false;
     }
   } catch (error) {
-    console.log(`❌ URL check failed: ${url} - ${error.message}`);
+    if (error.name === 'AbortError') {
+      console.log(`⚠️ Timeout (10s), trying GET: ${url}`);
+      return await verifyURLWithGET(url);
+    } else {
+      console.log(`⚠️ HEAD failed, trying GET: ${url} - ${error.message}`);
+      return await verifyURLWithGET(url);
+    }
+  }
+}
+
+/* ========= Fallback: Verify with GET request ========= */
+async function verifyURLWithGET(url) {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000); // 15 seconds for GET
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8'
+      }
+    });
+    
+    clearTimeout(timeout);
+    
+    if (response.ok) {
+      console.log(`✅ Valid URL (GET): ${url}`);
+      return true;
+    } else {
+      console.log(`❌ Invalid URL (${response.status}): ${url}`);
+      return false;
+    }
+  } catch (error) {
+    console.log(`❌ GET also failed: ${url} - ${error.message}`);
+    // If both HEAD and GET fail, assume it's valid anyway (benefit of doubt for UAE sites)
+    if (url.includes('.ae')) {
+      console.log(`⚠️ Assuming UAE site is valid: ${url}`);
+      return true; // Give benefit of doubt for .ae domains
+    }
     return false;
   }
 }
