@@ -1,10 +1,10 @@
 // backend/server.js
-// ECSSR AI Assistant — v10.0 - Dual Sources with Proper Attribution
+// ECSSR AI Assistant — v11.0 - Web Search with Direct Links
 // - Library books cited as [1][2][3]
-// - UAE websites mentioned in text with links
-// - Proper intellectual property protection
+// - UAE websites with REAL links to actual articles
+// - Maximum credibility and verifiability
 
-const CODE_VERSION = "ecssr-backend-v10.0-dual-sources";
+const CODE_VERSION = "ecssr-backend-v11.0-web-search-links";
 
 const express = require('express');
 const cors = require('cors');
@@ -16,6 +16,10 @@ const PORT = process.env.PORT || 3000;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'sk-YOUR-API-KEY-HERE';
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
+
+// Perplexity API for web search (optional but recommended)
+const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY || '';
+const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
 
 app.set('trust proxy', true);
 app.use(cors());
@@ -62,6 +66,62 @@ async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
   return (data.choices && data.choices[0]?.message?.content) || '';
 }
 
+/* ========= Perplexity with citations ========= */
+async function searchWithPerplexity(query) {
+  if (!PERPLEXITY_API_KEY) return null;
+  
+  try {
+    const isArabic = /[\u0600-\u06FF]/.test(query);
+    
+    const searchQuery = isArabic 
+      ? `ابحث في المواقع الإماراتية الرسمية (.ae) فقط عن: ${query}. استخدم فقط: wam.ae, government.ae, uae.gov.ae, moe.gov.ae`
+      : `Search ONLY UAE official (.ae) websites about: ${query}. Use only: wam.ae, government.ae, uae.gov.ae, moe.gov.ae`;
+
+    const response = await fetch(PERPLEXITY_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${PERPLEXITY_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'llama-3.1-sonar-small-128k-online',
+        messages: [{
+          role: 'user',
+          content: searchQuery
+        }],
+        temperature: 0.1,
+        return_citations: true,
+        search_domain_filter: ['wam.ae', 'government.ae', 'uae.gov.ae', 'moe.gov.ae', 'mohesr.gov.ae']
+      })
+    });
+
+    if (!response.ok) {
+      console.log('⚠️ Perplexity search failed');
+      return null;
+    }
+
+    const data = await response.json();
+    const answer = data.choices?.[0]?.message?.content || '';
+    const citations = data.citations || [];
+    
+    console.log(`✅ Perplexity found ${citations.length} UAE sources`);
+    
+    return {
+      answer,
+      citations: citations.filter(url => 
+        url.includes('wam.ae') || 
+        url.includes('government.ae') || 
+        url.includes('uae.gov.ae') ||
+        url.includes('moe.gov.ae') ||
+        url.includes('mohesr.gov.ae')
+      )
+    };
+  } catch (error) {
+    console.error('Perplexity error:', error);
+    return null;
+  }
+}
+
 /* ========= Normalization ========= */
 function norm(s) {
   if (!s) return '';
@@ -98,7 +158,7 @@ app.post('/api/understand-query', async (req, res) => {
   }
 });
 
-/* ========= /api/chat - DUAL SOURCES ========= */
+/* ========= /api/chat - LIBRARY + WEB SEARCH ========= */
 app.post('/api/chat', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
   if (!checkRateLimit(ip)) {
@@ -115,80 +175,76 @@ app.post('/api/chat', async (req, res) => {
 
     console.log(`📚 Query: "${query}"`);
     console.log(`📚 Number of books: ${safeBooks.length}`);
-    console.log(`📚 Search field: ${searchField}`);
 
     let answer = '';
     let bookIds = [];
+    let webSources = [];
     let answerSource = 'library';
-    let uaeSources = [];
 
-    // If we have books, use them WITH UAE website references
+    // If we have books, use them
     if (safeBooks.length > 0) {
       
-      // Build book sources with clear numbering
+      // Build book sources
       const bookSources = safeBooks.map((b, i) => {
         const num = i + 1;
         const title = (b.title || 'Untitled').toString();
         const author = (b.author || 'Unknown').toString();
         const summary = (b.summary || '').toString().substring(0, 400);
-        const subject = (b.subject || '').toString();
         
         return `SOURCE [${num}]:
-Author: ${author}
 Title: ${title}
-Subject: ${subject}
+Author: ${author}
 Summary: ${summary}`;
-      }).join('\n\n---\n\n');
+      }).join('\n\n');
+
+      // ALSO search web for UAE sources
+      console.log('🌐 Searching UAE websites...');
+      const webResults = await searchWithPerplexity(query);
+      
+      let webContext = '';
+      if (webResults && webResults.citations.length > 0) {
+        console.log(`✅ Found ${webResults.citations.length} web sources`);
+        webSources = webResults.citations;
+        webContext = `\n\nWEB SOURCES FOUND:\n${webResults.answer}\n\nAvailable links:\n${webSources.map((url, i) => `[W${i+1}] ${url}`).join('\n')}`;
+      } else {
+        console.log('⚠️ No web sources found, using library only');
+      }
 
       const isArabic = /[\u0600-\u06FF]/.test(query);
 
-      const systemPrompt = `You are a library assistant that provides comprehensive answers using BOTH library books AND official UAE (.ae) websites.
+      const systemPrompt = `You are a research assistant that combines library books and UAE official websites.
 
 CITATION RULES:
-1. For information from library books → Use [1], [2], [3] numbers
-2. For information from UAE websites → Mention the website in text
+1. Library books → Cite as [1], [2], [3]
+2. Web sources → Create clickable markdown links like [text](url)
 
-CRITICAL INSTRUCTIONS:
-- When citing library books, use [1], [2], [3] immediately after the information
-- When referencing UAE websites, write it in the text like:
-  ${isArabic ? '• "وفقاً لوكالة أنباء الإمارات (wam.ae)..."' : '• "According to Emirates News Agency (wam.ae)..."'}
-  ${isArabic ? '• "حسب البوابة الرسمية لحكومة الإمارات (government.ae)..."' : '• "According to UAE Government Portal (government.ae)..."'}
-  ${isArabic ? '• "بحسب وزارة التربية والتعليم (moe.gov.ae)..."' : '• "According to Ministry of Education (moe.gov.ae)..."'}
+CRITICAL: When using web sources, you MUST use the EXACT URLs provided in the "Available links" section.
 
-AUTHORIZED UAE WEBSITES:
-- government.ae (UAE Government Portal)
-- wam.ae (Emirates News Agency)
-- uae.gov.ae (UAE Official Portal)
-- moe.gov.ae (Ministry of Education)
-- mohesr.gov.ae (Ministry of Higher Education)
+Format for web citations:
+- Arabic: [النص من الموقع](https://actual-url-from-available-links)
+- English: [text from website](https://actual-url-from-available-links)
 
-FORBIDDEN: Wikipedia, BBC, Reuters, Al Jazeera, CNN, any non-.ae sources
+Example:
+"كان الشيخ زايد داعماً قوياً [وفقاً لوكالة أنباء الإمارات](https://wam.ae/ar/details/1234567890)"
 
 YOU MUST:
-- Combine library book information with UAE website information
-- Cite books with [numbers]
-- Mention UAE websites by name in the text
-- Provide comprehensive answers using both sources`;
+- Use library book numbers [1][2][3] for book info
+- Use markdown links [text](url) for web sources with REAL URLs from "Available links"
+- Combine both sources naturally`;
 
       const userPrompt = `USER QUERY: "${query}"
-SEARCH FIELD: ${searchField}
 
-LIBRARY SOURCES AVAILABLE:
+LIBRARY SOURCES:
 ${bookSources}
+${webContext}
 
-INSTRUCTIONS:
-1. Answer the question using the library sources above AND your knowledge of UAE official websites
-2. For book information: cite with [1], [2], [3]
-3. For UAE website information: mention the website name in text like "${isArabic ? 'وفقاً لـ wam.ae' : 'according to wam.ae'}"
-4. Provide a comprehensive answer combining both sources
-5. Answer in ${isArabic ? 'Arabic' : 'English'}
+Answer the question using BOTH library books and web sources:
+1. Cite books with [1], [2], [3]
+2. Link to web sources using markdown [text](actual-url) with URLs from "Available links" section
+3. Answer in ${isArabic ? 'Arabic' : 'English'}
+4. Be comprehensive and credible
 
-Example format:
-"${isArabic 
-  ? 'كتب محمد بن راشد العديد من الكتب [1][2]. وفقاً لوكالة أنباء الإمارات (wam.ae)، يعتبر من أبرز القادة. تتناول كتبه موضوعات القيادة [1] والتنمية [3].' 
-  : 'Mohammed bin Rashid wrote many books [1][2]. According to Emirates News Agency (wam.ae), he is a prominent leader. His books cover leadership [1] and development [3].'}"
-
-Answer now with BOTH book citations [1][2][3] AND UAE website mentions:`;
+Answer now:`;
 
       answer = await callOpenAI(
         [
@@ -196,12 +252,10 @@ Answer now with BOTH book citations [1][2][3] AND UAE website mentions:`;
           { role: 'user', content: userPrompt }
         ],
         OPENAI_MODEL,
-        { temperature: 0.1, max_tokens: 1500 }
+        { temperature: 0.1, max_tokens: 2000 }
       );
 
-      console.log(`📝 AI answer: ${answer}`);
-
-      // Extract book citations [1], [2], [3]
+      // Extract book citations
       const citationMatches = answer.match(/\[(\d+)\]/g);
       if (citationMatches) {
         const uniqueIds = new Set();
@@ -214,63 +268,36 @@ Answer now with BOTH book citations [1][2][3] AND UAE website mentions:`;
         bookIds = Array.from(uniqueIds).sort((a, b) => a - b);
       }
 
-      // Extract UAE website mentions
-      const uaeWebsites = ['wam.ae', 'government.ae', 'uae.gov.ae', 'moe.gov.ae', 'mohesr.gov.ae'];
-      uaeWebsites.forEach(site => {
-        if (answer.toLowerCase().includes(site)) {
-          uaeSources.push(site);
-        }
-      });
-
       console.log(`✅ Book citations: ${bookIds.join(', ')}`);
-      console.log(`✅ UAE sources mentioned: ${uaeSources.join(', ')}`);
+      console.log(`✅ Web sources: ${webSources.length} links`);
 
-      answerSource = 'dual'; // Both library and web
+      answerSource = 'dual';
       
     } 
-    // No books - use AI knowledge only
+    // No books - web search only
     else {
-      const isArabic = /[\u0600-\u06FF]/.test(query);
+      console.log('🌐 No books, searching web only...');
+      const webResults = await searchWithPerplexity(query);
       
-      const systemPrompt = `You are a UAE information assistant. Provide answers based on UAE official websites.
-
-When mentioning information, cite the UAE website source in your text like:
-${isArabic ? '- "وفقاً لوكالة أنباء الإمارات (wam.ae)..."' : '- "According to Emirates News Agency (wam.ae)..."'}
-${isArabic ? '- "حسب حكومة الإمارات (government.ae)..."' : '- "According to UAE Government (government.ae)..."'}
-
-ONLY use: wam.ae, government.ae, uae.gov.ae, moe.gov.ae
-NEVER use: Wikipedia, BBC, Reuters, non-.ae sources`;
-
-      const userPrompt = `Query: "${query}"
-
-Answer in ${isArabic ? 'Arabic' : 'English'} (3-5 sentences). Mention UAE website sources in your text.`;
-
-      answer = await callOpenAI(
-        [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        OPENAI_MODEL,
-        { temperature: 0.2, max_tokens: 600 }
-      );
-
-      // Extract UAE sources
-      const uaeWebsites = ['wam.ae', 'government.ae', 'uae.gov.ae', 'moe.gov.ae'];
-      uaeWebsites.forEach(site => {
-        if (answer.toLowerCase().includes(site)) {
-          uaeSources.push(site);
-        }
-      });
-
-      answerSource = 'ai_knowledge';
-      bookIds = [];
+      if (webResults && webResults.citations.length > 0) {
+        webSources = webResults.citations;
+        answer = webResults.answer;
+        answerSource = 'web';
+        console.log(`✅ Found ${webSources.length} web sources`);
+      } else {
+        const isArabic = /[\u0600-\u06FF]/.test(query);
+        answer = isArabic
+          ? 'عذراً، لم أتمكن من العثور على معلومات كافية في المصادر المتاحة.'
+          : 'Sorry, could not find sufficient information in available sources.';
+        answerSource = 'none';
+      }
     }
 
     res.json({ 
       answer, 
       bookIds,
-      source: answerSource,
-      uaeSources: uaeSources
+      webSources,
+      source: answerSource
     });
     
   } catch (err) {
@@ -296,8 +323,9 @@ app.get('/api/health', (req, res) => {
     codeVersion: CODE_VERSION,
     aiProvider: 'OpenAI',
     openaiConfigured: !!OPENAI_API_KEY && OPENAI_API_KEY !== 'sk-YOUR-API-KEY-HERE',
+    perplexityConfigured: !!PERPLEXITY_API_KEY,
     modelVersion: OPENAI_MODEL,
-    features: 'Dual Sources • Library Books [1][2][3] • UAE Websites in Text',
+    features: 'Library Books [1][2][3] • UAE Web Search • Direct Article Links • Maximum Credibility',
   });
 });
 
@@ -311,7 +339,12 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`🚀 ECSSR AI Backend http://localhost:${PORT}`);
   console.log(`🔖 Version: ${CODE_VERSION}`);
-  console.log(`📚 Library books → Cited as [1][2][3]`);
-  console.log(`🌐 UAE websites → Mentioned in text with links`);
-  console.log(`✅ Dual source attribution for IP protection`);
+  console.log(`📚 Library books → [1][2][3] citations`);
+  console.log(`🌐 UAE websites → Direct links to articles`);
+  console.log(`✅ Maximum credibility with verifiable sources`);
+  if (PERPLEXITY_API_KEY) {
+    console.log(`🔍 Perplexity search: ENABLED`);
+  } else {
+    console.log(`⚠️ Perplexity search: DISABLED (set PERPLEXITY_API_KEY to enable)`);
+  }
 });
