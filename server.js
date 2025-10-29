@@ -1,11 +1,10 @@
 // backend/server.js
-// ECSSR AI Assistant — v3.2
-// - Health shows codeVersion
-// - Strict author matching with "exact 2-token author preferred" rule
-// - Safe availableData builders (no sampleBooks)
-// - Rate limiting + robust guards
+// ECSSR AI Assistant — v4.0 - OpenAI Integration
+// - Switched from Perplexity to OpenAI for better instruction following
+// - Improved citation handling and UAE source compliance
+// - Better Arabic language support
 
-const CODE_VERSION = "ecssr-backend-v3.2-2token-prefer";
+const CODE_VERSION = "ecssr-backend-v4.0-openai";
 
 const express = require('express');
 const cors = require('cors');
@@ -14,10 +13,10 @@ const fetch = require('node-fetch');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const PERPLEXITY_API_KEY =
-  process.env.PERPLEXITY_API_KEY || 'pplx-YOUR-API-KEY-HERE';
-const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
-const PERPLEXITY_MODEL = process.env.PPLX_MODEL || 'sonar-pro';
+// OpenAI Configuration
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'sk-YOUR-API-KEY-HERE';
+const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o'; // or 'gpt-4-turbo' or 'gpt-3.5-turbo'
 
 /* ========= AUTHORIZED UAE .ae SOURCES ONLY ========= */
 const AUTHORIZED_UAE_SOURCES = {
@@ -72,22 +71,34 @@ function checkRateLimit(ip) {
   return true;
 }
 
-/* ========= Perplexity wrapper ========= */
-async function callPerplexity(messages, model = PERPLEXITY_MODEL) {
-  const resp = await fetch(PERPLEXITY_URL, {
+/* ========= OpenAI wrapper ========= */
+async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
+  const requestBody = {
+    model,
+    messages,
+    temperature: options.temperature || 0.1,
+    max_tokens: options.max_tokens || 1000,
+  };
+
+  // Add response_format for JSON mode if requested
+  if (options.response_format === 'json') {
+    requestBody.response_format = { type: "json_object" };
+  }
+
+  const resp = await fetch(OPENAI_URL, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${PERPLEXITY_API_KEY}`,
+      'Authorization': `Bearer ${OPENAI_API_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      model, messages, temperature: 0.05, max_tokens: 800,
-    }),
+    body: JSON.stringify(requestBody),
   });
+
   if (!resp.ok) {
     const txt = await resp.text();
-    throw new Error(`Perplexity API error: ${resp.status} - ${txt}`);
+    throw new Error(`OpenAI API error: ${resp.status} - ${txt}`);
   }
+
   const data = await resp.json();
   return (data.choices && data.choices[0]?.message?.content) || '';
 }
@@ -204,43 +215,32 @@ Response: {"intent":"question","field":"summary","key_terms":["الشيخ زاي
 
 Respond ONLY with valid JSON. No other text.`;
 
-    const aiResponse = await callPerplexity([
-      { role: 'system', content: 'You are a JSON-only response system. Return only valid JSON.' },
-      { role: 'user', content: analysisPrompt }
-    ], PERPLEXITY_MODEL);
+    const aiResponse = await callOpenAI(
+      [
+        { role: 'system', content: 'You are a library search query analyzer. Always respond with valid JSON only.' },
+        { role: 'user', content: analysisPrompt }
+      ],
+      OPENAI_MODEL,
+      { response_format: 'json', temperature: 0.1 }
+    );
 
-    // Parse AI response
-    let analysis;
+    let parsed;
     try {
-      // Try to extract JSON from response
-      const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        analysis = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error('No JSON found');
-      }
-    } catch (parseError) {
-      console.error('Failed to parse AI analysis:', aiResponse);
-      // Fallback to default
-      return res.json({
-        intent: 'default',
-        field: 'default',
-        key_terms: [query],
-        reasoning: 'AI analysis failed, using default',
-        fallback: true
-      });
+      parsed = JSON.parse(aiResponse);
+    } catch (e) {
+      console.error('JSON parse error:', e);
+      return res.status(500).json({ error: 'Invalid AI response format' });
     }
 
-    res.json(analysis);
-  } catch (err) {
-    console.error('Query understanding error:', err);
     res.json({
-      intent: 'default',
-      field: 'default',
-      key_terms: [req.body.query],
-      reasoning: 'Error occurred, using default',
-      fallback: true
+      intent: parsed.intent || 'question',
+      field: parsed.field || 'default',
+      keyTerms: parsed.key_terms || [],
+      reasoning: parsed.reasoning || ''
     });
+  } catch (err) {
+    console.error('Understand query error:', err);
+    res.status(500).json({ error: 'Internal server error', details: err.message });
   }
 });
 
@@ -248,43 +248,34 @@ Respond ONLY with valid JSON. No other text.`;
 app.post('/api/chat', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
   if (!checkRateLimit(ip)) {
-    return res.status(429).json({ error: 'Rate limit exceeded. Please try again later.' });
+    return res.status(429).json({ error: 'Rate limit exceeded' });
   }
 
   try {
-    const body = req.body || {};
-    const query = body.query || '';
-    let matchedBooks = Array.isArray(body.matchedBooks) ? body.matchedBooks : [];
-    const searchField = body.searchField || 'default';
+    const { query, books, searchField } = req.body || {};
+    if (!query) return res.status(400).json({ error: 'Query required' });
 
-    if (!query) return res.status(400).json({ error: 'Query is required' });
+    const safeBooks = (Array.isArray(books) ? books : [])
+      .filter(b => b && typeof b === 'object')
+      .slice(0, 30);
 
-    // Frontend already did the filtering, so we don't filter again
-    // Author filtering removed - trust frontend results
-
-    if (!matchedBooks.length) {
-      return res.json({
-        answer: "لم أجد كتباً تطابق سؤالك في الكتالوج.<br>I didn't find any matching books in the catalog.",
-        bookIds: []
+    if (safeBooks.length === 0) {
+      return res.json({ 
+        answer: 'لا توجد كتب متاحة للإجابة على سؤالك.\nNo books available to answer your question.', 
+        bookIds: [] 
       });
     }
 
-    const safeBooks = matchedBooks.filter(b => b && typeof b === 'object');
-
-    // Build field-specific data
-    let fieldInstructions = '';
-    let availableData = '';
+    let fieldInstructions = '', availableData = '';
 
     if (searchField === 'summary') {
       fieldInstructions = `
-⚠️ SUMMARY SEARCH
-Use ONLY: summary, contents.
-FORBIDDEN: author, subject, title.
-If info not present in summaries, say "المعلومات غير متوفرة / Information not available".`;
+⚠️ SUMMARY SEARCH - STRICT FIELD LIMITS
+ALLOWED: summary, title, author for citation only.
+FORBIDDEN: subject field.`;
       availableData = safeBooks.map((b,i)=>{
-        const summary=(b.summary||b.contents||b.content||'').toString().trim()||'No summary';
-        const author=(b.author||'Unknown Author').toString().trim();
-        const title=(b.title||'Untitled').toString().trim();
+        const title=(b.title||'Untitled').toString(),author=(b.author||'Unknown').toString(),
+              summary=(b.summary||'').toString();
         const publisher=(b.publisher||'').toString().trim();
         const year=(b.year||'').toString().trim();
         const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
@@ -292,10 +283,9 @@ If info not present in summaries, say "المعلومات غير متوفرة / 
 
     } else if (searchField === 'subject') {
       fieldInstructions = `
-⚠️ SUBJECT/TOPIC SEARCH
-Use ONLY: subject, title.
-FORBIDDEN: author, summary.
-If the user asks a question, answer it using the subjects and titles. Cite every fact with [number].`;
+⚠️ SUBJECT SEARCH
+ALLOWED: subject, title, author for citation.
+FORBIDDEN: summary.`;
       availableData = safeBooks.map((b,i)=>{
         const title=(b.title||'Untitled').toString(),subject=(b.subject||'No subject').toString();
         const author=(b.author||'Unknown Author').toString().trim();
@@ -328,18 +318,18 @@ FORBIDDEN: subject, summary.`;
 
     const systemPrompt =
       searchField === 'summary'
-        ? `Answer using ONLY summaries/contents from library books. Cite every fact with [number]. 
+        ? `You are a library assistant. Answer using ONLY summaries/contents from library books. Cite every fact with [number]. 
 Books have been provided to you - answer based on them.
 EXTERNAL SOURCES: ONLY official UAE .ae sites are permitted (government.ae, wam.ae, mohesr.gov.ae, etc). NO Wikipedia, BBC, Reuters, or international sites.`
         : searchField === 'subject'
-        ? `Answer questions or list books using ONLY subject and title from library. Cite each fact with [number]. 
+        ? `You are a library assistant. Answer questions or list books using ONLY subject and title from library. Cite each fact with [number]. 
 Books have been provided to you - use them to answer.
 EXTERNAL SOURCES: ONLY official UAE .ae sites permitted. NO international sources.`
         : searchField === 'author'
-        ? `List books BY the author using ONLY author and title from library. Cite each book with [number]. 
+        ? `You are a library assistant. List books BY the author using ONLY author and title from library. Cite each book with [number]. 
 Books have been provided to you - list them.
 EXTERNAL SOURCES: If biographical info needed, ONLY UAE .ae sites permitted.`
-        : `Use only provided fields from library books. Cite all information with [number]. 
+        : `You are a library assistant. Use only provided fields from library books. Cite all information with [number]. 
 Books have been provided to you - answer based on them.
 EXTERNAL SOURCES: ONLY official UAE .ae sites (government.ae, wam.ae, mohesr.gov.ae, fcsa.gov.ae, dsc.gov.ae, shaikh.ae) permitted. NO Wikipedia, BBC, Reuters, international sources.`;
 
@@ -386,15 +376,25 @@ ${availableData}
 
 Answer now using ONLY the allowed fields above and ONLY official UAE .ae external sources if needed.`;
 
-    const answer = await callPerplexity(
+    const answer = await callOpenAI(
       [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-      PERPLEXITY_MODEL
+      OPENAI_MODEL,
+      { temperature: 0.1, max_tokens: 1000 }
     );
 
     // best-effort ID extraction
     const ids = [];
-    const m = answer.match(/\b(\d+)\b/g);
-    if (m) ids.push(...m.slice(0,10).map(Number));
+    const m = answer.match(/\[(\d+)\]/g);
+    if (m) {
+      const uniqueIds = new Set();
+      m.forEach(match => {
+        const num = parseInt(match.replace(/[\[\]]/g, ''));
+        if (num > 0 && num <= safeBooks.length) {
+          uniqueIds.add(num);
+        }
+      });
+      ids.push(...Array.from(uniqueIds));
+    }
 
     // Check for UAE .ae source compliance
     const uaeCompliance = isAuthorizedUAESource(answer);
@@ -453,10 +453,13 @@ Format:
 EXPLANATION: <brief, same language as query>
 BOOK_IDS: <comma separated IDs>`;
 
-    const response = await callPerplexity(
-      [{ role: 'system', content: 'Rank only by provided summaries.' },
-       { role: 'user', content: prompt }],
-      PERPLEXITY_MODEL
+    const response = await callOpenAI(
+      [
+        { role: 'system', content: 'You are a book ranking assistant. Rank only by provided summaries. Follow the exact output format requested.' },
+        { role: 'user', content: prompt }
+      ],
+      OPENAI_MODEL,
+      { temperature: 0.1 }
     );
 
     const explanation = (response.match(/EXPLANATION:\s*(.+?)(?=BOOK_IDS:|$)/s)?.[1] || '').trim();
@@ -486,9 +489,10 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     codeVersion: CODE_VERSION,
-    perplexityConfigured: !!PERPLEXITY_API_KEY && PERPLEXITY_API_KEY !== 'pplx-YOUR-API-KEY-HERE',
-    modelVersion: PERPLEXITY_MODEL,
-    features: 'Strict field separation • Exact 2-token author preference • Safe availableData',
+    aiProvider: 'OpenAI',
+    openaiConfigured: !!OPENAI_API_KEY && OPENAI_API_KEY !== 'sk-YOUR-API-KEY-HERE',
+    modelVersion: OPENAI_MODEL,
+    features: 'Strict field separation • Exact 2-token author preference • Safe availableData • OpenAI GPT',
   });
 });
 
@@ -502,4 +506,5 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`🚀 ECSSR AI Backend http://localhost:${PORT}`);
   console.log(`🔖 Version: ${CODE_VERSION}`);
+  console.log(`🤖 AI Provider: OpenAI (${OPENAI_MODEL})`);
 });
