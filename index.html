@@ -338,7 +338,12 @@ async function getAISummary(query,matchedBooks){
     });
     if(!response.ok)return null;
     const data=await response.json();
-    return {answer: data.answer, citations: data.citations || []};
+    return {
+      answer: data.answer, 
+      bookIds: data.bookIds || [],
+      source: data.source || 'library',
+      uaeSources: data.uaeSources || []
+    };
   }catch(error){
     console.error("AI summary error:",error);
     return null;
@@ -489,6 +494,62 @@ async function renderAll(list,field,query){
       
       aiSummaryDiv.innerHTML=answerWithLinks;
       
+      // Add book sources section if available
+      if(result.bookIds && result.bookIds.length > 0){
+        const bookSourcesDiv = document.createElement("div");
+        bookSourcesDiv.style.cssText = "margin-top:15px;padding:15px;background:#fafafa;border-left:4px solid #BF9849;border-radius:8px";
+        
+        let sourcesHTML = '<div style="font-weight:700;color:#BF9849;margin-bottom:10px;font-size:14px">📚 المصادر المستخدمة / Sources Used:</div>';
+        
+        result.bookIds.forEach(bookNum => {
+          const bookIndex = bookNum - 1;
+          if(bookIndex >= 0 && bookIndex < list.length){
+            const book = list[bookIndex];
+            const title = (book.raw.title || 'Untitled').toString();
+            const author = (book.raw.author || 'Unknown').toString();
+            const bookUrl = book.raw.book_url || book.raw.book_Url || '#';
+            
+            sourcesHTML += `<div style="margin-bottom:10px;padding:8px;background:white;border-radius:5px;border:1px solid #eee">`;
+            sourcesHTML += `<span style="font-weight:700;color:#BF9849;font-size:16px">[${bookNum}]</span> `;
+            sourcesHTML += `<strong>${title}</strong><br>`;
+            sourcesHTML += `<span style="color:#666;font-size:12px">المؤلف / Author: ${author}</span>`;
+            if(bookUrl && bookUrl !== '#'){
+              sourcesHTML += `<br><a href="${bookUrl}" target="_blank" style="color:#BF9849;font-size:12px;text-decoration:none;font-weight:600">🔗 فتح الكتاب / Open Book →</a>`;
+            }
+            sourcesHTML += `</div>`;
+          }
+        });
+        
+        bookSourcesDiv.innerHTML = sourcesHTML;
+        aiSummaryDiv.after(bookSourcesDiv);
+      }
+      
+      // Add UAE sources section if available
+      if(result.uaeSources && result.uaeSources.length > 0){
+        const uaeSourcesDiv = document.createElement("div");
+        uaeSourcesDiv.style.cssText = "margin-top:15px;padding:15px;background:#e8f4f8;border-left:4px solid #BF9849;border-radius:8px";
+        
+        let uaeHTML = '<div style="font-weight:700;color:#BF9849;margin-bottom:10px;font-size:14px">🇦🇪 المواقع الإماراتية المشار إليها / UAE Websites Referenced:</div>';
+        
+        const siteNames = {
+          'wam.ae': 'وكالة أنباء الإمارات / Emirates News Agency',
+          'government.ae': 'البوابة الرسمية لحكومة الإمارات / UAE Government Portal',
+          'uae.gov.ae': 'البوابة الرسمية لدولة الإمارات / UAE Official Portal',
+          'moe.gov.ae': 'وزارة التربية والتعليم / Ministry of Education',
+          'mohesr.gov.ae': 'وزارة التعليم العالي / Ministry of Higher Education'
+        };
+        
+        result.uaeSources.forEach(site => {
+          const siteName = siteNames[site] || site;
+          uaeHTML += `<div style="margin-bottom:8px">`;
+          uaeHTML += `• <a href="https://${site}" target="_blank" style="color:#BF9849;font-weight:600;text-decoration:none">${site}</a> - ${siteName}`;
+          uaeHTML += `</div>`;
+        });
+        
+        uaeSourcesDiv.innerHTML = uaeHTML;
+        aiSummaryDiv.after(uaeSourcesDiv);
+      }
+      
       // Add Disclaimer note after AI summary with correct terminology
       const sourceNote=document.createElement("div");
       sourceNote.className="info";
@@ -497,10 +558,6 @@ async function renderAll(list,field,query){
       sourceNote.style.background="linear-gradient(135deg,#fff9e6,#fffbf0)";
       sourceNote.innerHTML="<strong>📚 إخلاء مسؤولية معلومات الذكاء الاصطناعي:</strong> يتم إنشاء هذا الملخص تلقائيًا بواسطة تقنيات الذكاء الاصطناعي بهدف تيسير فهم المحتوى وتقديم نظرة عامة سريعة. يرجى ملاحظة أن المعلومات المولدة قد لا تكون دقيقة تمامًا أو شاملة، لذا يُنصح دائمًا بمراجعة المصدر الأصلي قبل الاعتماد عليها. ولا تتحمل المكتبة أي مسؤولية عن النتائج الصادرة عن الذكاء الاصطناعي.<br><strong>📚 AI Information Disclaimer:</strong> This summary is automatically generated using artificial intelligence technologies to provide a quick overview of the content. The information presented may not be fully accurate or complete; therefore, it is recommended to verify details from the original source before relying on them. The library assumes no responsibility for any outcomes resulting from AI-generated conten.";
       aiSummaryDiv.after(sourceNote);
-      
-      if(result.citations && result.citations.length > 0){
-        renderCitations(result.citations);
-      }
     }else{
       aiSummaryDiv.remove();
       aiSectionHeader.remove();
