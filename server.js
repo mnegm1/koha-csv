@@ -1,10 +1,10 @@
 // backend/server.js
-// ECSSR AI Assistant — v4.0 - OpenAI Integration
-// - Switched from Perplexity to OpenAI for better instruction following
-// - Improved citation handling and UAE source compliance
-// - Better Arabic language support
+// ECSSR AI Assistant — v5.0 - OpenAI with UAE Web Search
+// - OpenAI integration for better instruction following
+// - UAE .ae domain web search when library has no answers
+// - Strict field restrictions and citation handling
 
-const CODE_VERSION = "ecssr-backend-v4.0-openai";
+const CODE_VERSION = "ecssr-backend-v5.0-openai-uae-search";
 
 const express = require('express');
 const cors = require('cors');
@@ -16,7 +16,12 @@ const PORT = process.env.PORT || 3000;
 // OpenAI Configuration
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'sk-YOUR-API-KEY-HERE';
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o'; // or 'gpt-4-turbo' or 'gpt-3.5-turbo'
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
+
+// Google Custom Search (for UAE .ae domain search)
+const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY || '';
+const GOOGLE_CX = process.env.GOOGLE_CX || '';
+const GOOGLE_SEARCH_URL = 'https://www.googleapis.com/customsearch/v1';
 
 /* ========= AUTHORIZED UAE .ae SOURCES ONLY ========= */
 const AUTHORIZED_UAE_SOURCES = {
@@ -26,11 +31,13 @@ const AUTHORIZED_UAE_SOURCES = {
   'mofacdn.gov.ae': { name: 'Ministry of Foreign Affairs', category: 'official' },
   'dsc.gov.ae': { name: 'General Authority of Islamic Affairs', category: 'official' },
   'fcsa.gov.ae': { name: 'Federal Centre for Statistics', category: 'official' },
-  'shaikh.ae': { name: 'Official Emirati Sources', category: 'official' }
+  'shaikh.ae': { name: 'Official Emirati Sources', category: 'official' },
+  'uae.gov.ae': { name: 'UAE Government Portal', category: 'official' },
+  'moe.gov.ae': { name: 'Ministry of Education', category: 'official' },
+  'moca.gov.ae': { name: 'Ministry of Culture', category: 'official' }
 };
 
 function isAuthorizedUAESource(text) {
-  // Check if text mentions any non-.ae external source
   const forbiddenPatterns = [
     /wikipedia/i, /bbc/i, /reuters/i, /aljazeera/i, /cnn/i,
     /google\.com/i, /youtube\.com/i, /facebook\.com/i,
@@ -39,18 +46,17 @@ function isAuthorizedUAESource(text) {
   
   for (const pattern of forbiddenPatterns) {
     if (pattern.test(text)) {
-      return false; // Not authorized - uses non-.ae source
+      return false;
     }
   }
   
-  // If mentions external source, must be .ae
   if (/according to|per|reports?|states?|from|website|source/i.test(text)) {
     if (!/\.ae(\s|$|\/)/i.test(text)) {
-      return null; // Mentions external source but not .ae
+      return null;
     }
   }
   
-  return true; // OK - either only library or .ae sources
+  return true;
 }
 
 app.set('trust proxy', true);
@@ -80,7 +86,6 @@ async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
     max_tokens: options.max_tokens || 1000,
   };
 
-  // Add response_format for JSON mode if requested
   if (options.response_format === 'json') {
     requestBody.response_format = { type: "json_object" };
   }
@@ -101,6 +106,56 @@ async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
 
   const data = await resp.json();
   return (data.choices && data.choices[0]?.message?.content) || '';
+}
+
+/* ========= UAE Web Search (Google Custom Search) ========= */
+async function searchUAEWeb(query) {
+  if (!GOOGLE_API_KEY || !GOOGLE_CX) {
+    console.log('Google Search not configured');
+    return [];
+  }
+
+  try {
+    const searchQuery = `${query} site:.ae`;
+    const url = `${GOOGLE_SEARCH_URL}?key=${GOOGLE_API_KEY}&cx=${GOOGLE_CX}&q=${encodeURIComponent(searchQuery)}&num=5`;
+    
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.error('Google Search API error:', response.status);
+      return [];
+    }
+
+    const data = await response.json();
+    const results = [];
+
+    if (data.items && Array.isArray(data.items)) {
+      for (const item of data.items) {
+        // Only include .ae domains
+        if (item.link && item.link.includes('.ae')) {
+          results.push({
+            title: item.title || '',
+            snippet: item.snippet || '',
+            url: item.link,
+            source: extractDomain(item.link)
+          });
+        }
+      }
+    }
+
+    return results;
+  } catch (error) {
+    console.error('UAE Web Search error:', error);
+    return [];
+  }
+}
+
+function extractDomain(url) {
+  try {
+    const urlObj = new URL(url);
+    return urlObj.hostname;
+  } catch {
+    return url;
+  }
 }
 
 /* ========= Normalization + author utils ========= */
@@ -132,7 +187,6 @@ function filterAuthorBooks(query, books) {
   if (qTokens.length === 0) return [];
   const list = (Array.isArray(books) ? books : []).filter(b => b && typeof b === 'object');
 
-  // Check if any exact 2-token author exists when query has 2 tokens
   let exactTwoTokenExists = false;
   if (qTokens.length === 2) {
     for (const b of list) {
@@ -149,19 +203,16 @@ function filterAuthorBooks(query, books) {
     const isExact = exactAuthorMatch(qTokens, author);
     const aLen    = tokenizeName(author).length;
 
-    // For 3-token searches: strict exact matching only (skip flexible matching)
     if (qTokens.length === 3) {
       if (isExact && aLen === 3) out.push(b);
       continue;
     }
 
     if (qTokens.length === 2 && exactTwoTokenExists) {
-      // only allow exact 2-token matches
       if (isExact && aLen === 2) out.push(b);
       continue;
     }
 
-    // Otherwise, only exact (as per your last backend version)
     if (isExact) out.push(b);
   }
   return out;
@@ -259,81 +310,84 @@ app.post('/api/chat', async (req, res) => {
       .filter(b => b && typeof b === 'object')
       .slice(0, 30);
 
+    // If no books found in library, search UAE web
+    let webSearchResults = [];
+    let answerSource = 'library';
+    
     if (safeBooks.length === 0) {
-      return res.json({ 
-        answer: 'لا توجد كتب متاحة للإجابة على سؤالك.\nNo books available to answer your question.', 
-        bookIds: [] 
-      });
+      console.log('No books found, searching UAE web...');
+      webSearchResults = await searchUAEWeb(query);
+      answerSource = 'web';
+      
+      if (webSearchResults.length === 0) {
+        return res.json({ 
+          answer: 'لم يتم العثور على معلومات في مكتبتنا أو في المواقع الإماراتية الرسمية (.ae).\n\nNo information found in our library or official UAE (.ae) websites.', 
+          bookIds: [],
+          source: 'none',
+          webResults: []
+        });
+      }
     }
 
-    let fieldInstructions = '', availableData = '';
+    let answer = '';
+    let bookIds = [];
+    let citations = [];
 
-    if (searchField === 'summary') {
-      fieldInstructions = `
+    // Answer from library books
+    if (answerSource === 'library') {
+      let fieldInstructions = '', availableData = '';
+
+      if (searchField === 'summary') {
+        fieldInstructions = `
 ⚠️ SUMMARY SEARCH - STRICT FIELD LIMITS
 ALLOWED: summary, title, author for citation only.
 FORBIDDEN: subject field.`;
-      availableData = safeBooks.map((b,i)=>{
-        const title=(b.title||'Untitled').toString(),author=(b.author||'Unknown').toString(),
-              summary=(b.summary||'').toString();
-        const publisher=(b.publisher||'').toString().trim();
-        const year=(b.year||'').toString().trim();
-        const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
-        return `[${i+1}] Citation: ${citation}\nSummary: ${summary}\n---`;}).join('\n');
+        availableData = safeBooks.map((b,i)=>{
+          const title=(b.title||'Untitled').toString(),author=(b.author||'Unknown').toString(),
+                summary=(b.summary||'').toString();
+          const publisher=(b.publisher||'').toString().trim();
+          const year=(b.year||'').toString().trim();
+          const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
+          return `[${i+1}] Citation: ${citation}\nSummary: ${summary}\n---`;}).join('\n');
 
-    } else if (searchField === 'subject') {
-      fieldInstructions = `
+      } else if (searchField === 'subject') {
+        fieldInstructions = `
 ⚠️ SUBJECT SEARCH
 ALLOWED: subject, title, author for citation.
 FORBIDDEN: summary.`;
-      availableData = safeBooks.map((b,i)=>{
-        const title=(b.title||'Untitled').toString(),subject=(b.subject||'No subject').toString();
-        const author=(b.author||'Unknown Author').toString().trim();
-        const publisher=(b.publisher||'').toString().trim();
-        const year=(b.year||'').toString().trim();
-        const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
-        return `[${i+1}] Citation: ${citation}\nSubject: ${subject}\n---`;}).join('\n');
+        availableData = safeBooks.map((b,i)=>{
+          const title=(b.title||'Untitled').toString(),subject=(b.subject||'No subject').toString();
+          const author=(b.author||'Unknown Author').toString().trim();
+          const publisher=(b.publisher||'').toString().trim();
+          const year=(b.year||'').toString().trim();
+          const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
+          return `[${i+1}] Citation: ${citation}\nSubject: ${subject}\n---`;}).join('\n');
 
-    } else if (searchField === 'author') {
-      fieldInstructions = `
+      } else if (searchField === 'author') {
+        fieldInstructions = `
 ⚠️ AUTHOR SEARCH
 Use ONLY: author, title.
 FORBIDDEN: subject, summary.`;
-      availableData = safeBooks.map((b,i)=>{
-        const title=(b.title||'Untitled').toString(),author=(b.author||'Unknown').toString();
-        const publisher=(b.publisher||'').toString().trim();
-        const year=(b.year||'').toString().trim();
-        const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
-        return `[${i+1}] Citation: ${citation}\n---`;}).join('\n');
+        availableData = safeBooks.map((b,i)=>{
+          const title=(b.title||'Untitled').toString(),author=(b.author||'Unknown').toString();
+          const publisher=(b.publisher||'').toString().trim();
+          const year=(b.year||'').toString().trim();
+          const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
+          return `[${i+1}] Citation: ${citation}\n---`;}).join('\n');
 
-    } else {
-      availableData = safeBooks.map((b,i)=>{
-        const title=(b.title||'Untitled').toString(),author=(b.author||'Unknown').toString(),
-              subject=(b.subject||'').toString(),summary=(b.summary||'').toString();
-        const publisher=(b.publisher||'').toString().trim();
-        const year=(b.year||'').toString().trim();
-        const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
-        return `[${i+1}] Citation: ${citation}\nSubject: ${subject}\nSummary: ${summary}\n---`;}).join('\n');
-    }
+      } else {
+        availableData = safeBooks.map((b,i)=>{
+          const title=(b.title||'Untitled').toString(),author=(b.author||'Unknown').toString(),
+                subject=(b.subject||'').toString(),summary=(b.summary||'').toString();
+          const publisher=(b.publisher||'').toString().trim();
+          const year=(b.year||'').toString().trim();
+          const citation = `${author}. ${title}.${publisher ? ' ' + publisher : ''}${publisher && year ? ',' : ''}${year ? ' ' + year : ''}.`;
+          return `[${i+1}] Citation: ${citation}\nSubject: ${subject}\nSummary: ${summary}\n---`;}).join('\n');
+      }
 
-    const systemPrompt =
-      searchField === 'summary'
-        ? `You are a library assistant. Answer using ONLY summaries/contents from library books. Cite every fact with [number]. 
-Books have been provided to you - answer based on them.
-EXTERNAL SOURCES: ONLY official UAE .ae sites are permitted (government.ae, wam.ae, mohesr.gov.ae, etc). NO Wikipedia, BBC, Reuters, or international sites.`
-        : searchField === 'subject'
-        ? `You are a library assistant. Answer questions or list books using ONLY subject and title from library. Cite each fact with [number]. 
-Books have been provided to you - use them to answer.
-EXTERNAL SOURCES: ONLY official UAE .ae sites permitted. NO international sources.`
-        : searchField === 'author'
-        ? `You are a library assistant. List books BY the author using ONLY author and title from library. Cite each book with [number]. 
-Books have been provided to you - list them.
-EXTERNAL SOURCES: If biographical info needed, ONLY UAE .ae sites permitted.`
-        : `You are a library assistant. Use only provided fields from library books. Cite all information with [number]. 
-Books have been provided to you - answer based on them.
-EXTERNAL SOURCES: ONLY official UAE .ae sites (government.ae, wam.ae, mohesr.gov.ae, fcsa.gov.ae, dsc.gov.ae, shaikh.ae) permitted. NO Wikipedia, BBC, Reuters, international sources.`;
+      const systemPrompt = `You are a library assistant. Answer using ONLY the provided library data. Cite every fact with [number].`;
 
-    const userPrompt = `You are a library assistant. Follow the field rules STRICTLY.
+      const userPrompt = `You are a library assistant. Follow the field rules STRICTLY.
 
 ${fieldInstructions}
 
@@ -341,32 +395,10 @@ CRITICAL RULES:
 1) ONLY use allowed fields above.
 2) NEVER use forbidden fields.
 3) Do not invent info.
-4) When providing information, ALWAYS cite your source using the reference numbers [1], [2], [3], etc. from the data above.
+4) When providing information, ALWAYS cite your source using the reference numbers [1], [2], [3], etc.
 5) Place citation numbers [1], [2], [3] immediately after the information from that source.
 6) Answer in the same language as the query.
-7) NEVER say "I didn't find any books" or "لم أجد كتباً" - you have been provided with books data, so answer based on that data.
-8) Every fact or piece of information MUST have a citation number [X] after it.
-
-⚠️ EXTERNAL SOURCES - STRICT UAE REQUIREMENT:
-If you use ANY external source information, it MUST be ONLY from official UAE (.ae) sites:
-- government.ae
-- wam.ae (Emirates News Agency)
-- mohesr.gov.ae (Higher Education)
-- mofacdn.gov.ae (Foreign Affairs)
-- fcsa.gov.ae (Statistics)
-- dsc.gov.ae (Islamic Affairs)
-- shaikh.ae (Official Historical)
-
-FORBIDDEN EXTERNAL SOURCES:
-- Wikipedia
-- BBC
-- Reuters  
-- Al Jazeera
-- Google Scholar
-- Any international sites
-- Any non-.ae domains
-
-If you cite external sources, provide the complete URL ending in .ae
+7) Every fact or piece of information MUST have a citation number [X] after it.
 
 USER QUERY: "${query}"
 SEARCH FIELD: ${searchField}
@@ -374,34 +406,83 @@ SEARCH FIELD: ${searchField}
 AVAILABLE DATA (${safeBooks.length} books):
 ${availableData}
 
-Answer now using ONLY the allowed fields above and ONLY official UAE .ae external sources if needed.`;
+Answer now using ONLY the allowed fields above.`;
 
-    const answer = await callOpenAI(
-      [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-      OPENAI_MODEL,
-      { temperature: 0.1, max_tokens: 1000 }
-    );
+      answer = await callOpenAI(
+        [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+        OPENAI_MODEL,
+        { temperature: 0.1, max_tokens: 1000 }
+      );
 
-    // best-effort ID extraction
-    const ids = [];
-    const m = answer.match(/\[(\d+)\]/g);
-    if (m) {
-      const uniqueIds = new Set();
-      m.forEach(match => {
-        const num = parseInt(match.replace(/[\[\]]/g, ''));
-        if (num > 0 && num <= safeBooks.length) {
-          uniqueIds.add(num);
-        }
-      });
-      ids.push(...Array.from(uniqueIds));
+      // Extract book IDs
+      const m = answer.match(/\[(\d+)\]/g);
+      if (m) {
+        const uniqueIds = new Set();
+        m.forEach(match => {
+          const num = parseInt(match.replace(/[\[\]]/g, ''));
+          if (num > 0 && num <= safeBooks.length) {
+            uniqueIds.add(num);
+          }
+        });
+        bookIds.push(...Array.from(uniqueIds));
+      }
+    } 
+    // Answer from UAE web
+    else if (answerSource === 'web') {
+      const webData = webSearchResults.map((result, i) => {
+        return `[${i+1}] Source: ${result.source}
+Title: ${result.title}
+Content: ${result.snippet}
+URL: ${result.url}
+---`;
+      }).join('\n');
+
+      const systemPrompt = `You are a UAE information assistant. Answer using ONLY information from official UAE (.ae) websites.
+
+CRITICAL RULES:
+1) Use ONLY the provided UAE .ae website information below
+2) ALWAYS cite sources using [1], [2], [3] format
+3) Include the source URL in your answer
+4) Answer in the same language as the query
+5) Every fact MUST have a citation [X]
+6) Only use information from .ae domains
+
+EXTERNAL SOURCE RESTRICTIONS:
+- ONLY use .ae domain sources provided
+- NO Wikipedia, BBC, Reuters, or any non-.ae sources
+- If asked about something not in the .ae sources, say so clearly`;
+
+      const userPrompt = `USER QUERY: "${query}"
+
+OFFICIAL UAE (.ae) SOURCES FOUND:
+${webData}
+
+Answer the question using ONLY the information above. Cite every fact with [number] and include source URLs.`;
+
+      answer = await callOpenAI(
+        [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+        OPENAI_MODEL,
+        { temperature: 0.1, max_tokens: 1000 }
+      );
+
+      // Build citations from web results
+      citations = webSearchResults.map((result, i) => ({
+        number: i + 1,
+        title: result.title,
+        url: result.url,
+        source: result.source
+      }));
     }
 
-    // Check for UAE .ae source compliance
+    // Check UAE source compliance
     const uaeCompliance = isAuthorizedUAESource(answer);
 
     res.json({ 
       answer, 
-      bookIds: ids,
+      bookIds: bookIds,
+      source: answerSource,
+      webResults: answerSource === 'web' ? webSearchResults : [],
+      citations: citations,
       sourceCompliance: {
         uaeSourcesOnly: uaeCompliance === true,
         hasUnauthorizedSources: uaeCompliance === false,
@@ -455,7 +536,7 @@ BOOK_IDS: <comma separated IDs>`;
 
     const response = await callOpenAI(
       [
-        { role: 'system', content: 'You are a book ranking assistant. Rank only by provided summaries. Follow the exact output format requested.' },
+        { role: 'system', content: 'You are a book ranking assistant. Rank only by provided summaries.' },
         { role: 'user', content: prompt }
       ],
       OPENAI_MODEL,
@@ -491,8 +572,9 @@ app.get('/api/health', (req, res) => {
     codeVersion: CODE_VERSION,
     aiProvider: 'OpenAI',
     openaiConfigured: !!OPENAI_API_KEY && OPENAI_API_KEY !== 'sk-YOUR-API-KEY-HERE',
+    googleSearchConfigured: !!GOOGLE_API_KEY && !!GOOGLE_CX,
     modelVersion: OPENAI_MODEL,
-    features: 'Strict field separation • Exact 2-token author preference • Safe availableData • OpenAI GPT',
+    features: 'Strict field separation • Exact 2-token author preference • Safe availableData • OpenAI GPT • UAE Web Search',
   });
 });
 
@@ -507,4 +589,5 @@ app.listen(PORT, () => {
   console.log(`🚀 ECSSR AI Backend http://localhost:${PORT}`);
   console.log(`🔖 Version: ${CODE_VERSION}`);
   console.log(`🤖 AI Provider: OpenAI (${OPENAI_MODEL})`);
+  console.log(`🌐 UAE Web Search: ${GOOGLE_API_KEY && GOOGLE_CX ? 'Enabled' : 'Disabled (set GOOGLE_API_KEY and GOOGLE_CX to enable)'}`);
 });
