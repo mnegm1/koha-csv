@@ -299,20 +299,38 @@ FORBIDDEN: subject, summary.`;
           return `[${i+1}] Citation: ${citation}\nSubject: ${subject}\nSummary: ${summary}\n---`;}).join('\n');
       }
 
-      const systemPrompt = `You are a library assistant. Answer using ONLY the provided library data. Cite every fact with [number].`;
+      const systemPrompt = `You are a library assistant. You MUST cite EVERY sentence with [number] references.
+
+ABSOLUTE REQUIREMENT: Every single sentence in your answer MUST end with [number] citations.
+
+Example of CORRECT format:
+"الشيخ محمد بن راشد هو نائب رئيس الدولة [1]. ولد في عام 1949 [2][3]. أسس مؤسسة محمد بن راشد آل مكتوم [4]."
+
+Example of WRONG format (NO citations):
+"الشيخ محمد بن راشد هو نائب رئيس الدولة. ولد في عام 1949."
+
+NEVER write sentences without citations!`;
 
       const userPrompt = `You are a library assistant. Follow the field rules STRICTLY.
 
 ${fieldInstructions}
 
-CRITICAL RULES:
-1) ONLY use allowed fields above.
-2) NEVER use forbidden fields.
-3) Do not invent info.
-4) When providing information, ALWAYS cite your source using the reference numbers [1], [2], [3], etc.
-5) Place citation numbers immediately after the information.
-6) Answer in the same language as the query.
-7) Every fact MUST have a citation number [X].
+CRITICAL RULES - FOLLOW EXACTLY:
+1) ONLY use allowed fields above
+2) NEVER use forbidden fields
+3) MANDATORY: EVERY sentence MUST have [number] citations at the end
+4) Place [1], [2], [3] immediately after each piece of information
+5) Answer in the same language as the query
+6) NO SENTENCE should be without citations
+
+EXAMPLES OF CORRECT CITATIONS:
+✅ "المؤلف كتب العديد من الكتب [1][2]."
+✅ "ولد في دبي عام 1949 [3]."
+✅ "أسس العديد من المؤسسات [1][4][5]."
+
+EXAMPLES OF WRONG (DON'T DO THIS):
+❌ "المؤلف كتب العديد من الكتب." (No citation!)
+❌ "ولد في دبي عام 1949." (No citation!)
 
 USER QUERY: "${query}"
 SEARCH FIELD: ${searchField}
@@ -320,7 +338,7 @@ SEARCH FIELD: ${searchField}
 AVAILABLE DATA (${safeBooks.length} books):
 ${availableData}
 
-Answer now using ONLY the allowed fields above.`;
+Now answer the query. Remember: EVERY sentence needs [number] citations!`;
 
       answer = await callOpenAI(
         [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
