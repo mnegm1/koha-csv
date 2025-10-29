@@ -548,21 +548,27 @@ async function renderAll(list,field,query){
           aiTranslateBtn.textContent = "⏳ Translating...";
           aiTranslateBtn.disabled = true;
           const originalText = contentWrapper.textContent;
-          const targetLang = isArabic(originalText) ? "English" : "Arabic";
+          const targetLang = isArabic(originalText) ? "en" : "ar";
           
           try {
             const translation = await translateText(originalText, targetLang);
-            const translatedDiv = document.createElement("div");
-            translatedDiv.className = "translated";
-            translatedDiv.innerHTML = translation.replace(/\n/g, '<br>');
-            contentWrapper.after(translatedDiv);
-            aiTranslateBtn.textContent = "↩️ Show Original";
-            translated = true;
+            if (translation) {
+              const translatedDiv = document.createElement("div");
+              translatedDiv.className = "translated";
+              translatedDiv.style.cssText = "margin-top:15px;padding-top:15px;border-top:2px dashed #BF9849";
+              translatedDiv.innerHTML = translation.replace(/\n/g, '<br>');
+              contentWrapper.after(translatedDiv);
+              aiTranslateBtn.textContent = "↩️ Show Original";
+              translated = true;
+            } else {
+              throw new Error("Translation returned null");
+            }
           } catch (err) {
             console.error("Translation error:", err);
             aiTranslateBtn.textContent = "❌ Translation Failed";
             setTimeout(() => {
               aiTranslateBtn.textContent = "🌐 Translate";
+              aiTranslateBtn.disabled = false;
             }, 2000);
           }
           aiTranslateBtn.disabled = false;
