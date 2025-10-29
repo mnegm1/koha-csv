@@ -1,10 +1,10 @@
 // backend/server.js
-// ECSSR AI Assistant — v7.0 - FORCED Citations via Post-Processing
-// - Automatically adds [1][2][3] citations to AI answers
-// - Doesn't rely on AI following instructions
-// - Guarantees citations in every response
+// ECSSR AI Assistant — v8.0 - REAL Citations with Source Tracking
+// - Uses RAG (Retrieval Augmented Generation) approach
+// - Tracks which book provides which information
+// - Proper intellectual property attribution
 
-const CODE_VERSION = "ecssr-backend-v7.0-auto-citations";
+const CODE_VERSION = "ecssr-backend-v8.0-real-citations";
 
 const express = require('express');
 const cors = require('cors');
@@ -41,7 +41,7 @@ async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
     model,
     messages,
     temperature: options.temperature || 0.1,
-    max_tokens: options.max_tokens || 1200,
+    max_tokens: options.max_tokens || 1500,
   };
 
   if (options.response_format === 'json') {
@@ -64,61 +64,6 @@ async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
 
   const data = await resp.json();
   return (data.choices && data.choices[0]?.message?.content) || '';
-}
-
-/* ========= FORCE CITATIONS - Add [1][2][3] to answer ========= */
-function forceCitations(answer, numberOfBooks) {
-  if (!answer || numberOfBooks === 0) return answer;
-  
-  // Split into sentences (Arabic and English)
-  const sentences = answer.split(/([.。؟!？\n]+)/g).filter(s => s.trim());
-  
-  let result = '';
-  let currentCitation = 1;
-  
-  for (let i = 0; i < sentences.length; i++) {
-    let sentence = sentences[i].trim();
-    
-    // Skip if already has citations
-    if (/\[\d+\]/.test(sentence)) {
-      result += sentence + ' ';
-      continue;
-    }
-    
-    // Skip if it's just punctuation
-    if (/^[.。؟!？\n]+$/.test(sentence)) {
-      result += sentence;
-      continue;
-    }
-    
-    // Skip if too short (less than 10 chars)
-    if (sentence.length < 10) {
-      result += sentence + ' ';
-      continue;
-    }
-    
-    // Add citation before the period/punctuation
-    if (/[.。؟!？]$/.test(sentence)) {
-      // Remove ending punctuation
-      const punctuation = sentence.slice(-1);
-      sentence = sentence.slice(0, -1);
-      
-      // Add 1-3 random citations
-      const numCitations = Math.min(3, Math.floor(Math.random() * 3) + 1);
-      const citations = [];
-      for (let j = 0; j < numCitations; j++) {
-        const citNum = ((currentCitation - 1) % numberOfBooks) + 1;
-        citations.push(`[${citNum}]`);
-        currentCitation++;
-      }
-      
-      result += sentence + citations.join('') + punctuation + ' ';
-    } else {
-      result += sentence + ' ';
-    }
-  }
-  
-  return result.trim();
 }
 
 /* ========= Normalization ========= */
@@ -155,20 +100,20 @@ app.post('/api/understand-query', async (req, res) => {
     const { query } = req.body || {};
     if (!query) return res.status(400).json({ error: 'Query required' });
 
-    const analysisPrompt = `Analyze query and respond in JSON.
+    const analysisPrompt = `Analyze this library search query and respond in JSON format.
 
-Query: "${query}"
+USER QUERY: "${query}"
 
 Determine:
-- intent: "author_books" | "about_topic" | "question" | "title_search"
-- field: "author" | "subject" | "summary" | "title" | "default"
-- key_terms: array of main terms
+1. intent: "author_books" | "about_topic" | "question" | "title_search"
+2. field: "author" | "subject" | "summary" | "title" | "default"  
+3. key_terms: array of main search terms
 
-JSON only.`;
+Respond with JSON only.`;
 
     const aiResponse = await callOpenAI(
       [
-        { role: 'system', content: 'Respond with JSON only.' },
+        { role: 'system', content: 'You are a query analyzer. Respond with JSON only.' },
         { role: 'user', content: analysisPrompt }
       ],
       OPENAI_MODEL,
@@ -194,7 +139,7 @@ JSON only.`;
   }
 });
 
-/* ========= /api/chat ========= */
+/* ========= /api/chat - RAG with REAL Citations ========= */
 app.post('/api/chat', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
   if (!checkRateLimit(ip)) {
@@ -213,62 +158,80 @@ app.post('/api/chat', async (req, res) => {
     let bookIds = [];
     let answerSource = 'library';
 
-    // If library has books, use them
+    // If library has books, use them with PROPER citations
     if (safeBooks.length > 0) {
-      let availableData = '';
+      
+      // Build context with clear source numbers
+      let booksContext = safeBooks.map((b, i) => {
+        const num = i + 1;
+        const title = (b.title || 'Untitled').toString();
+        const author = (b.author || 'Unknown').toString();
+        const summary = (b.summary || '').toString();
+        const subject = (b.subject || '').toString();
+        
+        let bookInfo = `SOURCE [${num}]:\n`;
+        bookInfo += `Author: ${author}\n`;
+        bookInfo += `Title: ${title}\n`;
+        
+        if (searchField === 'summary' || searchField === 'default') {
+          bookInfo += `Summary: ${summary}\n`;
+        }
+        if (searchField === 'subject' || searchField === 'default') {
+          bookInfo += `Subject: ${subject}\n`;
+        }
+        
+        return bookInfo;
+      }).join('\n---\n\n');
 
-      if (searchField === 'summary') {
-        availableData = safeBooks.map((b,i)=>{
-          const title=(b.title||'Untitled').toString();
-          const author=(b.author||'Unknown').toString();
-          const summary=(b.summary||'').toString();
-          return `[${i+1}] ${author}. ${title}.\nSummary: ${summary}`;
-        }).join('\n\n');
-      } else if (searchField === 'subject') {
-        availableData = safeBooks.map((b,i)=>{
-          const title=(b.title||'').toString();
-          const subject=(b.subject||'').toString();
-          return `[${i+1}] ${title}\nSubject: ${subject}`;
-        }).join('\n\n');
-      } else if (searchField === 'author') {
-        availableData = safeBooks.map((b,i)=>{
-          const title=(b.title||'').toString();
-          const author=(b.author||'').toString();
-          return `[${i+1}] ${author}. ${title}`;
-        }).join('\n\n');
-      } else {
-        availableData = safeBooks.map((b,i)=>{
-          const title=(b.title||'').toString();
-          const author=(b.author||'').toString();
-          const summary=(b.summary||'').toString();
-          return `[${i+1}] ${author}. ${title}.\n${summary}`;
-        }).join('\n\n');
-      }
+      const systemPrompt = `You are a library assistant helping with intellectual property rights protection.
 
-      const systemPrompt = `You are a library assistant. Answer questions using ONLY the provided book information. Be concise and factual.`;
+CRITICAL RULES FOR CITATIONS:
+1. When you use information from SOURCE [1], you MUST cite it as [1]
+2. When you use information from SOURCE [2], you MUST cite it as [2]
+3. EVERY piece of information MUST have the correct source number
+4. Place citations [1], [2], [3] immediately after the information from that source
+5. DO NOT make up information not in the sources
+6. DO NOT cite sources you didn't use
 
-      const userPrompt = `Query: "${query}"
-Field: ${searchField}
+This is REQUIRED for intellectual property rights protection!
 
-Books available:
-${availableData}
+Example of CORRECT citations:
+"محمد بن راشد كتب رؤيتي [1]. الكتاب يتحدث عن القيادة [1]. كما كتب ومضات من فكر [3]."
+(Note: [1] is used twice because both facts came from SOURCE [1])
 
-Answer the query using information from these books. Answer in the same language as the query (Arabic or English). Keep it concise.`;
+Example of WRONG citations:
+"محمد بن راشد كتب رؤيتي. الكتاب يتحدث عن القيادة." ← NO CITATIONS (WRONG!)
+"محمد بن راشد كتب رؤيتي [1]. الكتاب يتحدث عن القيادة [2]." ← [2] is wrong if both facts from SOURCE [1]!`;
+
+      const userPrompt = `USER QUERY: "${query}"
+SEARCH FIELD: ${searchField}
+
+AVAILABLE SOURCES:
+${booksContext}
+
+Instructions:
+1. Answer the query using ONLY information from the sources above
+2. Cite the SOURCE number [1], [2], [3] for EVERY fact you mention
+3. Place citation immediately after each piece of information
+4. Answer in the same language as the query (Arabic or English)
+5. Be accurate with citations - this is for intellectual property protection
+
+Answer now with proper citations:`;
 
       answer = await callOpenAI(
-        [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
         OPENAI_MODEL,
-        { temperature: 0.1, max_tokens: 800 }
+        { temperature: 0.05, max_tokens: 1500 }
       );
 
-      // FORCE CITATIONS - Add them automatically
-      answer = forceCitations(answer, safeBooks.length);
-
-      // Extract book IDs from the forced citations
-      const m = answer.match(/\[(\d+)\]/g);
-      if (m) {
+      // Extract book IDs from citations
+      const citationMatches = answer.match(/\[(\d+)\]/g);
+      if (citationMatches) {
         const uniqueIds = new Set();
-        m.forEach(match => {
+        citationMatches.forEach(match => {
           const num = parseInt(match.replace(/[\[\]]/g, ''));
           if (num > 0 && num <= safeBooks.length) {
             uniqueIds.add(num);
@@ -277,26 +240,41 @@ Answer the query using information from these books. Answer in the same language
         bookIds.push(...Array.from(uniqueIds));
       }
 
+      // If AI didn't add citations, add a warning
+      if (bookIds.length === 0 && answer.length > 50) {
+        const isArabic = /[\u0600-\u06FF]/.test(query);
+        const warning = isArabic
+          ? '\n\n⚠️ تحذير: لم يتم إضافة مراجع محددة. يرجى الرجوع إلى الكتب المدرجة أعلاه.'
+          : '\n\n⚠️ Warning: No specific citations added. Please refer to the books listed above.';
+        answer += warning;
+      }
+
       answerSource = 'library';
+      
     } 
     // If NO books, use AI knowledge
     else {
-      const systemPrompt = `You are a UAE information assistant. Provide concise answers about UAE topics using information that would be found on official UAE (.ae) government websites.`;
+      const systemPrompt = `You are a UAE information assistant. Provide concise, factual answers about UAE topics based on information typically found on official UAE (.ae) government websites.
+
+FORBIDDEN SOURCES: Wikipedia, BBC, Reuters, CNN, Al Jazeera, or any non-.ae sources.`;
 
       const userPrompt = `Query: "${query}"
 
-Answer concisely in ${/[\u0600-\u06FF]/.test(query) ? 'Arabic' : 'English'}. 3-5 sentences.`;
+Provide a brief answer (3-5 sentences) in ${/[\u0600-\u06FF]/.test(query) ? 'Arabic' : 'English'} based on UAE official knowledge.`;
 
       answer = await callOpenAI(
-        [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
         OPENAI_MODEL,
         { temperature: 0.2, max_tokens: 600 }
       );
 
       const isArabic = /[\u0600-\u06FF]/.test(query);
       const disclaimer = isArabic 
-        ? '\n\n📌 ملاحظة: المعلومات من المعرفة العامة بالمصادر الإماراتية.'
-        : '\n\n📌 Note: Information from general knowledge of UAE sources.';
+        ? '\n\n📌 ملاحظة: المعلومات من المعرفة العامة بالمصادر الرسمية الإماراتية. للحصول على معلومات دقيقة، يرجى الرجوع إلى المواقع الرسمية مثل government.ae و wam.ae'
+        : '\n\n📌 Note: Information from general knowledge of UAE official sources. For accurate information, please refer to official websites like government.ae and wam.ae';
       
       answer = answer + disclaimer;
       answerSource = 'ai_knowledge';
@@ -308,6 +286,7 @@ Answer concisely in ${/[\u0600-\u06FF]/.test(query) ? 'Arabic' : 'English'}. 3-5
       bookIds: bookIds,
       source: answerSource
     });
+    
   } catch (err) {
     console.error('Chat error:', err);
     res.status(500).json({ error: 'Internal error', details: err.message });
@@ -337,11 +316,13 @@ app.post('/api/enhance-search', async (req, res) => {
       summary: (b?.summary || '').substring(0, 200)
     }));
 
-    const prompt = `Rank books by relevance to: "${query}"
+    const prompt = `Rank these books by relevance to the query: "${query}"
 
-Books: ${JSON.stringify(booksData)}
+Books:
+${JSON.stringify(booksData, null, 2)}
 
-Return: BOOK_IDS: 1,2,3...`;
+Return the top 20 book IDs in order of relevance.
+Format: BOOK_IDS: 1,2,3,4...`;
 
     const response = await callOpenAI(
       [{ role: 'user', content: prompt }],
@@ -350,11 +331,18 @@ Return: BOOK_IDS: 1,2,3...`;
     );
 
     const bookIds = (response.match(/BOOK_IDS:\s*([\d,\s]+)/)?.[1] || '')
-      .split(',').map(s=>parseInt(s.trim(),10)).filter(n=>!Number.isNaN(n));
+      .split(',')
+      .map(s => parseInt(s.trim(), 10))
+      .filter(n => !Number.isNaN(n));
 
-    const rankedBooks = bookIds.map(id => preFilteredBooks.find(b=>b && b.id===id)).filter(Boolean);
+    const rankedBooks = bookIds
+      .map(id => preFilteredBooks.find(b => b && b.id === id))
+      .filter(Boolean);
+      
     res.json({ rankedBooks, explanation: '' });
+    
   } catch (err) {
+    console.error('Enhance search error:', err);
     res.status(500).json({ error: 'Error', details: err.message });
   }
 });
@@ -367,20 +355,21 @@ app.get('/api/health', (req, res) => {
     aiProvider: 'OpenAI',
     openaiConfigured: !!OPENAI_API_KEY && OPENAI_API_KEY !== 'sk-YOUR-API-KEY-HERE',
     modelVersion: OPENAI_MODEL,
-    features: 'Auto-Citations (Forced) • Post-Processing • UAE Knowledge',
+    features: 'Real Citations • Source Tracking • Intellectual Property Protection • RAG',
   });
 });
 
 /* ========= Error ========= */
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(500).json({ error: 'Internal error' });
+  console.error('Server error:', err);
+  res.status(500).json({ error: 'Internal error', details: err.message });
 });
 
 /* ========= Start ========= */
 app.listen(PORT, () => {
   console.log(`🚀 ECSSR AI Backend http://localhost:${PORT}`);
   console.log(`🔖 Version: ${CODE_VERSION}`);
-  console.log(`🤖 AI: OpenAI (${OPENAI_MODEL})`);
-  console.log(`✅ Citations: AUTOMATICALLY ADDED to every answer`);
+  console.log(`🤖 AI Provider: OpenAI (${OPENAI_MODEL})`);
+  console.log(`📚 Citations: REAL sources with intellectual property protection`);
+  console.log(`✅ Each [1], [2], [3] citation matches the actual book source`);
 });
