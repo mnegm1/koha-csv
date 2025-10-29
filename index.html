@@ -316,36 +316,7 @@ function searchField(field,q){
 }
 
 // ---------- TRANSLATION + AI SUMMARY ----------
-async function translateText(text, targetLang) {
-  try {
-    const sourceLang = isArabic(text) ? "ar" : "en";
-    if (sourceLang === targetLang) return text;
-    
-    // If text is too long (>400 chars), truncate and add note
-    let textToTranslate = text;
-    let wasTruncated = false;
-    if (text.length > 400) {
-      textToTranslate = text.substring(0, 400);
-      wasTruncated = true;
-    }
-    
-    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(textToTranslate)}&langpair=${sourceLang}|${targetLang}`;
-    const response = await fetch(url);
-    const data = await response.json();
-    
-    if (data.responseData && data.responseData.translatedText) {
-      let translation = data.responseData.translatedText;
-      if (wasTruncated) {
-        translation += (targetLang === "ar" ? "\n\n[النص طويل جداً - تُرجم جزء منه فقط]" : "\n\n[Text too long - partial translation only]");
-      }
-      return translation;
-    }
-    throw new Error("Translation failed");
-  } catch (error) {
-    console.error("Translation error:", error);
-    return null;
-  }
-}
+async function translateText(text,targetLang){try{const sourceLang=isArabic(text)?"ar":"en";if(sourceLang===targetLang)return text;const url=`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceLang}|${targetLang}`,response=await fetch(url),data=await response.json();if(data.responseData&&data.responseData.translatedText)return data.responseData.translatedText;throw new Error("Translation failed")}catch(error){console.error("Translation error:",error);return null}}
 async function translateRecord(recordId,field,button){const book=INDEX.find(b=>b.id===recordId);if(!book)return;const text=book.raw[field];if(!text)return;button.textContent="⏳";button.disabled=true;const targetLang=isArabic(text)?"en":"ar",translated=await translateText(text,targetLang);if(translated){const div=document.createElement("div");div.className="translated";div.innerHTML=`<strong>${isArabic(translated)?"الترجمة:":"Translation:"}</strong> ${translated}`;button.parentElement.appendChild(div);button.remove()}else{button.textContent="🌐";button.disabled=false}}
 async function getAISummary(query,matchedBooks){
   if(matchedBooks.length===0)return null;
@@ -363,7 +334,7 @@ async function getAISummary(query,matchedBooks){
     const response=await fetch(`${BACKEND_URL}/chat`,{
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({query,matchedBooks:booksWithSummaries,searchField:LAST.field})
+      body:JSON.stringify({query,books:booksWithSummaries,searchField:LAST.field})
     });
     if(!response.ok)return null;
     const data=await response.json();
@@ -485,21 +456,8 @@ async function renderAll(list,field,query){
   aiSectionHeader.textContent="🤖 ملخص الذكاء الاصطناعي / AI Summary";
   body.appendChild(aiSectionHeader);
 
-  const aiSummaryDiv=document.createElement("div");
-  aiSummaryDiv.className="ai-summary";
-  aiSummaryDiv.style.position="relative";
+  const aiSummaryDiv=document.createElement("div");aiSummaryDiv.className="ai-summary";
   aiSummaryDiv.innerHTML='<span style="display:inline-block;animation:rotate 1.5s linear infinite">⏳</span> AI analyzing data...';
-  
-  // Add translate button for AI summary
-  const aiTranslateBtn=document.createElement("button");
-  aiTranslateBtn.className="translate-icon";
-  aiTranslateBtn.style.position="absolute";
-  aiTranslateBtn.style.top="12px";
-  aiTranslateBtn.style.left="12px";
-  aiTranslateBtn.innerHTML="🌐 Translate";
-  aiTranslateBtn.style.display="none";
-  aiSummaryDiv.appendChild(aiTranslateBtn);
-  
   body.appendChild(aiSummaryDiv);
   
   getAISummary(query,list.slice(0,20)).then(result=>{
@@ -529,121 +487,15 @@ async function renderAll(list,field,query){
         return match;
       });
       
-      // Create content wrapper for translation
-      const contentWrapper = document.createElement("div");
-      contentWrapper.className="ai-content-original";
-      contentWrapper.style.paddingTop="40px";
-      contentWrapper.innerHTML=answerWithLinks;
-      aiSummaryDiv.innerHTML='';
-      aiSummaryDiv.appendChild(aiTranslateBtn);
-      aiSummaryDiv.appendChild(contentWrapper);
+      aiSummaryDiv.innerHTML=answerWithLinks;
       
-      // Show translate button
-      aiTranslateBtn.style.display="block";
-      
-      // Translation functionality
-      let translated = false;
-      aiTranslateBtn.onclick = async function() {
-        if (!translated) {
-          aiTranslateBtn.textContent = "⏳ Translating...";
-          aiTranslateBtn.disabled = true;
-          const originalText = contentWrapper.textContent;
-          const targetLang = isArabic(originalText) ? "en" : "ar";
-          
-          try {
-            const translation = await translateText(originalText, targetLang);
-            if (translation) {
-              const translatedDiv = document.createElement("div");
-              translatedDiv.className = "translated";
-              translatedDiv.style.cssText = "margin-top:15px;padding-top:15px;border-top:2px dashed #BF9849";
-              translatedDiv.innerHTML = translation.replace(/\n/g, '<br>');
-              contentWrapper.after(translatedDiv);
-              aiTranslateBtn.textContent = "↩️ Show Original";
-              translated = true;
-            } else {
-              throw new Error("Translation returned null");
-            }
-          } catch (err) {
-            console.error("Translation error:", err);
-            aiTranslateBtn.textContent = "❌ Translation Failed";
-            setTimeout(() => {
-              aiTranslateBtn.textContent = "🌐 Translate";
-              aiTranslateBtn.disabled = false;
-            }, 2000);
-          }
-          aiTranslateBtn.disabled = false;
-        } else {
-          const translatedDiv = aiSummaryDiv.querySelector(".translated");
-          if (translatedDiv) translatedDiv.remove();
-          aiTranslateBtn.textContent = "🌐 Translate";
-          translated = false;
-        }
-      };
-      
-      // Add BOOK SOURCES section - shows which books were cited
-      if(result.bookIds && result.bookIds.length > 0 && result.source === 'library'){
-        const sourcesHeader = document.createElement("div");
-        sourcesHeader.style.cssText = "margin-top:20px;font-weight:700;font-size:14px;color:#BF9849;border-bottom:2px solid #BF9849;padding-bottom:5px;margin-bottom:10px";
-        sourcesHeader.innerHTML = "📚 المصادر المستخدمة / Sources Used in Citations:";
-        
-        const sourcesList = document.createElement("div");
-        sourcesList.style.cssText = "margin-top:10px;background:#fafafa;padding:15px;border-radius:8px;border-left:4px solid #BF9849";
-        
-        let sourcesHTML = "";
-        const uniqueBookIds = [...new Set(result.bookIds)].sort((a,b) => a-b);
-        
-        uniqueBookIds.forEach((bookNum) => {
-          const bookIndex = bookNum - 1;
-          if(bookIndex >= 0 && bookIndex < list.length){
-            const book = list[bookIndex];
-            const title = (book.raw.title || 'Untitled').toString();
-            const author = (book.raw.author || 'Unknown').toString();
-            const publisher = (book.raw.publisher || '').toString();
-            const year = (book.raw.year || '').toString();
-            const bookUrl = book.raw.book_url || book.raw.book_Url || '#';
-            
-            sourcesHTML += `<div style="margin-bottom:12px;padding:10px;background:white;border-radius:5px;border:1px solid #eee">`;
-            sourcesHTML += `<div style="margin-bottom:5px"><span style="font-weight:700;color:#BF9849;font-size:18px">[${bookNum}]</span> <strong style="font-size:14px">${title}</strong></div>`;
-            sourcesHTML += `<div style="color:#666;font-size:12px;margin-bottom:3px">`;
-            sourcesHTML += `<strong>المؤلف / Author:</strong> ${author}`;
-            if(publisher) sourcesHTML += ` • <strong>الناشر / Publisher:</strong> ${publisher}`;
-            if(year) sourcesHTML += ` • <strong>السنة / Year:</strong> ${year}`;
-            sourcesHTML += `</div>`;
-            if(bookUrl && bookUrl !== '#'){
-              sourcesHTML += `<a href="${bookUrl}" target="_blank" style="color:#BF9849;font-size:12px;text-decoration:none;font-weight:600">🔗 فتح الكتاب / Open Book →</a>`;
-            }
-            sourcesHTML += `</div>`;
-          }
-        });
-        
-        sourcesList.innerHTML = sourcesHTML;
-        contentWrapper.after(sourcesHeader);
-        sourcesHeader.after(sourcesList);
-      }
-      
-      // Add UAE source information if available (ONLY when no library books)
-      if(result.source === 'ai_knowledge' || result.source === 'web'){
-        const uaeSourceNote=document.createElement("div");
-        uaeSourceNote.style.cssText="background:#e8f4f8;border-left:4px solid #BF9849;padding:10px;margin:10px 0;border-radius:8px;font-size:12px";
-        uaeSourceNote.innerHTML=`<strong>🇦🇪 مصادر المعلومات / Information Sources:</strong><br>
-        هذه المعلومات مستقاة من المعرفة العامة للذكاء الاصطناعي حول المصادر الرسمية الإماراتية. للحصول على معلومات دقيقة ومحدثة، يرجى الرجوع إلى:<br>
-        This information is based on AI knowledge of official UAE sources. For accurate and updated information, please refer to:<br>
-        • <a href="https://government.ae" target="_blank" style="color:#BF9849;font-weight:600">government.ae</a> - UAE Government Portal<br>
-        • <a href="https://wam.ae" target="_blank" style="color:#BF9849;font-weight:600">wam.ae</a> - Emirates News Agency<br>
-        • <a href="https://uae.gov.ae" target="_blank" style="color:#BF9849;font-weight:600">uae.gov.ae</a> - UAE Official Portal<br>
-        • <a href="https://moe.gov.ae" target="_blank" style="color:#BF9849;font-weight:600">moe.gov.ae</a> - Ministry of Education<br>
-        <br><em style="color:#666">ملاحظة: لا توجد مراجع مرقمة لأن المعلومات من المعرفة العامة للذكاء الاصطناعي، وليست من كتب محددة في المكتبة.<br>
-        Note: No numbered citations as information is from AI general knowledge, not specific library books.</em>`;
-        contentWrapper.after(uaeSourceNote);
-      }
-      
-      // Add Disclaimer note after AI summary
+      // Add Disclaimer note after AI summary with correct terminology
       const sourceNote=document.createElement("div");
       sourceNote.className="info";
       sourceNote.style.marginTop="8px";
       sourceNote.style.fontSize="12px";
       sourceNote.style.background="linear-gradient(135deg,#fff9e6,#fffbf0)";
-      sourceNote.innerHTML="<strong>📚 إخلاء مسؤولية معلومات الذكاء الاصطناعي:</strong> يتم إنشاء هذا الملخص تلقائيًا بواسطة تقنيات الذكاء الاصطناعي بهدف تيسير فهم المحتوى وتقديم نظرة عامة سريعة. يرجى ملاحظة أن المعلومات المولدة قد لا تكون دقيقة تمامًا أو شاملة، لذا يُنصح دائمًا بمراجعة المصدر الأصلي قبل الاعتماد عليها. ولا تتحمل المكتبة أي مسؤولية عن النتائج الصادرة عن الذكاء الاصطناعي.<br><strong>📚 AI Information Disclaimer:</strong> This summary is automatically generated using artificial intelligence technologies to provide a quick overview of the content. The information presented may not be fully accurate or complete; therefore, it is recommended to verify details from the original source before relying on them. The library assumes no responsibility for any outcomes resulting from AI-generated content.";
+      sourceNote.innerHTML="<strong>📚 إخلاء مسؤولية معلومات الذكاء الاصطناعي:</strong> يتم إنشاء هذا الملخص تلقائيًا بواسطة تقنيات الذكاء الاصطناعي بهدف تيسير فهم المحتوى وتقديم نظرة عامة سريعة. يرجى ملاحظة أن المعلومات المولدة قد لا تكون دقيقة تمامًا أو شاملة، لذا يُنصح دائمًا بمراجعة المصدر الأصلي قبل الاعتماد عليها. ولا تتحمل المكتبة أي مسؤولية عن النتائج الصادرة عن الذكاء الاصطناعي.<br><strong>📚 AI Information Disclaimer:</strong> This summary is automatically generated using artificial intelligence technologies to provide a quick overview of the content. The information presented may not be fully accurate or complete; therefore, it is recommended to verify details from the original source before relying on them. The library assumes no responsibility for any outcomes resulting from AI-generated conten.";
       aiSummaryDiv.after(sourceNote);
       
       if(result.citations && result.citations.length > 0){
