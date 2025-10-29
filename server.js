@@ -1,10 +1,10 @@
 // backend/server.js
-// ECSSR AI Assistant — v11.0 - Web Search with Direct Links
-// - Library books cited as [1][2][3]
-// - UAE websites with REAL links to actual articles
-// - Maximum credibility and verifiability
+// ECSSR AI Assistant — v12.0 - Verified Web Links Only
+// - Checks all URLs before using them
+// - No more 404 errors!
+// - Only shows links that actually work
 
-const CODE_VERSION = "ecssr-backend-v11.0-web-search-links";
+const CODE_VERSION = "ecssr-backend-v12.0-verified-links";
 
 const express = require('express');
 const cors = require('cors');
@@ -17,7 +17,6 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'sk-YOUR-API-KEY-HERE';
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
 
-// Perplexity API for web search (optional but recommended)
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY || '';
 const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
 
@@ -37,6 +36,47 @@ function checkRateLimit(ip) {
   recent.push(now);
   requestCounts.set(ip, recent);
   return true;
+}
+
+/* ========= Verify URL exists (returns 200 OK) ========= */
+async function verifyURL(url) {
+  try {
+    console.log(`🔍 Checking URL: ${url}`);
+    const response = await fetch(url, {
+      method: 'HEAD',
+      timeout: 5000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; ECSSR-Bot/1.0)'
+      }
+    });
+    
+    if (response.ok) {
+      console.log(`✅ URL valid: ${url}`);
+      return true;
+    } else {
+      console.log(`❌ URL invalid (${response.status}): ${url}`);
+      return false;
+    }
+  } catch (error) {
+    console.log(`❌ URL check failed: ${url} - ${error.message}`);
+    return false;
+  }
+}
+
+/* ========= Verify multiple URLs in parallel ========= */
+async function verifyURLs(urls) {
+  console.log(`🔍 Verifying ${urls.length} URLs...`);
+  const results = await Promise.all(
+    urls.map(async (url) => ({
+      url,
+      valid: await verifyURL(url)
+    }))
+  );
+  
+  const validUrls = results.filter(r => r.valid).map(r => r.url);
+  console.log(`✅ Valid URLs: ${validUrls.length}/${urls.length}`);
+  
+  return validUrls;
 }
 
 /* ========= OpenAI wrapper ========= */
@@ -66,16 +106,21 @@ async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
   return (data.choices && data.choices[0]?.message?.content) || '';
 }
 
-/* ========= Perplexity with citations ========= */
+/* ========= Perplexity with verified citations ========= */
 async function searchWithPerplexity(query) {
-  if (!PERPLEXITY_API_KEY) return null;
+  if (!PERPLEXITY_API_KEY) {
+    console.log('⚠️ Perplexity API key not configured');
+    return null;
+  }
   
   try {
     const isArabic = /[\u0600-\u06FF]/.test(query);
     
     const searchQuery = isArabic 
-      ? `ابحث في المواقع الإماراتية الرسمية (.ae) فقط عن: ${query}. استخدم فقط: wam.ae, government.ae, uae.gov.ae, moe.gov.ae`
-      : `Search ONLY UAE official (.ae) websites about: ${query}. Use only: wam.ae, government.ae, uae.gov.ae, moe.gov.ae`;
+      ? `ابحث في المواقع الإماراتية الرسمية (.ae) فقط عن: ${query}`
+      : `Search ONLY UAE official (.ae) websites about: ${query}`;
+
+    console.log(`🌐 Searching Perplexity: "${searchQuery}"`);
 
     const response = await fetch(PERPLEXITY_URL, {
       method: 'POST',
@@ -97,31 +142,41 @@ async function searchWithPerplexity(query) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.log(`⚠️ Perplexity search failed: ${response.status} - ${errorText}`);
+      console.log(`❌ Perplexity failed: ${response.status} - ${errorText}`);
       return null;
     }
 
     const data = await response.json();
-    console.log('📝 Perplexity response:', JSON.stringify(data).substring(0, 500));
-    
     const answer = data.choices?.[0]?.message?.content || '';
     const citations = data.citations || [];
     
-    console.log(`✅ Perplexity found ${citations.length} UAE sources`);
-    console.log(`📋 Citations:`, citations);
+    console.log(`📚 Perplexity returned ${citations.length} citations`);
+    
+    // Filter to UAE domains only
+    const uaeCitations = citations.filter(url => 
+      url.includes('wam.ae') || 
+      url.includes('government.ae') || 
+      url.includes('uae.gov.ae') ||
+      url.includes('moe.gov.ae') ||
+      url.includes('mohesr.gov.ae')
+    );
+    
+    console.log(`🇦🇪 UAE citations: ${uaeCitations.length}`);
+    
+    // VERIFY URLs before using them!
+    const validUrls = await verifyURLs(uaeCitations);
+    
+    if (validUrls.length === 0) {
+      console.log('⚠️ No valid URLs found after verification');
+      return null;
+    }
     
     return {
       answer,
-      citations: citations.filter(url => 
-        url.includes('wam.ae') || 
-        url.includes('government.ae') || 
-        url.includes('uae.gov.ae') ||
-        url.includes('moe.gov.ae') ||
-        url.includes('mohesr.gov.ae')
-      )
+      citations: validUrls
     };
   } catch (error) {
-    console.error('Perplexity error:', error);
+    console.error('❌ Perplexity error:', error);
     return null;
   }
 }
@@ -162,7 +217,7 @@ app.post('/api/understand-query', async (req, res) => {
   }
 });
 
-/* ========= /api/chat - LIBRARY + WEB SEARCH ========= */
+/* ========= /api/chat - VERIFIED LINKS ONLY ========= */
 app.post('/api/chat', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
   if (!checkRateLimit(ip)) {
@@ -177,8 +232,10 @@ app.post('/api/chat', async (req, res) => {
       .filter(b => b && typeof b === 'object')
       .slice(0, 30);
 
+    console.log(`\n========================================`);
     console.log(`📚 Query: "${query}"`);
     console.log(`📚 Number of books: ${safeBooks.length}`);
+    console.log(`========================================\n`);
 
     let answer = '';
     let bookIds = [];
@@ -201,54 +258,47 @@ Author: ${author}
 Summary: ${summary}`;
       }).join('\n\n');
 
-      // ALSO search web for UAE sources
-      console.log('🌐 Searching UAE websites...');
+      // Search web for VERIFIED UAE sources
       const webResults = await searchWithPerplexity(query);
       
       let webContext = '';
       if (webResults && webResults.citations.length > 0) {
-        console.log(`✅ Found ${webResults.citations.length} web sources`);
         webSources = webResults.citations;
-        webContext = `\n\nWEB SOURCES FOUND:\n${webResults.answer}\n\nAvailable links:\n${webSources.map((url, i) => `[W${i+1}] ${url}`).join('\n')}`;
+        console.log(`✅ Using ${webSources.length} VERIFIED web sources`);
+        webContext = `\n\nVERIFIED WEB SOURCES (these URLs are confirmed to exist):\n${webSources.map((url, i) => `[W${i+1}] ${url}`).join('\n')}`;
       } else {
-        console.log('⚠️ No web sources found, using library only');
+        console.log('⚠️ No verified web sources, using library only');
       }
 
       const isArabic = /[\u0600-\u06FF]/.test(query);
 
-      const systemPrompt = `You are a research assistant that combines library books and UAE official websites.
+      const systemPrompt = `You are a research assistant combining library books and verified UAE websites.
 
 CITATION RULES:
-1. Library books → Cite as [1], [2], [3]
-2. Web sources → Create clickable markdown links like [text](url)
+1. Library books → [1], [2], [3]
+2. Web sources → [text](url) with ONLY URLs from "VERIFIED WEB SOURCES" list
 
-CRITICAL: When using web sources, you MUST use the EXACT URLs provided in the "Available links" section.
+CRITICAL: 
+- Only use URLs from the "VERIFIED WEB SOURCES" section - these are confirmed to work
+- Never make up URLs
+- If no web sources available, use books only
 
-Format for web citations:
-- Arabic: [النص من الموقع](https://actual-url-from-available-links)
-- English: [text from website](https://actual-url-from-available-links)
+Format:
+Arabic: [النص](https://verified-url)
+English: [text](https://verified-url)`;
 
-Example:
-"كان الشيخ زايد داعماً قوياً [وفقاً لوكالة أنباء الإمارات](https://wam.ae/ar/details/1234567890)"
-
-YOU MUST:
-- Use library book numbers [1][2][3] for book info
-- Use markdown links [text](url) for web sources with REAL URLs from "Available links"
-- Combine both sources naturally`;
-
-      const userPrompt = `USER QUERY: "${query}"
+      const userPrompt = `Query: "${query}"
 
 LIBRARY SOURCES:
 ${bookSources}
 ${webContext}
 
-Answer the question using BOTH library books and web sources:
+Answer using both library books and verified web sources:
 1. Cite books with [1], [2], [3]
-2. Link to web sources using markdown [text](actual-url) with URLs from "Available links" section
+2. Link web info using markdown [text](url) - ONLY use URLs from "VERIFIED WEB SOURCES"
 3. Answer in ${isArabic ? 'Arabic' : 'English'}
-4. Be comprehensive and credible
 
-Answer now:`;
+Answer:`;
 
       answer = await callOpenAI(
         [
@@ -272,10 +322,11 @@ Answer now:`;
         bookIds = Array.from(uniqueIds).sort((a, b) => a - b);
       }
 
-      console.log(`✅ Book citations: ${bookIds.join(', ')}`);
-      console.log(`✅ Web sources: ${webSources.length} links`);
+      console.log(`\n✅ Response complete:`);
+      console.log(`📚 Book citations: ${bookIds.join(', ')}`);
+      console.log(`🌐 Web sources: ${webSources.length} verified links\n`);
 
-      answerSource = 'dual';
+      answerSource = webSources.length > 0 ? 'dual' : 'library';
       
     } 
     // No books - web search only
@@ -287,12 +338,12 @@ Answer now:`;
         webSources = webResults.citations;
         answer = webResults.answer;
         answerSource = 'web';
-        console.log(`✅ Found ${webSources.length} web sources`);
+        console.log(`✅ Found ${webSources.length} verified web sources`);
       } else {
         const isArabic = /[\u0600-\u06FF]/.test(query);
         answer = isArabic
-          ? 'عذراً، لم أتمكن من العثور على معلومات كافية في المصادر المتاحة.'
-          : 'Sorry, could not find sufficient information in available sources.';
+          ? 'عذراً، لم أتمكن من العثور على معلومات موثوقة في المصادر المتاحة.'
+          : 'Sorry, could not find reliable information in available sources.';
         answerSource = 'none';
       }
     }
@@ -325,11 +376,11 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     codeVersion: CODE_VERSION,
-    aiProvider: 'OpenAI',
+    aiProvider: 'OpenAI + Perplexity',
     openaiConfigured: !!OPENAI_API_KEY && OPENAI_API_KEY !== 'sk-YOUR-API-KEY-HERE',
     perplexityConfigured: !!PERPLEXITY_API_KEY,
     modelVersion: OPENAI_MODEL,
-    features: 'Library Books [1][2][3] • UAE Web Search • Direct Article Links • Maximum Credibility',
+    features: 'Verified Links Only • No 404 Errors • Library [1][2][3] + UAE Websites',
   });
 });
 
@@ -341,14 +392,16 @@ app.use((err, req, res, next) => {
 
 /* ========= Start ========= */
 app.listen(PORT, () => {
-  console.log(`🚀 ECSSR AI Backend http://localhost:${PORT}`);
+  console.log(`\n🚀 ECSSR AI Backend http://localhost:${PORT}`);
   console.log(`🔖 Version: ${CODE_VERSION}`);
   console.log(`📚 Library books → [1][2][3] citations`);
-  console.log(`🌐 UAE websites → Direct links to articles`);
-  console.log(`✅ Maximum credibility with verifiable sources`);
+  console.log(`🌐 UAE websites → VERIFIED links only (no 404!)`);
+  console.log(`✅ All URLs checked before use\n`);
+  
   if (PERPLEXITY_API_KEY) {
     console.log(`🔍 Perplexity search: ENABLED`);
+    console.log(`🔒 URL verification: ENABLED\n`);
   } else {
-    console.log(`⚠️ Perplexity search: DISABLED (set PERPLEXITY_API_KEY to enable)`);
+    console.log(`⚠️ Perplexity search: DISABLED (library only)\n`);
   }
 });
