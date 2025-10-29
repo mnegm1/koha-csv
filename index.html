@@ -580,7 +580,48 @@ async function renderAll(list,field,query){
         }
       };
       
-      // Add UAE source information if available
+      // Add BOOK SOURCES section - shows which books were cited
+      if(result.bookIds && result.bookIds.length > 0 && result.source === 'library'){
+        const sourcesHeader = document.createElement("div");
+        sourcesHeader.style.cssText = "margin-top:20px;font-weight:700;font-size:14px;color:#BF9849;border-bottom:2px solid #BF9849;padding-bottom:5px;margin-bottom:10px";
+        sourcesHeader.innerHTML = "📚 المصادر المستخدمة / Sources Used in Citations:";
+        
+        const sourcesList = document.createElement("div");
+        sourcesList.style.cssText = "margin-top:10px;background:#fafafa;padding:15px;border-radius:8px;border-left:4px solid #BF9849";
+        
+        let sourcesHTML = "";
+        const uniqueBookIds = [...new Set(result.bookIds)].sort((a,b) => a-b);
+        
+        uniqueBookIds.forEach((bookNum) => {
+          const bookIndex = bookNum - 1;
+          if(bookIndex >= 0 && bookIndex < list.length){
+            const book = list[bookIndex];
+            const title = (book.raw.title || 'Untitled').toString();
+            const author = (book.raw.author || 'Unknown').toString();
+            const publisher = (book.raw.publisher || '').toString();
+            const year = (book.raw.year || '').toString();
+            const bookUrl = book.raw.book_url || book.raw.book_Url || '#';
+            
+            sourcesHTML += `<div style="margin-bottom:12px;padding:10px;background:white;border-radius:5px;border:1px solid #eee">`;
+            sourcesHTML += `<div style="margin-bottom:5px"><span style="font-weight:700;color:#BF9849;font-size:18px">[${bookNum}]</span> <strong style="font-size:14px">${title}</strong></div>`;
+            sourcesHTML += `<div style="color:#666;font-size:12px;margin-bottom:3px">`;
+            sourcesHTML += `<strong>المؤلف / Author:</strong> ${author}`;
+            if(publisher) sourcesHTML += ` • <strong>الناشر / Publisher:</strong> ${publisher}`;
+            if(year) sourcesHTML += ` • <strong>السنة / Year:</strong> ${year}`;
+            sourcesHTML += `</div>`;
+            if(bookUrl && bookUrl !== '#'){
+              sourcesHTML += `<a href="${bookUrl}" target="_blank" style="color:#BF9849;font-size:12px;text-decoration:none;font-weight:600">🔗 فتح الكتاب / Open Book →</a>`;
+            }
+            sourcesHTML += `</div>`;
+          }
+        });
+        
+        sourcesList.innerHTML = sourcesHTML;
+        contentWrapper.after(sourcesHeader);
+        sourcesHeader.after(sourcesList);
+      }
+      
+      // Add UAE source information if available (ONLY when no library books)
       if(result.source === 'ai_knowledge' || result.source === 'web'){
         const uaeSourceNote=document.createElement("div");
         uaeSourceNote.style.cssText="background:#e8f4f8;border-left:4px solid #BF9849;padding:10px;margin:10px 0;border-radius:8px;font-size:12px";
