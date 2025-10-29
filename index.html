@@ -316,7 +316,36 @@ function searchField(field,q){
 }
 
 // ---------- TRANSLATION + AI SUMMARY ----------
-async function translateText(text,targetLang){try{const sourceLang=isArabic(text)?"ar":"en";if(sourceLang===targetLang)return text;const url=`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceLang}|${targetLang}`,response=await fetch(url),data=await response.json();if(data.responseData&&data.responseData.translatedText)return data.responseData.translatedText;throw new Error("Translation failed")}catch(error){console.error("Translation error:",error);return null}}
+async function translateText(text, targetLang) {
+  try {
+    const sourceLang = isArabic(text) ? "ar" : "en";
+    if (sourceLang === targetLang) return text;
+    
+    // If text is too long (>400 chars), truncate and add note
+    let textToTranslate = text;
+    let wasTruncated = false;
+    if (text.length > 400) {
+      textToTranslate = text.substring(0, 400);
+      wasTruncated = true;
+    }
+    
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(textToTranslate)}&langpair=${sourceLang}|${targetLang}`;
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if (data.responseData && data.responseData.translatedText) {
+      let translation = data.responseData.translatedText;
+      if (wasTruncated) {
+        translation += (targetLang === "ar" ? "\n\n[النص طويل جداً - تُرجم جزء منه فقط]" : "\n\n[Text too long - partial translation only]");
+      }
+      return translation;
+    }
+    throw new Error("Translation failed");
+  } catch (error) {
+    console.error("Translation error:", error);
+    return null;
+  }
+}
 async function translateRecord(recordId,field,button){const book=INDEX.find(b=>b.id===recordId);if(!book)return;const text=book.raw[field];if(!text)return;button.textContent="⏳";button.disabled=true;const targetLang=isArabic(text)?"en":"ar",translated=await translateText(text,targetLang);if(translated){const div=document.createElement("div");div.className="translated";div.innerHTML=`<strong>${isArabic(translated)?"الترجمة:":"Translation:"}</strong> ${translated}`;button.parentElement.appendChild(div);button.remove()}else{button.textContent="🌐";button.disabled=false}}
 async function getAISummary(query,matchedBooks){
   if(matchedBooks.length===0)return null;
@@ -550,12 +579,14 @@ async function renderAll(list,field,query){
         const uaeSourceNote=document.createElement("div");
         uaeSourceNote.style.cssText="background:#e8f4f8;border-left:4px solid #BF9849;padding:10px;margin:10px 0;border-radius:8px;font-size:12px";
         uaeSourceNote.innerHTML=`<strong>🇦🇪 مصادر المعلومات / Information Sources:</strong><br>
-        المعلومات مستقاة من المصادر الرسمية الإماراتية:<br>
-        Information from official UAE sources:<br>
-        • <a href="https://government.ae" target="_blank" style="color:#BF9849">government.ae</a> - UAE Government Portal<br>
-        • <a href="https://wam.ae" target="_blank" style="color:#BF9849">wam.ae</a> - Emirates News Agency<br>
-        • <a href="https://uae.gov.ae" target="_blank" style="color:#BF9849">uae.gov.ae</a> - UAE Official Portal<br>
-        • Other official UAE (.ae) sources`;
+        هذه المعلومات مستقاة من المعرفة العامة للذكاء الاصطناعي حول المصادر الرسمية الإماراتية. للحصول على معلومات دقيقة ومحدثة، يرجى الرجوع إلى:<br>
+        This information is based on AI knowledge of official UAE sources. For accurate and updated information, please refer to:<br>
+        • <a href="https://government.ae" target="_blank" style="color:#BF9849;font-weight:600">government.ae</a> - UAE Government Portal<br>
+        • <a href="https://wam.ae" target="_blank" style="color:#BF9849;font-weight:600">wam.ae</a> - Emirates News Agency<br>
+        • <a href="https://uae.gov.ae" target="_blank" style="color:#BF9849;font-weight:600">uae.gov.ae</a> - UAE Official Portal<br>
+        • <a href="https://moe.gov.ae" target="_blank" style="color:#BF9849;font-weight:600">moe.gov.ae</a> - Ministry of Education<br>
+        <br><em style="color:#666">ملاحظة: لا توجد مراجع مرقمة لأن المعلومات من المعرفة العامة للذكاء الاصطناعي، وليست من كتب محددة في المكتبة.<br>
+        Note: No numbered citations as information is from AI general knowledge, not specific library books.</em>`;
         contentWrapper.after(uaeSourceNote);
       }
       
