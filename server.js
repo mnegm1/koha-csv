@@ -96,15 +96,19 @@ async function searchWithPerplexity(query) {
     });
 
     if (!response.ok) {
-      console.log('⚠️ Perplexity search failed');
+      const errorText = await response.text();
+      console.log(`⚠️ Perplexity search failed: ${response.status} - ${errorText}`);
       return null;
     }
 
     const data = await response.json();
+    console.log('📝 Perplexity response:', JSON.stringify(data).substring(0, 500));
+    
     const answer = data.choices?.[0]?.message?.content || '';
     const citations = data.citations || [];
     
     console.log(`✅ Perplexity found ${citations.length} UAE sources`);
+    console.log(`📋 Citations:`, citations);
     
     return {
       answer,
