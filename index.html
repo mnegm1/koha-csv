@@ -456,6 +456,13 @@ function searchField(field,q){
 }
 
 // ---------- URL CONVERSION ----------
+function escapeHtml(text) {
+  // Escape HTML entities to prevent HTML code from showing
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
 function convertURLsToLinks(text) {
   // First, convert markdown-style links [text](url) to HTML links
   text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/gi, (match, linkText, url) => {
