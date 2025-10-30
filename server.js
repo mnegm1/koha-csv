@@ -4,7 +4,7 @@
 // - Corrected variable scope issue
 // - Better timeout handling
 
-const CODE_VERSION = "ecssr-backend-v15.1-websources-fixed";
+const CODE_VERSION = "ecssr-backend-v15.2-parse-error-fix";
 
 const express = require('express');
 const cors = require('cors');
@@ -133,6 +133,17 @@ async function verifyURL(url, attempt = 1) {
       return false;
     }
     
+    // ENHANCED: Handle parse errors and other fetch failures
+    if (error.message && error.message.includes('Parse Error')) {
+      console.log(`⚠️ Parse error (skipping verification): ${url}`);
+      // For UAE sites with parse errors, assume valid (benefit of doubt)
+      if (url.includes('.ae')) {
+        console.log(`⚠️ Assuming UAE site valid despite parse error`);
+        return true;
+      }
+      return false;
+    }
+    
     console.log(`⚠️ Error: ${error.message}`);
     
     if (url.includes('.ae')) {
@@ -195,11 +206,23 @@ async function verifyURLs(urls) {
   
   for (let i = 0; i < cleanedUrls.length; i += batchSize) {
     const batch = cleanedUrls.slice(i, i + batchSize);
+    
+    // ENHANCED: Verify each URL individually with error handling
     const results = await Promise.all(
-      batch.map(async (url) => ({
-        url,
-        valid: await verifyURL(url)
-      }))
+      batch.map(async (url) => {
+        try {
+          const valid = await verifyURL(url);
+          return { url, valid };
+        } catch (error) {
+          console.log(`⚠️ Verification error for ${url}: ${error.message}`);
+          // For UAE sites, give benefit of doubt on error
+          if (url.includes('.ae')) {
+            console.log(`⚠️ Assuming UAE site valid despite error`);
+            return { url, valid: true };
+          }
+          return { url, valid: false };
+        }
+      })
     );
     
     validUrls.push(...results.filter(r => r.valid).map(r => r.url));
@@ -339,9 +362,17 @@ async function processPerplexityResponse(data) {
       return { answer: '', citations: [] };
     }
     
-    // Verify URLs
+    // Verify URLs (with error protection)
     console.log('🔍 Starting verification...');
-    const validUrls = await verifyURLs(uaeCitations);
+    let validUrls = [];
+    try {
+      validUrls = await verifyURLs(uaeCitations);
+    } catch (verifyError) {
+      console.log(`⚠️ Verification error: ${verifyError.message}`);
+      console.log(`⚠️ Using unverified URLs as fallback`);
+      // If verification fails, use the unverified UAE citations
+      validUrls = uaeCitations.slice(0, 5);
+    }
     
     if (validUrls.length === 0) {
       console.log('⚠️ No valid URLs, using unverified as fallback');
@@ -595,11 +626,11 @@ app.listen(PORT, () => {
   console.log(`📖 Version: ${CODE_VERSION}`);
   console.log(`${'='.repeat(50)}`);
   console.log(`✅ Enhanced Features:`);
-  console.log(`   → FIXED: Web sources now display properly`);
-  console.log(`   → Improved URL verification`);
-  console.log(`   → Enhanced error handling`);
-  console.log(`   → Better timeout management`);
-  console.log(`   → Fallback mechanisms`);
-  console.log(`   → Support for sonar/sonar-pro`);
+  console.log(`   * FIXED: Web sources now display properly`);
+  console.log(`   * Improved URL verification`);
+  console.log(`   * Enhanced error handling`);
+  console.log(`   * Better timeout management`);
+  console.log(`   * Fallback mechanisms`);
+  console.log(`   * Support for sonar/sonar-pro`);
   console.log(`${'='.repeat(50)}\n`);
 });
