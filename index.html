@@ -33,8 +33,8 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFE
 .citation-item:last-child{border-bottom:none}
 .citation-link{color:#BF9849;text-decoration:none;font-weight:600}
 .citation-link:hover{text-decoration:underline}
-.link-with-circle{border:3px solid #00B050;border-radius:12px;padding:10px 12px;margin:10px 0;display:block;color:#BF9849;text-decoration:none;font-size:12px;word-break:break-word;background:#fff;font-weight:600}
-.link-with-circle:hover{background:#f9f9f9;border-color:#008E3E}
+.link-with-circle{border:3px solid #00B050;border-radius:12px;padding:10px 12px;margin:10px 0;display:block;color:#BF9849;text-decoration:none;font-size:13px;font-weight:700;background:#fff;word-wrap:break-word}
+.link-with-circle:hover{background:#f9f9f9;border-color:#008E3E;text-decoration:underline}
 .input-wrap{padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
 .input{display:flex;gap:8px}
 .input input{flex:1;padding:10px 12px;border-radius:10px;border:1px solid #cfd9e3}
@@ -460,6 +460,24 @@ function searchField(field,q){
 // ---------- TRANSLATION + AI SUMMARY ----------
 async function translateText(text,targetLang){try{const sourceLang=isArabic(text)?"ar":"en";if(sourceLang===targetLang)return text;const url=`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceLang}|${targetLang}`,response=await fetch(url),data=await response.json();if(data.responseData&&data.responseData.translatedText)return data.responseData.translatedText;throw new Error("Translation failed")}catch(error){console.error("Translation error:",error);return null}}
 async function translateRecord(recordId,field,button){const book=INDEX.find(b=>b.id===recordId);if(!book)return;const text=book.raw[field];if(!text)return;button.textContent="⏳";button.disabled=true;const targetLang=isArabic(text)?"en":"ar",translated=await translateText(text,targetLang);if(translated){const div=document.createElement("div");div.className="translated";div.innerHTML=`<strong>${isArabic(translated)?"الترجمة:":"Translation:"}</strong> ${translated}`;button.parentElement.appendChild(div);button.remove()}else{button.textContent="🌐";button.disabled=false}}
+
+function extractEntityName(url){
+  if(!url)return"Link";
+  try{
+    const urlObj=new URL(url);
+    const hostname=urlObj.hostname.replace("www.","");
+    const parts=hostname.split(".");
+    if(parts[0]==="mod")return"UAE Ministry of Defense";
+    if(parts[0]==="mofa")return"UAE Ministry of Foreign Affairs";
+    if(hostname.includes("gov.ae")){
+      const name=parts[0].toUpperCase();
+      return name+" (UAE Government)";
+    }
+    return hostname;
+  }catch(e){
+    return url.substring(0,50)+"...";
+  }
+}
 async function getAISummary(query,matchedBooks){
   if(matchedBooks.length===0)return null;
   try{
@@ -514,12 +532,12 @@ function renderChunk(items){
            <b style="font-size:15px;line-height:1.4;word-break:break-word">${r.title||"(بدون عنوان)"}</b>
            ${itemTypeBadge}
          </div>
-         ${r.book_url?`<a class="link-with-circle" href="${r.book_url}" target="_blank">${r.book_url}</a>`:''}
+         ${r.book_url?`<a class="link-with-circle" href="${r.book_url}" target="_blank" title="${r.book_url}">${extractEntityName(r.book_url)}</a>`:''}
        </div>
        ${authors?`<div class="meta">${isArabic(authors)?"المؤلف: ":"Author: "}${authors}</div>`:""}
        ${r.subject?`<div class="meta">${isArabic(r.subject)?"الموضوع: ":"Subject: "}${r.subject}</div>`:""}
        ${pubLine?`<div class="meta">${pubLine}</div>`:""}
-       ${r.summary?`<div style="margin-top:6px;font-size:13px">${r.summary.length>300?r.summary.slice(0,297)+"…":r.summary}</div>`:""}`;
+       ${r.summary?`<div style="margin-top:6px;font-size:13px">${r.summary.length>300?r.summary.slice(0,297)+"…":r.summary}</div>":""}`;
     frag.appendChild(div)
   }
   body.appendChild(frag)
