@@ -434,15 +434,19 @@ LIBRARY BOOKS:
 ${bookContext}
 ${webContext}
 
-RULES:
-1. For book info → cite [1], [2], [3]
-2. For web info → create markdown links: [text](url) using ONLY URLs from "VERIFIED WEB LINKS"
+CRITICAL RULES:
+1. For book info → cite as [1], [2], [3] ONLY
+2. For web info → use ONLY this format: [نص الرابط](url) - NO HTML, NO <a> tags
 3. Answer in ${isArabic ? 'Arabic' : 'English'}
+4. NEVER use HTML tags like <a href=...>, use [text](url) format only
 
-Example:
+CORRECT Example:
 "الشيخ زايد [كان مؤسس دولة الإمارات](https://wam.ae/actual-url) وفقاً لوكالة أنباء الإمارات [1]."
 
-Answer now:`;
+WRONG - DO NOT DO THIS:
+"الشيخ زايد <a href='...'>...</a> ❌"
+
+Answer now in markdown format only:`;
 
       answer = await callOpenAI(
         [{ role: 'user', content: prompt }],
