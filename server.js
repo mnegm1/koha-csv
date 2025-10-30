@@ -265,7 +265,7 @@ function norm(s) {
     .replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\s+/g,' ').trim();
 }
 
-/* ========= /api/understand-query - SMART ANALYZER ========= */
+/* ========= /api/understand-query ========= */
 app.post('/api/understand-query', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
   if (!checkRateLimit(ip)) {
@@ -276,90 +276,13 @@ app.post('/api/understand-query', async (req, res) => {
     const { query } = req.body || {};
     if (!query) return res.status(400).json({ error: 'Query required' });
 
-    console.log(`\n🔍 Analyzing query: "${query}"`);
-
-    const isArabic = /[\u0600-\u06FF]/.test(query);
-
-    const systemPrompt = `You are a library search expert. Analyze the search query and determine which database fields to search.
-
-AVAILABLE FIELDS:
-- author (author name)
-- title (book title)
-- subject (book topic/subject)
-- summary (book description/content)
-- publisher (publisher name)
-- publisher_location (city/country where published)
-- year (publication year)
-
-QUERY TYPES:
-1. PERSON NAME → Search: author, title, subject
-2. PLACE/LOCATION → Search: publisher_location, subject, title, summary
-3. TOPIC/SUBJECT → Search: subject, title, summary
-4. BOOK TITLE → Search: title, subject
-5. ORGANIZATION → Search: publisher, author, subject
-6. YEAR/DATE → Search: year, title, subject
-
-Respond with JSON only.`;
-
-    const userPrompt = `Query: "${query}"
-
-Analyze this query and determine:
-1. What TYPE is it? (person, place, topic, title, organization, year)
-2. Which FIELDS should be searched?
-3. What are the KEY TERMS?
-
-Respond in JSON format:
-{
-  "queryType": "person|place|topic|title|organization|year",
-  "searchFields": ["field1", "field2", ...],
-  "keyTerms": ["term1", "term2", ...],
-  "reasoning": "brief explanation"
-}`;
-
-    const aiResponse = await callOpenAI(
-      [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      OPENAI_MODEL,
-      { temperature: 0.1, max_tokens: 500 }
-    );
-
-    let analysis;
-    try {
-      // Try to parse JSON from response
-      const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        analysis = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error('No JSON found');
-      }
-    } catch (e) {
-      console.log('⚠️ Failed to parse AI response, using defaults');
-      analysis = {
-        queryType: 'topic',
-        searchFields: ['title', 'subject', 'summary'],
-        keyTerms: [query],
-        reasoning: 'Default search'
-      };
-    }
-
-    console.log(`📊 Query type: ${analysis.queryType}`);
-    console.log(`📋 Search fields: ${analysis.searchFields.join(', ')}`);
-    console.log(`🔑 Key terms: ${analysis.keyTerms.join(', ')}`);
-    console.log(`💡 Reasoning: ${analysis.reasoning}\n`);
-
-    // Map to frontend format
     res.json({
-      intent: analysis.queryType,
-      field: analysis.searchFields[0] || 'default', // Primary field
-      searchFields: analysis.searchFields, // All fields to search
-      keyTerms: analysis.keyTerms,
-      reasoning: analysis.reasoning
+      intent: 'question',
+      field: 'default',
+      keyTerms: [],
+      reasoning: 'Processing query'
     });
-
   } catch (err) {
-    console.error('❌ Query analysis error:', err);
     res.status(500).json({ error: 'Error', details: err.message });
   }
 });
