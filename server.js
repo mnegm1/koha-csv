@@ -1,10 +1,10 @@
 // backend/server.js
-// ECSSR AI Assistant – v15.3 - ULTIMATE FIX
-// - Saves verified URLs BEFORE parsing Perplexity response
-// - Handles parse errors gracefully
-// - URLs won't be lost even if response parsing fails
+// ECSSR AI Assistant — v10.0 - Dual Sources with Proper Attribution
+// - Library books cited as [1][2][3]
+// - UAE websites mentioned in text with links
+// - Proper intellectual property protection
 
-const CODE_VERSION = "ecssr-backend-v15.3-ultimate-fix";
+const CODE_VERSION = "ecssr-backend-v10.0-dual-sources";
 
 const express = require('express');
 const cors = require('cors');
@@ -16,10 +16,6 @@ const PORT = process.env.PORT || 3000;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'sk-YOUR-API-KEY-HERE';
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
-
-const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY || '';
-const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
-const PERPLEXITY_MODEL = 'sonar-pro';
 
 app.set('trust proxy', true);
 app.use(cors());
@@ -39,102 +35,13 @@ function checkRateLimit(ip) {
   return true;
 }
 
-/* ========= URL Validation ========= */
-function isValidUrl(urlString) {
-  try {
-    const url = new URL(urlString);
-    if (!['http:', 'https:'].includes(url.protocol)) return false;
-    if (!url.hostname || url.hostname.length < 3) return false;
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function cleanUrl(url) {
-  try {
-    url = url.trim();
-    if (isValidUrl(url)) return url;
-    try {
-      url = decodeURIComponent(url);
-      if (isValidUrl(url)) return url;
-    } catch (e) {}
-    return url;
-  } catch {
-    return url;
-  }
-}
-
-/* ========= Verify URL - Simplified ========= */
-async function verifyURL(url) {
-  try {
-    url = cleanUrl(url);
-    if (!isValidUrl(url)) return false;
-    
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000); // Faster: 6s
-    
-    const response = await fetch(url, {
-      method: 'HEAD',
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': '*/*',
-        'Connection': 'close'  // Important: close connection immediately
-      }
-    });
-    
-    clearTimeout(timeout);
-    
-    if (response.ok || (response.status >= 300 && response.status < 400)) {
-      console.log(`✅ Valid (${response.status}): ${url.substring(0, 60)}...`);
-      return true;
-    }
-    
-    return false;
-  } catch (error) {
-    // For UAE sites, assume valid on error (firewall/timeout issues)
-    if (url.includes('.ae')) {
-      console.log(`⚠️ Assuming UAE site valid: ${url.substring(0, 60)}...`);
-      return true;
-    }
-    return false;
-  }
-}
-
-/* ========= Verify multiple URLs - Fast batch processing ========= */
-async function verifyURLs(urls) {
-  if (!urls || urls.length === 0) return [];
-  
-  console.log(`🔍 Quick-verifying ${urls.length} URLs...`);
-  
-  const cleanedUrls = urls
-    .map(url => cleanUrl(url))
-    .filter(url => isValidUrl(url))
-    .slice(0, 10); // Limit to 10 for speed
-  
-  // Verify all in parallel (faster)
-  const results = await Promise.allSettled(
-    cleanedUrls.map(url => verifyURL(url).then(valid => ({ url, valid })))
-  );
-  
-  const validUrls = results
-    .filter(r => r.status === 'fulfilled' && r.value.valid)
-    .map(r => r.value.url);
-  
-  console.log(`✅ Quick-verified: ${validUrls.length}/${cleanedUrls.length}`);
-  
-  return validUrls;
-}
-
-/* ========= OpenAI ========= */
+/* ========= OpenAI wrapper ========= */
 async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
   const requestBody = {
     model,
     messages,
     temperature: options.temperature || 0.1,
-    max_tokens: options.max_tokens || 2000,
+    max_tokens: options.max_tokens || 1500,
   };
 
   const resp = await fetch(OPENAI_URL, {
@@ -148,174 +55,11 @@ async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
 
   if (!resp.ok) {
     const txt = await resp.text();
-    throw new Error(`OpenAI error: ${resp.status}`);
+    throw new Error(`OpenAI API error: ${resp.status} - ${txt}`);
   }
 
   const data = await resp.json();
   return (data.choices && data.choices[0]?.message?.content) || '';
-}
-
-/* ========= CRITICAL FIX: Get citations BEFORE trying to parse response ========= */
-async function extractCitationsBeforeParsing(response) {
-  try {
-    // Get raw text first
-    const rawText = await response.text();
-    console.log(`📄 Raw response length: ${rawText.length} chars`);
-    
-    // Try to parse JSON
-    let data;
-    try {
-      data = JSON.parse(rawText);
-    } catch (parseError) {
-      console.log(`⚠️ JSON parse failed, trying to extract citations manually...`);
-      
-      // Extract citations from raw text using regex
-      const citationMatches = rawText.match(/"citations":\s*\[(.*?)\]/s);
-      if (citationMatches) {
-        try {
-          const citationsJson = `{"citations":[${citationMatches[1]}]}`;
-          const parsed = JSON.parse(citationsJson);
-          console.log(`✅ Extracted ${parsed.citations.length} citations from raw text`);
-          return { citations: parsed.citations, answer: '' };
-        } catch (e) {
-          console.log(`❌ Failed to extract citations`);
-        }
-      }
-      
-      return { citations: [], answer: '' };
-    }
-    
-    // Successfully parsed JSON
-    const answer = data.choices?.[0]?.message?.content || '';
-    const citations = data.citations || [];
-    
-    console.log(`✅ Parsed successfully: ${citations.length} citations`);
-    
-    return { citations, answer };
-  } catch (error) {
-    console.log(`❌ Extract error: ${error.message}`);
-    return { citations: [], answer: '' };
-  }
-}
-
-/* ========= REDESIGNED: Perplexity with better error handling ========= */
-async function searchWithPerplexity(query) {
-  if (!PERPLEXITY_API_KEY) {
-    console.log('⚠️ No Perplexity key');
-    return { answer: '', citations: [] };
-  }
-  
-  try {
-    const isArabic = /[\u0600-\u06FF]/.test(query);
-    
-    const searchQuery = isArabic 
-      ? `ابحث في المواقع الرسمية الإماراتية (.ae) عن: ${query}`
-      : `Search official UAE (.ae) websites for: ${query}`;
-
-    console.log(`🌐 Perplexity: "${searchQuery.substring(0, 80)}..."`);
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000); // 20s timeout
-
-    const response = await fetch(PERPLEXITY_URL, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Authorization': `Bearer ${PERPLEXITY_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: PERPLEXITY_MODEL,
-        messages: [{ role: 'user', content: searchQuery }],
-        temperature: 0.1,
-        max_tokens: 1500,
-        return_citations: true
-      })
-    });
-
-    clearTimeout(timeout);
-
-    console.log(`📥 Status: ${response.status}`);
-
-    if (!response.ok) {
-      // Try fallback model
-      if (response.status === 400) {
-        console.log(`🔄 Trying 'sonar' model...`);
-        const fallbackResponse = await fetch(PERPLEXITY_URL, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${PERPLEXITY_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'sonar',
-            messages: [{ role: 'user', content: searchQuery }],
-            temperature: 0.1,
-            max_tokens: 1500,
-            return_citations: true
-          })
-        });
-        
-        if (fallbackResponse.ok) {
-          const result = await extractCitationsBeforeParsing(fallbackResponse);
-          return await processCitations(result);
-        }
-      }
-      
-      console.log(`❌ Perplexity failed: ${response.status}`);
-      return { answer: '', citations: [] };
-    }
-
-    // CRITICAL: Extract citations using safer method
-    const result = await extractCitationsBeforeParsing(response);
-    return await processCitations(result);
-    
-  } catch (error) {
-    console.error(`❌ Perplexity error: ${error.message}`);
-    return { answer: '', citations: [] };
-  }
-}
-
-/* ========= Process and verify citations ========= */
-async function processCitations(result) {
-  try {
-    let { citations, answer } = result;
-    
-    if (!citations || citations.length === 0) {
-      console.log('⚠️ No citations');
-      return { answer: '', citations: [] };
-    }
-    
-    console.log(`📚 Raw citations: ${citations.length}`);
-    
-    // Filter UAE only
-    const uaeCitations = citations.filter(url => {
-      const cleaned = cleanUrl(url);
-      return cleaned.includes('.ae');
-    });
-    
-    console.log(`🇦🇪 UAE citations: ${uaeCitations.length}`);
-    
-    if (uaeCitations.length === 0) {
-      return { answer: '', citations: [] };
-    }
-    
-    // Verify URLs
-    console.log('🔍 Verifying URLs...');
-    const validUrls = await verifyURLs(uaeCitations);
-    
-    console.log(`✅ Final verified URLs: ${validUrls.length}`);
-    
-    // Return verified URLs even if empty
-    return {
-      answer: answer || '',
-      citations: validUrls
-    };
-    
-  } catch (error) {
-    console.error(`❌ Process error: ${error.message}`);
-    return { answer: '', citations: [] };
-  }
 }
 
 /* ========= Normalization ========= */
@@ -347,14 +91,14 @@ app.post('/api/understand-query', async (req, res) => {
       intent: 'question',
       field: 'default',
       keyTerms: [],
-      reasoning: 'Processing'
+      reasoning: 'Processing query'
     });
   } catch (err) {
     res.status(500).json({ error: 'Error', details: err.message });
   }
 });
 
-/* ========= /api/chat - ULTIMATE FIX ========= */
+/* ========= /api/chat - DUAL SOURCES ========= */
 app.post('/api/chat', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
   if (!checkRateLimit(ip)) {
@@ -362,133 +106,176 @@ app.post('/api/chat', async (req, res) => {
   }
 
   try {
-    const { query, books } = req.body || {};
+    const { query, books, searchField } = req.body || {};
     if (!query) return res.status(400).json({ error: 'Query required' });
 
     const safeBooks = (Array.isArray(books) ? books : [])
       .filter(b => b && typeof b === 'object')
       .slice(0, 30);
 
-    console.log(`\n${'='.repeat(60)}`);
-    console.log(`📚 Query: "${query.substring(0, 100)}"`);
-    console.log(`📚 Books: ${safeBooks.length}`);
-    console.log(`${'='.repeat(60)}`);
+    console.log(`📚 Query: "${query}"`);
+    console.log(`📚 Number of books: ${safeBooks.length}`);
+    console.log(`📚 Search field: ${searchField}`);
 
     let answer = '';
     let bookIds = [];
-    let webSources = [];
     let answerSource = 'library';
+    let uaeSources = [];
 
+    // If we have books, use them WITH UAE website references
     if (safeBooks.length > 0) {
       
-      // Book context
-      const bookContext = safeBooks.map((b, i) => 
-        `[${i+1}] ${b.title || 'Untitled'} by ${b.author || 'Unknown'}\n${(b.summary || '').substring(0, 400)}`
-      ).join('\n\n');
-
-      // CRITICAL: Get web results with new safer method
-      console.log('🌐 Starting web search...');
-      let webResults = { answer: '', citations: [] };
-      
-      try {
-        webResults = await searchWithPerplexity(query);
-        console.log(`📊 Got ${webResults.citations.length} verified citations`);
-      } catch (error) {
-        console.log(`⚠️ Search failed: ${error.message}`);
-        webResults = { answer: '', citations: [] };
-      }
-      
-      // ALWAYS assign webSources
-      webSources = webResults.citations || [];
-      
-      console.log(`✅ Web sources to use: ${webSources.length}`);
-      
-      let webContext = '';
-      if (webSources.length > 0) {
-        webContext = `\n\nVERIFIED UAE WEB SOURCES:\n${webSources.map((url, i) => `[W${i+1}] ${url}`).join('\n')}`;
-      }
+      // Build book sources with clear numbering
+      const bookSources = safeBooks.map((b, i) => {
+        const num = i + 1;
+        const title = (b.title || 'Untitled').toString();
+        const author = (b.author || 'Unknown').toString();
+        const summary = (b.summary || '').toString().substring(0, 400);
+        const subject = (b.subject || '').toString();
+        
+        return `SOURCE [${num}]:
+Author: ${author}
+Title: ${title}
+Subject: ${subject}
+Summary: ${summary}`;
+      }).join('\n\n---\n\n');
 
       const isArabic = /[\u0600-\u06FF]/.test(query);
 
-      const prompt = `Answer this question: "${query}"
+      const systemPrompt = `You are a library assistant that provides comprehensive answers using BOTH library books AND official UAE (.ae) websites.
 
-LIBRARY BOOKS:
-${bookContext}
-${webContext}
+CITATION RULES:
+1. For information from library books → Use [1], [2], [3] numbers
+2. For information from UAE websites → Mention the website in text
 
-RULES:
-1. Use books - cite as [1], [2], [3]
-2. If web sources given, create markdown links: [text](url)
-3. Answer in ${isArabic ? 'Arabic' : 'English'}
-4. Be thorough but concise
+CRITICAL INSTRUCTIONS:
+- When citing library books, use [1], [2], [3] immediately after the information
+- When referencing UAE websites, write it in the text like:
+  ${isArabic ? '• "وفقاً لوكالة أنباء الإمارات (wam.ae)..."' : '• "According to Emirates News Agency (wam.ae)..."'}
+  ${isArabic ? '• "حسب البوابة الرسمية لحكومة الإمارات (government.ae)..."' : '• "According to UAE Government Portal (government.ae)..."'}
+  ${isArabic ? '• "بحسب وزارة التربية والتعليم (moe.gov.ae)..."' : '• "According to Ministry of Education (moe.gov.ae)..."'}
 
-Answer:`;
+AUTHORIZED UAE WEBSITES:
+- government.ae (UAE Government Portal)
+- wam.ae (Emirates News Agency)
+- uae.gov.ae (UAE Official Portal)
+- moe.gov.ae (Ministry of Education)
+- mohesr.gov.ae (Ministry of Higher Education)
+
+FORBIDDEN: Wikipedia, BBC, Reuters, Al Jazeera, CNN, any non-.ae sources
+
+YOU MUST:
+- Combine library book information with UAE website information
+- Cite books with [numbers]
+- Mention UAE websites by name in the text
+- Provide comprehensive answers using both sources`;
+
+      const userPrompt = `USER QUERY: "${query}"
+SEARCH FIELD: ${searchField}
+
+LIBRARY SOURCES AVAILABLE:
+${bookSources}
+
+INSTRUCTIONS:
+1. Answer the question using the library sources above AND your knowledge of UAE official websites
+2. For book information: cite with [1], [2], [3]
+3. For UAE website information: mention the website name in text like "${isArabic ? 'وفقاً لـ wam.ae' : 'according to wam.ae'}"
+4. Provide a comprehensive answer combining both sources
+5. Answer in ${isArabic ? 'Arabic' : 'English'}
+
+Example format:
+"${isArabic 
+  ? 'كتب محمد بن راشد العديد من الكتب [1][2]. وفقاً لوكالة أنباء الإمارات (wam.ae)، يعتبر من أبرز القادة. تتناول كتبه موضوعات القيادة [1] والتنمية [3].' 
+  : 'Mohammed bin Rashid wrote many books [1][2]. According to Emirates News Agency (wam.ae), he is a prominent leader. His books cover leadership [1] and development [3].'}"
+
+Answer now with BOTH book citations [1][2][3] AND UAE website mentions:`;
 
       answer = await callOpenAI(
-        [{ role: 'user', content: prompt }],
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
         OPENAI_MODEL,
-        { temperature: 0.1, max_tokens: 2500 }
+        { temperature: 0.1, max_tokens: 1500 }
       );
 
-      // Extract book citations
-      const matches = answer.match(/\[(\d+)\]/g);
-      if (matches) {
-        bookIds = [...new Set(matches.map(m => parseInt(m.replace(/[\[\]]/g, ''))))]
-          .filter(n => n > 0 && n <= safeBooks.length)
-          .sort((a,b) => a-b);
+      console.log(`📝 AI answer: ${answer}`);
+
+      // Extract book citations [1], [2], [3]
+      const citationMatches = answer.match(/\[(\d+)\]/g);
+      if (citationMatches) {
+        const uniqueIds = new Set();
+        citationMatches.forEach(match => {
+          const num = parseInt(match.replace(/[\[\]]/g, ''));
+          if (num > 0 && num <= safeBooks.length) {
+            uniqueIds.add(num);
+          }
+        });
+        bookIds = Array.from(uniqueIds).sort((a, b) => a - b);
       }
 
-      console.log(`✅ Books: ${bookIds.join(', ') || 'none'}`);
-      console.log(`✅ Web: ${webSources.length}`);
+      // Extract UAE website mentions
+      const uaeWebsites = ['wam.ae', 'government.ae', 'uae.gov.ae', 'moe.gov.ae', 'mohesr.gov.ae'];
+      uaeWebsites.forEach(site => {
+        if (answer.toLowerCase().includes(site)) {
+          uaeSources.push(site);
+        }
+      });
 
-      answerSource = webSources.length > 0 ? 'dual' : 'library';
+      console.log(`✅ Book citations: ${bookIds.join(', ')}`);
+      console.log(`✅ UAE sources mentioned: ${uaeSources.join(', ')}`);
+
+      answerSource = 'dual'; // Both library and web
       
-    } else {
-      // Web only
-      console.log('🌐 Web-only search...');
-      let webResults = { answer: '', citations: [] };
+    } 
+    // No books - use AI knowledge only
+    else {
+      const isArabic = /[\u0600-\u06FF]/.test(query);
       
-      try {
-        webResults = await searchWithPerplexity(query);
-      } catch (error) {
-        console.log(`⚠️ Search error: ${error.message}`);
-      }
-      
-      if (webResults.citations && webResults.citations.length > 0) {
-        webSources = webResults.citations;
-        answer = webResults.answer || 'Information from web sources';
-        answerSource = 'web';
-      } else {
-        answer = 'عذراً، لم أتمكن من العثور على معلومات.';
-        answerSource = 'none';
-      }
+      const systemPrompt = `You are a UAE information assistant. Provide answers based on UAE official websites.
+
+When mentioning information, cite the UAE website source in your text like:
+${isArabic ? '- "وفقاً لوكالة أنباء الإمارات (wam.ae)..."' : '- "According to Emirates News Agency (wam.ae)..."'}
+${isArabic ? '- "حسب حكومة الإمارات (government.ae)..."' : '- "According to UAE Government (government.ae)..."'}
+
+ONLY use: wam.ae, government.ae, uae.gov.ae, moe.gov.ae
+NEVER use: Wikipedia, BBC, Reuters, non-.ae sources`;
+
+      const userPrompt = `Query: "${query}"
+
+Answer in ${isArabic ? 'Arabic' : 'English'} (3-5 sentences). Mention UAE website sources in your text.`;
+
+      answer = await callOpenAI(
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        OPENAI_MODEL,
+        { temperature: 0.2, max_tokens: 600 }
+      );
+
+      // Extract UAE sources
+      const uaeWebsites = ['wam.ae', 'government.ae', 'uae.gov.ae', 'moe.gov.ae'];
+      uaeWebsites.forEach(site => {
+        if (answer.toLowerCase().includes(site)) {
+          uaeSources.push(site);
+        }
+      });
+
+      answerSource = 'ai_knowledge';
+      bookIds = [];
     }
-
-    // Final logging
-    console.log(`\n📤 RESPONSE:`);
-    console.log(`   Answer: ${answer.length} chars`);
-    console.log(`   Books: ${bookIds.length}`);
-    console.log(`   Web: ${webSources.length} URLs`);
-    console.log(`   Type: ${answerSource}`);
-    console.log(`${'='.repeat(60)}\n`);
 
     res.json({ 
       answer, 
       bookIds,
-      webSources,
-      source: answerSource
+      source: answerSource,
+      uaeSources: uaeSources
     });
     
   } catch (err) {
-    console.error('❌ Error:', err);
-    res.status(500).json({ 
-      error: 'Error', 
-      details: err.message,
-      answer: 'عذراً، حدث خطأ.',
-      bookIds: [],
-      webSources: [],
-      source: 'error'
-    });
+    console.error('❌ Chat error:', err);
+    res.status(500).json({ error: 'Error', details: err.message });
   }
 });
 
@@ -506,35 +293,25 @@ app.post('/api/enhance-search', async (req, res) => {
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    version: CODE_VERSION,
-    features: [
-      'ULTIMATE FIX: Saves URLs before parsing',
-      'Parse error resistant',
-      'Fast verification (6s timeout)',
-      'Parallel URL checking',
-      'Citations extracted safely'
-    ]
+    codeVersion: CODE_VERSION,
+    aiProvider: 'OpenAI',
+    openaiConfigured: !!OPENAI_API_KEY && OPENAI_API_KEY !== 'sk-YOUR-API-KEY-HERE',
+    modelVersion: OPENAI_MODEL,
+    features: 'Dual Sources • Library Books [1][2][3] • UAE Websites in Text',
   });
 });
 
-/* ========= Error handler ========= */
+/* ========= Error ========= */
 app.use((err, req, res, next) => {
-  console.error('❌ Error:', err);
+  console.error('Error:', err);
   res.status(500).json({ error: 'Error' });
 });
 
 /* ========= Start ========= */
 app.listen(PORT, () => {
-  console.log(`\n${'='.repeat(60)}`);
-  console.log(`🚀 ECSSR Backend Server`);
-  console.log(`📍 Port: ${PORT}`);
-  console.log(`📖 Version: ${CODE_VERSION}`);
-  console.log(`${'='.repeat(60)}`);
-  console.log(`✅ ULTIMATE FIX Applied:`);
-  console.log(`   * Citations saved BEFORE response parsing`);
-  console.log(`   * Parse errors won't lose URLs`);
-  console.log(`   * Faster verification (6s)`);
-  console.log(`   * Parallel processing`);
-  console.log(`   * Regex fallback for citations`);
-  console.log(`${'='.repeat(60)}\n`);
+  console.log(`🚀 ECSSR AI Backend http://localhost:${PORT}`);
+  console.log(`🔖 Version: ${CODE_VERSION}`);
+  console.log(`📚 Library books → Cited as [1][2][3]`);
+  console.log(`🌐 UAE websites → Mentioned in text with links`);
+  console.log(`✅ Dual source attribution for IP protection`);
 });
