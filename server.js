@@ -306,12 +306,20 @@ Respond with JSON only.`;
 Analyze this query and determine:
 1. What TYPE is it? (person, place, topic, title, organization, year)
 2. Which FIELDS should be searched?
-3. What are the KEY TERMS? (extract ONLY the main search terms, remove filler words)
+3. What are the KEY TERMS? (extract ONLY the essential search terms, remove ALL filler words)
 
-IMPORTANT FOR KEY TERMS:
-- For "كتب محمد بن راشد" → keyTerms: ["محمد بن راشد"] (remove "كتب")
-- For "books about Al Ain" → keyTerms: ["Al Ain"] (remove "books about")
-- For "ما هو التراث" → keyTerms: ["التراث"] (remove "ما هو")
+CRITICAL - REMOVE THESE FILLER WORDS:
+Arabic: كتب، كتاب، عن، في، من، إلى، ما، هو، ماهو، ماذا، المؤلف، المشارك، المؤلفين
+English: books, book, about, by, what, is, author, authors, co-author
+
+EXAMPLES:
+- "كتب محمد بن راشد" → keyTerms: ["محمد بن راشد"]
+- "الشيخ زايد المؤلف المشارك" → keyTerms: ["الشيخ زايد"]
+- "books about Al Ain" → keyTerms: ["Al Ain"]
+- "ما هو التراث" → keyTerms: ["التراث"]
+- "المؤلف محمد" → keyTerms: ["محمد"]
+
+Extract ONLY the name/place/topic, nothing else!
 
 Respond in JSON format:
 {
