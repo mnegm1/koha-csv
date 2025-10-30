@@ -176,11 +176,51 @@ async function chooseFieldSmart(q){
     return "pub";
   }
   if(looksLikeYear(raw)){
+    MATCH_NOTE="Year detected";
     return "year";
   }
   
-  // Use FAST rule-based logic (no API call needed)
-  return chooseField(raw);
+  // Call AI-powered backend for smart analysis
+  try {
+    console.log(`🤖 Asking AI to analyze: "${raw}"`);
+    
+    const response = await fetch(`${BACKEND_URL}/understand-query`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({query: raw})
+    });
+    
+    if(!response.ok) throw new Error('AI analysis failed');
+    
+    const analysis = await response.json();
+    console.log('📊 AI analysis:', analysis);
+    
+    // Map AI analysis to search fields
+    const queryType = analysis.intent || analysis.queryType;
+    const searchFields = analysis.searchFields || [];
+    
+    if (queryType === 'person' || (searchFields.includes('author') && !searchFields.includes('publisher_location'))) {
+      MATCH_NOTE = `AI: Person/Author → ${searchFields.join(', ')}`;
+      return 'author';
+    } else if (queryType === 'place' || searchFields.includes('publisher_location')) {
+      MATCH_NOTE = `AI: Place/Location → searching in title, subject, summary`;
+      return 'subject'; // Search broadly for places
+    } else if (queryType === 'title' || (searchFields.includes('title') && searchFields.length === 1)) {
+      MATCH_NOTE = `AI: Book title → ${searchFields.join(', ')}`;
+      return 'title';
+    } else if (searchFields.includes('subject')) {
+      MATCH_NOTE = `AI: Topic/Subject → ${searchFields.join(', ')}`;
+      return 'subject';
+    } else {
+      MATCH_NOTE = `AI: General search → ${searchFields.join(', ')}`;
+      return 'default';
+    }
+    
+  } catch (error) {
+    console.error('⚠️ AI analysis failed, using fallback:', error);
+    // Fallback to rule-based logic
+    return chooseField(raw);
+  }
 }
 
 // ---------- FIELD CHOOSER (rule-based) ----------
@@ -342,7 +382,7 @@ async function getAISummary(query,matchedBooks){
       answer: data.answer, 
       bookIds: data.bookIds || [],
       source: data.source || 'library',
-      uaeSources: data.uaeSources || []
+      webSources: data.webSources || [] // {url, title, domain}
     };
   }catch(error){
     console.error("AI summary error:",error);
@@ -466,10 +506,19 @@ async function renderAll(list,field,query){
   body.appendChild(aiSummaryDiv);
   
   getAISummary(query,list.slice(0,20)).then(result=>{
+    console.log('🔍 AI Summary result:', result);
+    
     if(result && result.answer){
+      console.log('✅ AI answer received:', result.answer.substring(0, 100));
+      
       let answerWithLinks = result.answer;
       
-      // Convert markdown to HTML
+      // FIRST: Convert markdown links [text](url) to HTML links
+      answerWithLinks = answerWithLinks.replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, (match, text, url) => {
+        return `<a href="${url}" target="_blank" style="color:#0066cc;text-decoration:none;border-bottom:1px solid #0066cc;font-weight:600" title="${url}">${text}</a>`;
+      });
+      
+      // THEN: Convert other markdown to HTML
       answerWithLinks = answerWithLinks
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
         .replace(/\*(.*?)\*/g, '<em>$1</em>')
@@ -524,30 +573,46 @@ async function renderAll(list,field,query){
         aiSummaryDiv.after(bookSourcesDiv);
       }
       
-      // Add UAE sources section if available
-      if(result.uaeSources && result.uaeSources.length > 0){
-        const uaeSourcesDiv = document.createElement("div");
-        uaeSourcesDiv.style.cssText = "margin-top:15px;padding:15px;background:#e8f4f8;border-left:4px solid #BF9849;border-radius:8px";
+      // Add WEB sources section if available (with REAL LINKS for verification)
+      if(result.webSources && result.webSources.length > 0){
+        const webSourcesDiv = document.createElement("div");
+        webSourcesDiv.style.cssText = "margin-top:15px;padding:15px;background:#e8f4f8;border-left:4px solid #BF9849;border-radius:8px";
         
-        let uaeHTML = '<div style="font-weight:700;color:#BF9849;margin-bottom:10px;font-size:14px">🇦🇪 المواقع الإماراتية المشار إليها / UAE Websites Referenced:</div>';
+        let webHTML = '<div style="font-weight:700;color:#BF9849;margin-bottom:10px;font-size:14px">🌐 مصادر المواقع الإماراتية المستخدمة / UAE Web Sources Used:</div>';
+        webHTML += '<div style="font-size:12px;color:#666;margin-bottom:10px">✅ جميع المصادر قابلة للتحقق - انقر للتأكد / All sources verifiable - click to verify</div>';
         
-        const siteNames = {
-          'wam.ae': 'وكالة أنباء الإمارات / Emirates News Agency',
-          'government.ae': 'البوابة الرسمية لحكومة الإمارات / UAE Government Portal',
-          'uae.gov.ae': 'البوابة الرسمية لدولة الإمارات / UAE Official Portal',
-          'moe.gov.ae': 'وزارة التربية والتعليم / Ministry of Education',
-          'mohesr.gov.ae': 'وزارة التعليم العالي / Ministry of Higher Education'
-        };
-        
-        result.uaeSources.forEach(site => {
-          const siteName = siteNames[site] || site;
-          uaeHTML += `<div style="margin-bottom:8px">`;
-          uaeHTML += `• <a href="https://${site}" target="_blank" style="color:#BF9849;font-weight:600;text-decoration:none">${site}</a> - ${siteName}`;
-          uaeHTML += `</div>`;
+        result.webSources.forEach((source, idx) => {
+          // Handle both string URLs and object format
+          let url, domain, title;
+          
+          if (typeof source === 'string') {
+            // Backend sent just URL string
+            url = source;
+            try {
+              const urlObj = new URL(url);
+              domain = urlObj.hostname;
+              title = url.length > 80 ? url.substring(0, 77) + '...' : url;
+            } catch {
+              domain = 'UAE Source';
+              title = url;
+            }
+          } else {
+            // Backend sent object with domain, title, url
+            url = source.url || '#';
+            domain = source.domain || 'UAE Source';
+            title = source.title || url;
+          }
+          
+          webHTML += `<div style="margin-bottom:10px;padding:10px;background:white;border-radius:5px;border:1px solid #ddd">`;
+          webHTML += `<div style="font-weight:600;color:#BF9849;margin-bottom:5px">${domain}</div>`;
+          webHTML += `<div style="font-size:11px;color:#666;margin-bottom:5px;word-break:break-all">${title}</div>`;
+          webHTML += `<a href="${url}" target="_blank" style="color:#BF9849;font-size:12px;text-decoration:none;font-weight:600">`;
+          webHTML += `🔗 التحقق من المصدر / Verify Source →</a>`;
+          webHTML += `</div>`;
         });
         
-        uaeSourcesDiv.innerHTML = uaeHTML;
-        aiSummaryDiv.after(uaeSourcesDiv);
+        webSourcesDiv.innerHTML = webHTML;
+        aiSummaryDiv.after(webSourcesDiv);
       }
       
       // Add Disclaimer note after AI summary with correct terminology
@@ -559,9 +624,14 @@ async function renderAll(list,field,query){
       sourceNote.innerHTML="<strong>📚 إخلاء مسؤولية معلومات الذكاء الاصطناعي:</strong> يتم إنشاء هذا الملخص تلقائيًا بواسطة تقنيات الذكاء الاصطناعي بهدف تيسير فهم المحتوى وتقديم نظرة عامة سريعة. يرجى ملاحظة أن المعلومات المولدة قد لا تكون دقيقة تمامًا أو شاملة، لذا يُنصح دائمًا بمراجعة المصدر الأصلي قبل الاعتماد عليها. ولا تتحمل المكتبة أي مسؤولية عن النتائج الصادرة عن الذكاء الاصطناعي.<br><strong>📚 AI Information Disclaimer:</strong> This summary is automatically generated using artificial intelligence technologies to provide a quick overview of the content. The information presented may not be fully accurate or complete; therefore, it is recommended to verify details from the original source before relying on them. The library assumes no responsibility for any outcomes resulting from AI-generated conten.";
       aiSummaryDiv.after(sourceNote);
     }else{
-      aiSummaryDiv.remove();
-      aiSectionHeader.remove();
+      console.error('❌ No AI result or answer:', result);
+      aiSummaryDiv.innerHTML = '⚠️ AI summary unavailable';
+      aiSummaryDiv.style.color = '#999';
     }
+  }).catch(error => {
+    console.error('❌ AI Summary error:', error);
+    aiSummaryDiv.innerHTML = '⚠️ Error generating AI summary';
+    aiSummaryDiv.style.color = '#999';
   });
 }
 
