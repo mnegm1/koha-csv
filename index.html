@@ -33,6 +33,8 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFE
 .citation-item:last-child{border-bottom:none}
 .citation-link{color:#BF9849;text-decoration:none;font-weight:600}
 .citation-link:hover{text-decoration:underline}
+.link-with-circle{border:3px solid #00B050;border-radius:12px;padding:10px 12px;margin:10px 0;display:block;color:#BF9849;text-decoration:none;font-size:12px;word-break:break-word;background:#fff;font-weight:600}
+.link-with-circle:hover{background:#f9f9f9;border-color:#008E3E}
 .input-wrap{padding:10px;background:#fafafa;border-top:1px solid #e8eef3}
 .input{display:flex;gap:8px}
 .input input{flex:1;padding:10px 12px;border-radius:10px;border:1px solid #cfd9e3}
@@ -512,7 +514,7 @@ function renderChunk(items){
            <b style="font-size:15px;line-height:1.4;word-break:break-word">${r.title||"(بدون عنوان)"}</b>
            ${itemTypeBadge}
          </div>
-         ${r.book_url?`<a class="btn" href="${r.book_url}" target="_blank" style="flex-shrink:0">Open</a>`:'<button class="btn" disabled style="flex-shrink:0">No URL</button>'}
+         ${r.book_url?`<a class="link-with-circle" href="${r.book_url}" target="_blank">${r.book_url}</a>`:''}
        </div>
        ${authors?`<div class="meta">${isArabic(authors)?"المؤلف: ":"Author: "}${authors}</div>`:""}
        ${r.subject?`<div class="meta">${isArabic(r.subject)?"الموضوع: ":"Subject: "}${r.subject}</div>`:""}
