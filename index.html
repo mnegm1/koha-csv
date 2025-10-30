@@ -214,8 +214,8 @@ function mapAnalysisToField(analysis){
   const searchFields = analysis.searchFields || [];
   
   if (queryType === 'person' || (searchFields.includes('author') && !searchFields.includes('content'))) {
-    MATCH_NOTE = `AI: Person/Author → searching broadly in title, subject, author`;
-    return 'default'; // Use default for broad search (like old system)
+    MATCH_NOTE = `AI: Person/Author → author, co-author fields ONLY`;
+    return 'author'; // ✅ Author field only - like OLD system!
   } else if (queryType === 'place' || searchFields.includes('content')) {
     // PLACES search in CONTENT (title, subject, summary, content)
     // NOT publisher_location!
