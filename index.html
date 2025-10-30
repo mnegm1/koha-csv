@@ -167,17 +167,16 @@ function flexibleAuthorMatch(qTokens, name){
 
 
 // ---------- FIELD CHOOSER (with AI fallback) ----------
-async function chooseFieldSmart(q){
+// Get AI analysis of the query
+async function getAIAnalysis(q){
   const raw=q.trim();
   
   // Skip AI for obvious cases (faster)
   if(/(ناشر|publisher|دار نشر|دار النشر|publishing house|press books)/i.test(raw)){
-    MATCH_NOTE="Publisher keyword → Publisher field";
-    return "pub";
+    return {queryType: 'organization', searchFields: ['publisher'], keyTerms: [raw]};
   }
   if(looksLikeYear(raw)){
-    MATCH_NOTE="Year detected";
-    return "year";
+    return {queryType: 'year', searchFields: ['year'], keyTerms: [raw]};
   }
   
   // Call AI-powered backend for smart analysis
@@ -195,34 +194,49 @@ async function chooseFieldSmart(q){
     const analysis = await response.json();
     console.log('📊 AI analysis:', analysis);
     
-    // Map AI analysis to search fields
-    const queryType = analysis.intent || analysis.queryType;
-    const searchFields = analysis.searchFields || [];
-    
-    if (queryType === 'person' || (searchFields.includes('author') && !searchFields.includes('content'))) {
-      MATCH_NOTE = `AI: Person/Author → ${searchFields.join(', ')}`;
-      return 'author';
-    } else if (queryType === 'place' || searchFields.includes('content')) {
-      // PLACES search in CONTENT (title, subject, summary, content)
-      // NOT publisher_location!
-      MATCH_NOTE = `AI: Place → title, subject, summary, content`;
-      return 'place'; // New search mode
-    } else if (queryType === 'title' || (searchFields.includes('title') && searchFields.length === 1)) {
-      MATCH_NOTE = `AI: Book title → ${searchFields.join(', ')}`;
-      return 'title';
-    } else if (searchFields.includes('subject')) {
-      MATCH_NOTE = `AI: Topic/Subject → ${searchFields.join(', ')}`;
-      return 'subject';
-    } else {
-      MATCH_NOTE = `AI: General search → ${searchFields.join(', ')}`;
-      return 'default';
-    }
+    return analysis;
     
   } catch (error) {
     console.error('⚠️ AI analysis failed, using fallback:', error);
-    // Fallback to rule-based logic
-    return chooseField(raw);
+    // Return null so we use rule-based logic
+    return null;
   }
+}
+
+// Map AI analysis to search field
+function mapAnalysisToField(analysis){
+  if (!analysis) {
+    // Fallback to rule-based logic
+    return chooseField(q.value.trim());
+  }
+  
+  const queryType = analysis.intent || analysis.queryType;
+  const searchFields = analysis.searchFields || [];
+  
+  if (queryType === 'person' || (searchFields.includes('author') && !searchFields.includes('content'))) {
+    MATCH_NOTE = `AI: Person/Author → ${searchFields.join(', ')}`;
+    return 'author';
+  } else if (queryType === 'place' || searchFields.includes('content')) {
+    // PLACES search in CONTENT (title, subject, summary, content)
+    // NOT publisher_location!
+    MATCH_NOTE = `AI: Place → title, subject, summary, content`;
+    return 'place'; // New search mode
+  } else if (queryType === 'title' || (searchFields.includes('title') && searchFields.length === 1)) {
+    MATCH_NOTE = `AI: Book title → ${searchFields.join(', ')}`;
+    return 'title';
+  } else if (searchFields.includes('subject')) {
+    MATCH_NOTE = `AI: Topic/Subject → ${searchFields.join(', ')}`;
+    return 'subject';
+  } else {
+    MATCH_NOTE = `AI: General search → ${searchFields.join(', ')}`;
+    return 'default';
+  }
+}
+
+// OLD function - kept for backwards compatibility
+async function chooseFieldSmart(q){
+  const analysis = await getAIAnalysis(q);
+  return mapAnalysisToField(analysis);
 }
 
 // ---------- FIELD CHOOSER (rule-based) ----------
@@ -661,11 +675,17 @@ async function run(){
     const raw=q.value.trim();if(!raw){setBusy(false);return}
     
     // Use AI-powered smart field chooser
-    const field = await chooseFieldSmart(raw);
+    const aiAnalysis = await getAIAnalysis(raw);
+    const field = mapAnalysisToField(aiAnalysis);
+    
+    // Use AI's extracted key terms if available, otherwise use raw query
+    const searchQuery = (aiAnalysis && aiAnalysis.keyTerms && aiAnalysis.keyTerms.length > 0) 
+      ? aiAnalysis.keyTerms.join(' ') 
+      : raw;
     
     setBusy(true,"Searching…");
-    const results=searchField(field,raw);
-    await renderAll(results,field,raw)
+    const results=searchField(field,searchQuery);
+    await renderAll(results,field,searchQuery)
   }finally{setBusy(false)}
 }
 go.onclick=run;
