@@ -27,8 +27,6 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFE
 .translated{background:#e8f4f8;padding:8px;margin-top:8px;border-radius:6px;font-size:13px;border-left:3px solid #BF9849}
 .ai-summary{background:linear-gradient(135deg,#e8f4f8,#f0f8ff);border-left:4px solid #BF9849;padding:12px;margin:10px 0;border-radius:8px;font-size:13px;line-height:1.6}
 .ai-summary::before{content:"🤖 ";margin-right:4px}
-.ai-summary a{display:inline-flex;align-items:center;gap:4px;margin:0 2px;vertical-align:middle}
-.ai-summary a:hover{transform:translateY(-1px);transition:all 0.2s ease}
 .citations-box{background:#fffbf0;border:2px solid #BF9849;border-radius:8px;padding:12px;margin:10px 0;font-size:12px}
 .citations-box h4{margin:0 0 8px 0;color:#BF9849;font-size:13px}
 .citation-item{padding:6px 0;border-bottom:1px solid #e0e0e0}
@@ -466,23 +464,8 @@ function convertURLsToLinks(text) {
     // Clean up URL (remove trailing punctuation)
     let cleanUrl = url.replace(/[.,;:!?)]+$/, '');
     
-    // Extract domain for display
-    let displayText = cleanUrl;
-    try {
-      const urlObj = new URL(cleanUrl);
-      displayText = urlObj.hostname.replace('www.', '');
-      // Truncate if too long
-      if (displayText.length > 40) {
-        displayText = displayText.substring(0, 37) + '...';
-      }
-    } catch (e) {
-      // If URL parsing fails, truncate the full URL
-      if (displayText.length > 50) {
-        displayText = displayText.substring(0, 47) + '...';
-      }
-    }
-    
-    return `<a href="${cleanUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;color:#0066cc;text-decoration:none;font-weight:600;padding:2px 8px;background:linear-gradient(135deg,#e3f2fd,#f0f8ff);border:1px solid #90caf9;border-radius:6px;transition:all 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.1);" onmouseover="this.style.background='linear-gradient(135deg,#bbdefb,#e3f2fd)';this.style.boxShadow='0 2px 6px rgba(0,0,0,0.15)';this.style.transform='translateY(-1px)';" onmouseout="this.style.background='linear-gradient(135deg,#e3f2fd,#f0f8ff)';this.style.boxShadow='0 1px 3px rgba(0,0,0,0.1)';this.style.transform='translateY(0)';" onclick="event.stopPropagation()">🔗 ${displayText}</a>`;
+    // Just make it a simple clickable link with the same text
+    return `<a href="${cleanUrl}" target="_blank" style="color:#0066cc;text-decoration:underline;cursor:pointer;" onclick="event.stopPropagation()">${cleanUrl}</a>`;
   });
 }
 
