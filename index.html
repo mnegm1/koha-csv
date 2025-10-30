@@ -457,16 +457,22 @@ function searchField(field,q){
 
 // ---------- URL CONVERSION ----------
 function convertURLsToLinks(text) {
-  // Match URLs (http/https)
-  const urlRegex = /(https?:\/\/[^\s<>"]+)/gi;
+  // First, convert markdown-style links [text](url) to HTML links
+  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/gi, (match, linkText, url) => {
+    return `<a href="${url}" target="_blank" style="color:#0066cc;text-decoration:underline;cursor:pointer;" onclick="event.stopPropagation()">${linkText}</a>`;
+  });
   
-  return text.replace(urlRegex, (url) => {
+  // Then, convert remaining plain URLs to clickable links
+  const urlRegex = /(https?:\/\/[^\s<>"]+)/gi;
+  text = text.replace(urlRegex, (url) => {
     // Clean up URL (remove trailing punctuation)
     let cleanUrl = url.replace(/[.,;:!?)]+$/, '');
     
-    // Just make it a simple clickable link with the same text
+    // Make it a simple clickable link with the full URL as text
     return `<a href="${cleanUrl}" target="_blank" style="color:#0066cc;text-decoration:underline;cursor:pointer;" onclick="event.stopPropagation()">${cleanUrl}</a>`;
   });
+  
+  return text;
 }
 
 // ---------- TRANSLATION + AI SUMMARY ----------
@@ -621,8 +627,15 @@ async function renderAll(list,field,raw){
     if(result && result.answer){
       console.log('✅ AI Summary received:', result);
       
-      // Replace citations [1] with clickable links
-      let answerWithLinks = result.answer.replace(/\[(\d+)\]/g, (match, num) => {
+      let answerWithLinks = result.answer;
+      
+      // STEP 1: Convert markdown-style links [text](url) to HTML links FIRST
+      answerWithLinks = answerWithLinks.replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/gi, (match, linkText, url) => {
+        return `<a href="${url}" target="_blank" style="color:#0066cc;text-decoration:underline;cursor:pointer;" onclick="event.stopPropagation()">${linkText}</a>`;
+      });
+      
+      // STEP 2: Replace book citations [1], [2], [3] with clickable links
+      answerWithLinks = answerWithLinks.replace(/\[(\d+)\]/g, (match, num) => {
         const bookIndex = parseInt(num) - 1;
         if(bookIndex >= 0 && bookIndex < list.length){
           const book = list[bookIndex];
@@ -638,8 +651,12 @@ async function renderAll(list,field,raw){
         return match;
       });
       
-      // Convert plain URLs to styled hyperlinks
-      answerWithLinks = convertURLsToLinks(answerWithLinks);
+      // STEP 3: Convert any remaining plain URLs to clickable links
+      const urlRegex = /(https?:\/\/[^\s<>"]+)/gi;
+      answerWithLinks = answerWithLinks.replace(urlRegex, (url) => {
+        let cleanUrl = url.replace(/[.,;:!?)]+$/, '');
+        return `<a href="${cleanUrl}" target="_blank" style="color:#0066cc;text-decoration:underline;cursor:pointer;" onclick="event.stopPropagation()">${cleanUrl}</a>`;
+      });
       
       aiSummaryDiv.innerHTML=answerWithLinks;
       
