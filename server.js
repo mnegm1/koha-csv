@@ -293,8 +293,8 @@ AVAILABLE FIELDS:
 
 QUERY TYPES:
 1. PERSON NAME → Search: author, title, subject
-2. PLACE/LOCATION → Search: title, subject, summary, content (NOT publisher_location - search for books ABOUT the place, not published there)
-3. TOPIC/SUBJECT → Search: subject, title, summary, content
+2. PLACE/LOCATION → Search: publisher_location, subject, title, summary
+3. TOPIC/SUBJECT → Search: subject, title, summary
 4. BOOK TITLE → Search: title, subject
 5. ORGANIZATION → Search: publisher, author, subject
 6. YEAR/DATE → Search: year, title, subject
@@ -306,20 +306,7 @@ Respond with JSON only.`;
 Analyze this query and determine:
 1. What TYPE is it? (person, place, topic, title, organization, year)
 2. Which FIELDS should be searched?
-3. What are the KEY TERMS? (extract ONLY the essential search terms, remove ALL filler words)
-
-CRITICAL - REMOVE THESE FILLER WORDS:
-Arabic: كتب، كتاب، عن، في، من، إلى، ما، هو، ماهو، ماذا، المؤلف، المشارك، المؤلفين
-English: books, book, about, by, what, is, author, authors, co-author
-
-EXAMPLES:
-- "كتب محمد بن راشد" → keyTerms: ["محمد بن راشد"]
-- "الشيخ زايد المؤلف المشارك" → keyTerms: ["الشيخ زايد"]
-- "books about Al Ain" → keyTerms: ["Al Ain"]
-- "ما هو التراث" → keyTerms: ["التراث"]
-- "المؤلف محمد" → keyTerms: ["محمد"]
-
-Extract ONLY the name/place/topic, nothing else!
+3. What are the KEY TERMS?
 
 Respond in JSON format:
 {
