@@ -51,6 +51,31 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFE
 @keyframes rotate{0%,100%{transform:rotate(0deg)}50%{transform:rotate(180deg)}}
 .busytext{font-weight:600;color:#555}
 .item-type-badge{display:inline-block;background:#BF9849;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px}
+.smart-summary-container{background:linear-gradient(135deg,#f5ede4 0%,#f9f4f0 100%);border:2px solid #c4a57e;border-radius:12px;padding:0;box-shadow:0 4px 16px rgba(204,172,139,0.15);overflow:hidden;transition:all 0.3s ease;margin:20px 0}
+.smart-summary-container:hover{box-shadow:0 6px 24px rgba(204,172,139,0.25);transform:translateY(-2px)}
+.summary-header{background:linear-gradient(135deg,#c4a57e 0%,#a88356 100%);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;color:white}
+.header-title{display:flex;align-items:center;gap:12px;font-size:16px;font-weight:600}
+.summary-icon-large{width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.1);border-radius:8px;padding:4px}
+.loading-indicator{display:flex;align-items:center;gap:8px;font-size:12px;opacity:0.9}
+.ecssr-logo-image{width:28px;height:auto}
+.processing-text{margin-left:6px}
+.summary-content{padding:24px 20px}
+.summary-text{font-size:14px;line-height:1.8;color:#333;margin-bottom:18px;text-align:justify}
+.summary-links{display:flex;flex-wrap:wrap;gap:12px;margin-top:16px;padding-top:16px;border-top:1px solid rgba(204,172,139,0.2)}
+.link-badge{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;background:linear-gradient(135deg,#c4a57e 0%,#a88356 100%);color:white;text-decoration:none;border-radius:20px;font-size:12px;font-weight:500;cursor:pointer;transition:all 0.3s ease;border:none;box-shadow:0 2px 8px rgba(204,172,139,0.3)}
+.link-badge:hover{background:linear-gradient(135deg,#a88356 0%,#8f6f45 100%);box-shadow:0 4px 12px rgba(204,172,139,0.4);transform:translateY(-2px)}
+.link-icon{width:14px;height:14px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.2);border-radius:50%;font-size:10px}
+.loading-dropdown{margin-top:20px;padding:16px;background:rgba(204,172,139,0.05);border-radius:8px;border:1px solid rgba(204,172,139,0.2)}
+.dropdown-header{display:flex;align-items:center;gap:12px;cursor:pointer;user-select:none;font-weight:500;color:#c4a57e;font-size:14px}
+.dropdown-toggle{width:20px;height:20px;display:flex;align-items:center;justify-content:center;background:#c4a57e;color:white;border-radius:4px;font-size:12px;transition:transform 0.3s ease}
+.dropdown-toggle.open{transform:rotate(180deg)}
+.dropdown-content{max-height:0;overflow:hidden;transition:max-height 0.3s ease;margin-top:0}
+.dropdown-content.open{max-height:200px;margin-top:12px}
+.loading-steps{background:white;border-radius:6px;padding:12px;font-size:13px;line-height:1.8;color:#555}
+.loading-step{display:flex;align-items:flex-start;gap:10px;margin-bottom:8px}
+.step-dot{width:20px;height:20px;min-width:20px;background:linear-gradient(135deg,#c4a57e 0%,#a88356 100%);color:white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;margin-top:2px}
+.countdown-timer{background:#fafafa;border:2px solid #c4a57e;border-radius:8px;padding:12px 16px;display:inline-block;font-weight:600;color:#c4a57e;font-size:14px;margin-top:12px}
+.timer-value{font-size:16px;color:#a88356}
 </style>
 </head>
 <body>
@@ -737,5 +762,104 @@ go.onclick=run;
 q.addEventListener("keydown",e=>{if(e.key==="Enter")run()});
 window.translateRecord=translateRecord;
 </script>
+
+<!-- Smart Summary Component -->
+<div class="smart-summary-container">
+    <div class="summary-header">
+        <div class="header-title">
+            <div class="summary-icon-large">
+                <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" width="32" height="32">
+                    <rect x="22" y="18" width="56" height="52" rx="6" fill="white" opacity="0.95"/>
+                    <rect x="22" y="18" width="56" height="52" rx="6" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2"/>
+                    <circle cx="36" cy="38" r="6" fill="#c4a57e"/>
+                    <circle cx="36" cy="38" r="4" fill="rgba(204,172,139,0.6)"/>
+                    <circle cx="37" cy="37" r="2" fill="white"/>
+                    <circle cx="64" cy="38" r="6" fill="#c4a57e"/>
+                    <circle cx="64" cy="38" r="4" fill="rgba(204,172,139,0.6)"/>
+                    <circle cx="65" cy="37" r="2" fill="white"/>
+                    <line x1="32" y1="18" x2="28" y2="2" stroke="white" stroke-width="3" stroke-linecap="round"/>
+                    <circle cx="28" cy="0" r="2.5" fill="white"/>
+                    <line x1="68" y1="18" x2="72" y2="2" stroke="white" stroke-width="3" stroke-linecap="round"/>
+                    <circle cx="72" cy="0" r="2.5" fill="white"/>
+                    <path d="M 38 55 Q 50 62 62 55" fill="none" stroke="rgba(204,172,139,0.8)" stroke-width="2" stroke-linecap="round"/>
+                    <rect x="28" y="72" width="44" height="18" rx="4" fill="rgba(255,255,255,0.7)"/>
+                    <line x1="42" y1="72" x2="42" y2="90" stroke="rgba(204,172,139,0.3)" stroke-width="1.5"/>
+                    <line x1="58" y1="72" x2="58" y2="90" stroke="rgba(204,172,139,0.3)" stroke-width="1.5"/>
+                </svg>
+            </div>
+            <span>Smart Summary</span>
+        </div>
+        <div class="loading-indicator">
+            <img src="https://assets.almanhal.com/platform/shared/Product/ECSSR/middlelogo.png" alt="ECSSR Globe" class="ecssr-logo-image"/>
+            <span class="processing-text">Processing and analyzing AI...</span>
+        </div>
+    </div>
+
+    <div class="summary-content">
+        <div class="summary-text">
+            الشيخ زايد بن سلطان آل نهيان كان مؤسس دولة الإمارات العربية المتحدة، وقد لعب دوراً محورياً في تطويرها منذ 1971 وحتى وفاته في 2004. وقد اشتهر بدوره في دعم وتمكين المرأة الإماراتية، حيث كان حريصاً على إدراج المرأة في بناء الدولة والتنمية الاجتماعية.
+        </div>
+
+        <div class="summary-links">
+            <a href="#" class="link-badge" style="background:linear-gradient(135deg,#c4a57e 0%,#a88356 100%)">
+                <div class="link-icon">🌐</div>
+                <span>Official Website</span>
+            </a>
+            <a href="#" class="link-badge" style="background:linear-gradient(135deg,#d4ae8c 0%,#c69d7a 100%)">
+                <div class="link-icon">📚</div>
+                <span>Academic Source</span>
+            </a>
+            <a href="#" class="link-badge" style="background:linear-gradient(135deg,#d4b399 0%,#c4a57e 100%)">
+                <div class="link-icon">📰</div>
+                <span>News Article</span>
+            </a>
+            <a href="#" class="link-badge" style="background:linear-gradient(135deg,#c4a57e 0%,#a88356 100%)">
+                <div class="link-icon">📖</div>
+                <span>Reference Material</span>
+            </a>
+        </div>
+
+        <div class="loading-dropdown">
+            <div class="dropdown-header" onclick="this.nextElementSibling.classList.toggle('open'); this.previousElementSibling.classList.toggle('open')">
+                <div class="dropdown-toggle" style="background:#c4a57e">▼</div>
+                <span>Processing Stages (Click to Expand)</span>
+            </div>
+            <div class="dropdown-content">
+                <div class="loading-steps">
+                    <div class="loading-step">
+                        <div class="step-dot">1</div>
+                        <div><strong>Data Analysis</strong><br><span style="font-size:12px;color:#999">Scanning and parsing 197 results...</span></div>
+                    </div>
+                    <div class="loading-step">
+                        <div class="step-dot">2</div>
+                        <div><strong>Content Extraction</strong><br><span style="font-size:12px;color:#999">Extracting key information and links...</span></div>
+                    </div>
+                    <div class="loading-step">
+                        <div class="step-dot">3</div>
+                        <div><strong>Summary Generation</strong><br><span style="font-size:12px;color:#999">Creating intelligent summary...</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="countdown-timer">
+            ⏱️ Estimated Time Remaining: <span class="timer-value" id="countdown">25</span>s
+        </div>
+    </div>
+</div>
+
+<script>
+// Countdown timer
+let timeRemaining = 25;
+setInterval(() => {
+    timeRemaining--;
+    if (timeRemaining < 0) {
+        timeRemaining = 25;
+    }
+    const el = document.getElementById('countdown');
+    if(el) el.textContent = timeRemaining;
+}, 1000);
+</script>
+
 </body>
 </html>
