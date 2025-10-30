@@ -176,11 +176,53 @@ async function chooseFieldSmart(q){
     return "pub";
   }
   if(looksLikeYear(raw)){
+    MATCH_NOTE="Year detected";
     return "year";
   }
   
-  // Use FAST rule-based logic (no API call needed)
-  return chooseField(raw);
+  // Call AI-powered backend for smart analysis
+  try {
+    console.log(`🤖 Asking AI to analyze: "${raw}"`);
+    
+    const response = await fetch(`${BACKEND_URL}/understand-query`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({query: raw})
+    });
+    
+    if(!response.ok) throw new Error('AI analysis failed');
+    
+    const analysis = await response.json();
+    console.log('📊 AI analysis:', analysis);
+    
+    // Map AI analysis to search fields
+    const queryType = analysis.intent || analysis.queryType;
+    const searchFields = analysis.searchFields || [];
+    
+    if (queryType === 'person' || (searchFields.includes('author') && !searchFields.includes('content'))) {
+      MATCH_NOTE = `AI: Person/Author → ${searchFields.join(', ')}`;
+      return 'author';
+    } else if (queryType === 'place' || searchFields.includes('content')) {
+      // PLACES search in CONTENT (title, subject, summary, content)
+      // NOT publisher_location!
+      MATCH_NOTE = `AI: Place → title, subject, summary, content`;
+      return 'place'; // New search mode
+    } else if (queryType === 'title' || (searchFields.includes('title') && searchFields.length === 1)) {
+      MATCH_NOTE = `AI: Book title → ${searchFields.join(', ')}`;
+      return 'title';
+    } else if (searchFields.includes('subject')) {
+      MATCH_NOTE = `AI: Topic/Subject → ${searchFields.join(', ')}`;
+      return 'subject';
+    } else {
+      MATCH_NOTE = `AI: General search → ${searchFields.join(', ')}`;
+      return 'default';
+    }
+    
+  } catch (error) {
+    console.error('⚠️ AI analysis failed, using fallback:', error);
+    // Fallback to rule-based logic
+    return chooseField(raw);
+  }
 }
 
 // ---------- FIELD CHOOSER (rule-based) ----------
@@ -286,6 +328,22 @@ function searchField(field,q){
         if(totalMatch >= tokens.length * 0.5){sc = 30 + totalMatch * 8;hit=true}
       }
       if(hit&&isFamousPerson(q))MATCH_NOTE="Books ABOUT this person"
+
+    } else if(field==="place"){
+      // For PLACES: Search in title, subject, summary, AND content
+      // Find books ABOUT the place, not just published there
+      if(r.nTitle.includes(nq)){sc=100;hit=true}
+      else if(r.nSubject.includes(nq)){sc=95;hit=true}
+      else if(r.nSummary.includes(nq)){sc=85;hit=true}
+      else if(r.nContent.includes(nq)){sc=75;hit=true}
+      else {
+        const titleMatch = tokens.filter(tok=>r.nTitle.includes(tok)).length;
+        const subjectMatch = tokens.filter(tok=>r.nSubject.includes(tok)).length;
+        const summaryMatch = tokens.filter(tok=>r.nSummary.includes(tok)).length;
+        const contentMatch = tokens.filter(tok=>r.nContent.includes(tok)).length;
+        const totalMatch = Math.max(titleMatch, subjectMatch, summaryMatch, contentMatch);
+        if(totalMatch >= tokens.length * 0.5){sc = 30 + totalMatch * 8;hit=true}
+      }
 
     } else if(field==="summary"){
       if(r.nSummary.includes(nq)){sc=90;hit=true}
