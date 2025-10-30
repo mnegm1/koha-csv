@@ -195,23 +195,38 @@ function flexibleAuthorMatch(qTokens, name){
 async function chooseFieldSmart(q){
   const raw=q.trim();
   
-  // Skip AI for obvious cases (faster)
-  if(/(ناشر|publisher|دار نشر|دار النشر|publishing house|press books)/i.test(raw)){
-    MATCH_NOTE="Publisher keyword → Publisher field";
-    return "pub";
-  }
+  // 1. Check for YEAR first
   if(looksLikeYear(raw)){
     MATCH_NOTE="Year detected";
     return "year";
   }
   
-  // Check if it's a famous person (search in content/summary, NOT author)
+  // 2. Check if it's a FAMOUS PERSON (highest priority - search in content/summary)
   if(isFamousPerson(raw)){
     MATCH_NOTE="Famous person → Content & Summary (books ABOUT them)";
     return "famous_person";
   }
   
-  // Call AI-powered backend for smart analysis
+  // 3. Check if it's a KNOWN LOCATION
+  if(isKnownLocation(raw)){
+    // If it has publisher keywords → search publisher location
+    if(hasPublisherKeywords(raw)){
+      MATCH_NOTE="Location with publisher keyword → Publisher location";
+      return "pub_location";
+    } else {
+      // Otherwise → location as subject
+      MATCH_NOTE="Location as subject → Subject, Title";
+      return "location_subject";
+    }
+  }
+  
+  // 4. Check for PUBLISHER keywords (without location)
+  if(hasPublisherKeywords(raw)){
+    MATCH_NOTE="Publisher keyword → Publisher field";
+    return "pub";
+  }
+  
+  // 5. Call AI-powered backend for smart analysis
   try {
     console.log(`🤖 Asking AI to analyze: "${raw}"`);
     
@@ -230,29 +245,34 @@ async function chooseFieldSmart(q){
     const queryType = analysis.intent || analysis.queryType;
     const searchFields = analysis.searchFields || [];
     
-    // *** IMPROVED: Better distinction between query types ***
+    // For PERSON queries → this is a REGULAR AUTHOR (not famous)
     if (queryType === 'person' && searchFields.includes('author')) {
-      // Regular author name (not famous)
-      MATCH_NOTE = `AI: Author name → author, co-author, organization`;
+      MATCH_NOTE = `AI: Author name → Author, Co-author, Corporate author`;
       return 'author';
-    } else if (queryType === 'person') {
-      // Person but not author field - might be famous person
-      MATCH_NOTE = `AI: Person (subject) → title, subject, content`;
-      return 'famous_person';
-    } else if (queryType === 'place' && searchFields.includes('publisher_location')) {
-      MATCH_NOTE = `AI: Publisher location → publisher_location`;
-      return 'pub_location';
-    } else if (queryType === 'place') {
-      MATCH_NOTE = `AI: Location (subject) → title, subject`;
-      return 'location_subject';
-    } else if (queryType === 'title' || (searchFields.includes('title') && searchFields.length === 1)) {
-      MATCH_NOTE = `AI: Book title → ${searchFields.join(', ')}`;
+    } 
+    // For PLACE queries → distinguish between subject and publisher location
+    else if (queryType === 'place') {
+      if (searchFields.includes('publisher_location')) {
+        MATCH_NOTE = `AI: Publisher location → Publisher field`;
+        return 'pub_location';
+      } else {
+        MATCH_NOTE = `AI: Location as subject → Subject, Title`;
+        return 'location_subject';
+      }
+    } 
+    // For TITLE queries
+    else if (queryType === 'title' || (searchFields.includes('title') && searchFields.length === 1)) {
+      MATCH_NOTE = `AI: Book title → Title`;
       return 'title';
-    } else if (searchFields.includes('subject')) {
-      MATCH_NOTE = `AI: Topic/Subject → ${searchFields.join(', ')}`;
+    } 
+    // For SUBJECT/TOPIC queries
+    else if (searchFields.includes('subject')) {
+      MATCH_NOTE = `AI: Topic/Subject → Subject`;
       return 'subject';
-    } else {
-      MATCH_NOTE = `AI: General search → ${searchFields.join(', ')}`;
+    } 
+    // Default
+    else {
+      MATCH_NOTE = `AI: General search → All fields`;
       return 'default';
     }
     
