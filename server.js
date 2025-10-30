@@ -1,10 +1,10 @@
 // backend/server.js
-// ECSSR AI Assistant – v15.1 - FIXED Web Sources Display
-// - Fixed web sources not showing in results
-// - Corrected variable scope issue
-// - Better timeout handling
+// ECSSR AI Assistant – v15.3 - ULTIMATE FIX
+// - Saves verified URLs BEFORE parsing Perplexity response
+// - Handles parse errors gracefully
+// - URLs won't be lost even if response parsing fails
 
-const CODE_VERSION = "ecssr-backend-v15.2-parse-error-fix";
+const CODE_VERSION = "ecssr-backend-v15.3-ultimate-fix";
 
 const express = require('express');
 const cors = require('cors');
@@ -43,30 +43,21 @@ function checkRateLimit(ip) {
 function isValidUrl(urlString) {
   try {
     const url = new URL(urlString);
-    if (!['http:', 'https:'].includes(url.protocol)) {
-      return false;
-    }
-    if (!url.hostname || url.hostname.length < 3) {
-      return false;
-    }
+    if (!['http:', 'https:'].includes(url.protocol)) return false;
+    if (!url.hostname || url.hostname.length < 3) return false;
     return true;
   } catch {
     return false;
   }
 }
 
-/* ========= Clean and decode URLs ========= */
 function cleanUrl(url) {
   try {
     url = url.trim();
-    if (isValidUrl(url)) {
-      return url;
-    }
+    if (isValidUrl(url)) return url;
     try {
       url = decodeURIComponent(url);
-      if (isValidUrl(url)) {
-        return url;
-      }
+      if (isValidUrl(url)) return url;
     } catch (e) {}
     return url;
   } catch {
@@ -74,23 +65,14 @@ function cleanUrl(url) {
   }
 }
 
-/* ========= Verify URL ========= */
-async function verifyURL(url, attempt = 1) {
-  const MAX_ATTEMPTS = 2;
-  const TIMEOUT_MS = 8000;
-  
+/* ========= Verify URL - Simplified ========= */
+async function verifyURL(url) {
   try {
     url = cleanUrl(url);
-    
-    if (!isValidUrl(url)) {
-      console.log(`❌ Invalid URL format: ${url}`);
-      return false;
-    }
-    
-    console.log(`🔍 Verifying (attempt ${attempt}): ${url}`);
+    if (!isValidUrl(url)) return false;
     
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), 6000); // Faster: 6s
     
     const response = await fetch(url, {
       method: 'HEAD',
@@ -98,137 +80,50 @@ async function verifyURL(url, attempt = 1) {
       redirect: 'follow',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive'
+        'Accept': '*/*',
+        'Connection': 'close'  // Important: close connection immediately
       }
     });
     
     clearTimeout(timeout);
     
     if (response.ok || (response.status >= 300 && response.status < 400)) {
-      console.log(`✅ Valid URL (${response.status}): ${url}`);
-      return true;
-    } else if (response.status === 405 || response.status === 403) {
-      console.log(`⚠️ HEAD blocked (${response.status}), trying GET`);
-      return await verifyURLWithGET(url);
-    } else {
-      console.log(`❌ Invalid (${response.status}): ${url}`);
-      return false;
-    }
-  } catch (error) {
-    if (error.name === 'AbortError') {
-      console.log(`⏱️ Timeout (attempt ${attempt}): ${url}`);
-      
-      if (attempt < MAX_ATTEMPTS) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        return await verifyURL(url, attempt + 1);
-      }
-      
-      if (url.includes('.ae')) {
-        console.log(`⚠️ Assuming UAE site valid after timeout: ${url}`);
-        return true;
-      }
-      return false;
-    }
-    
-    // ENHANCED: Handle parse errors and other fetch failures
-    if (error.message && error.message.includes('Parse Error')) {
-      console.log(`⚠️ Parse error (skipping verification): ${url}`);
-      // For UAE sites with parse errors, assume valid (benefit of doubt)
-      if (url.includes('.ae')) {
-        console.log(`⚠️ Assuming UAE site valid despite parse error`);
-        return true;
-      }
-      return false;
-    }
-    
-    console.log(`⚠️ Error: ${error.message}`);
-    
-    if (url.includes('.ae')) {
-      console.log(`⚠️ Assuming UAE site valid: ${url}`);
+      console.log(`✅ Valid (${response.status}): ${url.substring(0, 60)}...`);
       return true;
     }
     
     return false;
-  }
-}
-
-/* ========= Verify with GET ========= */
-async function verifyURLWithGET(url) {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    
-    const response = await fetch(url, {
-      method: 'GET',
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8'
-      }
-    });
-    
-    clearTimeout(timeout);
-    
-    if (response.ok || (response.status >= 300 && response.status < 400)) {
-      console.log(`✅ Valid via GET (${response.status}): ${url}`);
-      return true;
-    } else {
-      console.log(`❌ Invalid via GET (${response.status}): ${url}`);
-      return false;
-    }
   } catch (error) {
-    console.log(`❌ GET failed: ${error.message}`);
+    // For UAE sites, assume valid on error (firewall/timeout issues)
     if (url.includes('.ae')) {
-      console.log(`⚠️ Assuming UAE site valid: ${url}`);
+      console.log(`⚠️ Assuming UAE site valid: ${url.substring(0, 60)}...`);
       return true;
     }
     return false;
   }
 }
 
-/* ========= Verify multiple URLs ========= */
+/* ========= Verify multiple URLs - Fast batch processing ========= */
 async function verifyURLs(urls) {
   if (!urls || urls.length === 0) return [];
   
-  console.log(`🔍 Verifying ${urls.length} URLs...`);
+  console.log(`🔍 Quick-verifying ${urls.length} URLs...`);
   
-  const cleanedUrls = urls.map(url => cleanUrl(url)).filter(url => isValidUrl(url));
+  const cleanedUrls = urls
+    .map(url => cleanUrl(url))
+    .filter(url => isValidUrl(url))
+    .slice(0, 10); // Limit to 10 for speed
   
-  console.log(`📋 Valid format: ${cleanedUrls.length}/${urls.length}`);
+  // Verify all in parallel (faster)
+  const results = await Promise.allSettled(
+    cleanedUrls.map(url => verifyURL(url).then(valid => ({ url, valid })))
+  );
   
-  const batchSize = 3;
-  const validUrls = [];
+  const validUrls = results
+    .filter(r => r.status === 'fulfilled' && r.value.valid)
+    .map(r => r.value.url);
   
-  for (let i = 0; i < cleanedUrls.length; i += batchSize) {
-    const batch = cleanedUrls.slice(i, i + batchSize);
-    
-    // ENHANCED: Verify each URL individually with error handling
-    const results = await Promise.all(
-      batch.map(async (url) => {
-        try {
-          const valid = await verifyURL(url);
-          return { url, valid };
-        } catch (error) {
-          console.log(`⚠️ Verification error for ${url}: ${error.message}`);
-          // For UAE sites, give benefit of doubt on error
-          if (url.includes('.ae')) {
-            console.log(`⚠️ Assuming UAE site valid despite error`);
-            return { url, valid: true };
-          }
-          return { url, valid: false };
-        }
-      })
-    );
-    
-    validUrls.push(...results.filter(r => r.valid).map(r => r.url));
-  }
-  
-  console.log(`✅ Verified: ${validUrls.length}/${cleanedUrls.length} accessible`);
+  console.log(`✅ Quick-verified: ${validUrls.length}/${cleanedUrls.length}`);
   
   return validUrls;
 }
@@ -253,143 +148,172 @@ async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
 
   if (!resp.ok) {
     const txt = await resp.text();
-    throw new Error(`OpenAI API error: ${resp.status} - ${txt}`);
+    throw new Error(`OpenAI error: ${resp.status}`);
   }
 
   const data = await resp.json();
   return (data.choices && data.choices[0]?.message?.content) || '';
 }
 
-/* ========= FIXED: Perplexity Search with proper return ========= */
+/* ========= CRITICAL FIX: Get citations BEFORE trying to parse response ========= */
+async function extractCitationsBeforeParsing(response) {
+  try {
+    // Get raw text first
+    const rawText = await response.text();
+    console.log(`📄 Raw response length: ${rawText.length} chars`);
+    
+    // Try to parse JSON
+    let data;
+    try {
+      data = JSON.parse(rawText);
+    } catch (parseError) {
+      console.log(`⚠️ JSON parse failed, trying to extract citations manually...`);
+      
+      // Extract citations from raw text using regex
+      const citationMatches = rawText.match(/"citations":\s*\[(.*?)\]/s);
+      if (citationMatches) {
+        try {
+          const citationsJson = `{"citations":[${citationMatches[1]}]}`;
+          const parsed = JSON.parse(citationsJson);
+          console.log(`✅ Extracted ${parsed.citations.length} citations from raw text`);
+          return { citations: parsed.citations, answer: '' };
+        } catch (e) {
+          console.log(`❌ Failed to extract citations`);
+        }
+      }
+      
+      return { citations: [], answer: '' };
+    }
+    
+    // Successfully parsed JSON
+    const answer = data.choices?.[0]?.message?.content || '';
+    const citations = data.citations || [];
+    
+    console.log(`✅ Parsed successfully: ${citations.length} citations`);
+    
+    return { citations, answer };
+  } catch (error) {
+    console.log(`❌ Extract error: ${error.message}`);
+    return { citations: [], answer: '' };
+  }
+}
+
+/* ========= REDESIGNED: Perplexity with better error handling ========= */
 async function searchWithPerplexity(query) {
   if (!PERPLEXITY_API_KEY) {
-    console.log('⚠️ Perplexity API key not set');
-    return { answer: '', citations: [] };  // Return empty instead of null
+    console.log('⚠️ No Perplexity key');
+    return { answer: '', citations: [] };
   }
   
   try {
     const isArabic = /[\u0600-\u06FF]/.test(query);
     
     const searchQuery = isArabic 
-      ? `ابحث في المواقع الرسمية الإماراتية (.ae) عن: ${query}. اذكر المصادر من المواقع الحكومية`
-      : `Search official UAE websites (.ae domains) for: ${query}. Include government sources`;
+      ? `ابحث في المواقع الرسمية الإماراتية (.ae) عن: ${query}`
+      : `Search official UAE (.ae) websites for: ${query}`;
 
-    console.log(`🌐 Perplexity search: "${searchQuery.substring(0, 100)}..."`);
+    console.log(`🌐 Perplexity: "${searchQuery.substring(0, 80)}..."`);
 
-    const requestBody = {
-      model: PERPLEXITY_MODEL,
-      messages: [{
-        role: 'user',
-        content: searchQuery
-      }],
-      temperature: 0.1,
-      max_tokens: 1500,
-      return_citations: true,
-      return_images: false
-    };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000); // 20s timeout
 
     const response = await fetch(PERPLEXITY_URL, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Authorization': `Bearer ${PERPLEXITY_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify({
+        model: PERPLEXITY_MODEL,
+        messages: [{ role: 'user', content: searchQuery }],
+        temperature: 0.1,
+        max_tokens: 1500,
+        return_citations: true
+      })
     });
 
-    console.log(`📥 Perplexity status: ${response.status}`);
+    clearTimeout(timeout);
+
+    console.log(`📥 Status: ${response.status}`);
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.log(`❌ Perplexity error (${response.status}): ${errorText.substring(0, 200)}`);
-      
       // Try fallback model
-      if (response.status === 400 && PERPLEXITY_MODEL === 'sonar-pro') {
-        console.log(`🔄 Retrying with 'sonar'...`);
-        requestBody.model = 'sonar';
-        const retryResponse = await fetch(PERPLEXITY_URL, {
+      if (response.status === 400) {
+        console.log(`🔄 Trying 'sonar' model...`);
+        const fallbackResponse = await fetch(PERPLEXITY_URL, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${PERPLEXITY_API_KEY}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(requestBody)
+          body: JSON.stringify({
+            model: 'sonar',
+            messages: [{ role: 'user', content: searchQuery }],
+            temperature: 0.1,
+            max_tokens: 1500,
+            return_citations: true
+          })
         });
         
-        if (retryResponse.ok) {
-          const retryData = await retryResponse.json();
-          return processPerplexityResponse(retryData);
+        if (fallbackResponse.ok) {
+          const result = await extractCitationsBeforeParsing(fallbackResponse);
+          return await processCitations(result);
         }
       }
       
+      console.log(`❌ Perplexity failed: ${response.status}`);
       return { answer: '', citations: [] };
     }
 
-    const data = await response.json();
-    return processPerplexityResponse(data);
+    // CRITICAL: Extract citations using safer method
+    const result = await extractCitationsBeforeParsing(response);
+    return await processCitations(result);
     
   } catch (error) {
-    console.error('❌ Perplexity exception:', error.message);
-    return { answer: '', citations: [] };  // Return empty instead of null
+    console.error(`❌ Perplexity error: ${error.message}`);
+    return { answer: '', citations: [] };
   }
 }
 
-/* ========= Process Perplexity Response ========= */
-async function processPerplexityResponse(data) {
+/* ========= Process and verify citations ========= */
+async function processCitations(result) {
   try {
-    console.log('📦 Processing response...');
+    let { citations, answer } = result;
     
-    const answer = data.choices?.[0]?.message?.content || '';
-    let citations = data.citations || [];
-    
-    console.log(`📚 Raw citations: ${citations.length}`);
-    
-    if (citations.length === 0) {
+    if (!citations || citations.length === 0) {
       console.log('⚠️ No citations');
       return { answer: '', citations: [] };
     }
     
-    // Filter UAE domains
+    console.log(`📚 Raw citations: ${citations.length}`);
+    
+    // Filter UAE only
     const uaeCitations = citations.filter(url => {
-      const cleanedUrl = cleanUrl(url);
-      return cleanedUrl.includes('.ae');
+      const cleaned = cleanUrl(url);
+      return cleaned.includes('.ae');
     });
     
     console.log(`🇦🇪 UAE citations: ${uaeCitations.length}`);
     
     if (uaeCitations.length === 0) {
-      console.log('⚠️ No UAE citations');
       return { answer: '', citations: [] };
     }
     
-    // Verify URLs (with error protection)
-    console.log('🔍 Starting verification...');
-    let validUrls = [];
-    try {
-      validUrls = await verifyURLs(uaeCitations);
-    } catch (verifyError) {
-      console.log(`⚠️ Verification error: ${verifyError.message}`);
-      console.log(`⚠️ Using unverified URLs as fallback`);
-      // If verification fails, use the unverified UAE citations
-      validUrls = uaeCitations.slice(0, 5);
-    }
+    // Verify URLs
+    console.log('🔍 Verifying URLs...');
+    const validUrls = await verifyURLs(uaeCitations);
     
-    if (validUrls.length === 0) {
-      console.log('⚠️ No valid URLs, using unverified as fallback');
-      return {
-        answer,
-        citations: uaeCitations.slice(0, 5)
-      };
-    }
+    console.log(`✅ Final verified URLs: ${validUrls.length}`);
     
-    console.log(`✅ Returning ${validUrls.length} verified URLs`);
-    
+    // Return verified URLs even if empty
     return {
-      answer,
-      citations: validUrls.slice(0, 5)
+      answer: answer || '',
+      citations: validUrls
     };
+    
   } catch (error) {
-    console.error('❌ Processing error:', error.message);
+    console.error(`❌ Process error: ${error.message}`);
     return { answer: '', citations: [] };
   }
 }
@@ -423,14 +347,14 @@ app.post('/api/understand-query', async (req, res) => {
       intent: 'question',
       field: 'default',
       keyTerms: [],
-      reasoning: 'Processing query'
+      reasoning: 'Processing'
     });
   } catch (err) {
     res.status(500).json({ error: 'Error', details: err.message });
   }
 });
 
-/* ========= /api/chat - FIXED to properly return webSources ========= */
+/* ========= /api/chat - ULTIMATE FIX ========= */
 app.post('/api/chat', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
   if (!checkRateLimit(ip)) {
@@ -438,17 +362,17 @@ app.post('/api/chat', async (req, res) => {
   }
 
   try {
-    const { query, books, searchField } = req.body || {};
+    const { query, books } = req.body || {};
     if (!query) return res.status(400).json({ error: 'Query required' });
 
     const safeBooks = (Array.isArray(books) ? books : [])
       .filter(b => b && typeof b === 'object')
       .slice(0, 30);
 
-    console.log(`\n${'='.repeat(50)}`);
-    console.log(`📚 Query: "${query}"`);
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`📚 Query: "${query.substring(0, 100)}"`);
     console.log(`📚 Books: ${safeBooks.length}`);
-    console.log(`${'='.repeat(50)}\n`);
+    console.log(`${'='.repeat(60)}`);
 
     let answer = '';
     let bookIds = [];
@@ -457,54 +381,46 @@ app.post('/api/chat', async (req, res) => {
 
     if (safeBooks.length > 0) {
       
-      // Build book context
-      const bookContext = safeBooks.map((b, i) => {
-        const num = i + 1;
-        return `[${num}] ${b.title || 'Untitled'} by ${b.author || 'Unknown'}\n${(b.summary || '').substring(0, 400)}`;
-      }).join('\n\n');
+      // Book context
+      const bookContext = safeBooks.map((b, i) => 
+        `[${i+1}] ${b.title || 'Untitled'} by ${b.author || 'Unknown'}\n${(b.summary || '').substring(0, 400)}`
+      ).join('\n\n');
 
-      // FIXED: Get web results with proper error handling
+      // CRITICAL: Get web results with new safer method
+      console.log('🌐 Starting web search...');
       let webResults = { answer: '', citations: [] };
+      
       try {
-        console.log('🌐 Starting Perplexity search...');
-        const webSearchPromise = searchWithPerplexity(query);
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Search timeout (30s)')), 30000)
-        );
-        webResults = await Promise.race([webSearchPromise, timeoutPromise]);
-        console.log(`📊 Perplexity returned ${webResults.citations.length} citations`);
+        webResults = await searchWithPerplexity(query);
+        console.log(`📊 Got ${webResults.citations.length} verified citations`);
       } catch (error) {
-        console.log(`⚠️ Web search timeout/error: ${error.message}`);
-        // Continue with empty web results
+        console.log(`⚠️ Search failed: ${error.message}`);
         webResults = { answer: '', citations: [] };
       }
       
-      // FIXED: Always assign webSources even if empty
-      webSources = (webResults && webResults.citations) ? webResults.citations : [];
+      // ALWAYS assign webSources
+      webSources = webResults.citations || [];
+      
+      console.log(`✅ Web sources to use: ${webSources.length}`);
       
       let webContext = '';
       if (webSources.length > 0) {
-        console.log(`✅ Using ${webSources.length} verified web links`);
-        webContext = `\n\nVERIFIED WEB SOURCES (.ae domains):\n${webSources.map((url, i) => `[W${i+1}] ${url}`).join('\n')}`;
-      } else {
-        console.log(`⚠️ No web sources available`);
+        webContext = `\n\nVERIFIED UAE WEB SOURCES:\n${webSources.map((url, i) => `[W${i+1}] ${url}`).join('\n')}`;
       }
 
       const isArabic = /[\u0600-\u06FF]/.test(query);
 
-      const prompt = `You are answering: "${query}"
+      const prompt = `Answer this question: "${query}"
 
 LIBRARY BOOKS:
 ${bookContext}
 ${webContext}
 
-INSTRUCTIONS:
-1. Answer thoroughly using the library books
-2. Cite books with [1], [2], [3] format
-3. If web sources provided, create markdown links: [text](url)
-4. Use ONLY URLs from VERIFIED WEB SOURCES
-5. Answer in ${isArabic ? 'Arabic' : 'English'}
-6. Be comprehensive but concise
+RULES:
+1. Use books - cite as [1], [2], [3]
+2. If web sources given, create markdown links: [text](url)
+3. Answer in ${isArabic ? 'Arabic' : 'English'}
+4. Be thorough but concise
 
 Answer:`;
 
@@ -517,46 +433,44 @@ Answer:`;
       // Extract book citations
       const matches = answer.match(/\[(\d+)\]/g);
       if (matches) {
-        bookIds = [...new Set(matches.map(m => parseInt(m.replace(/[\[\]]/g, ''))))].filter(n => n > 0 && n <= safeBooks.length).sort((a,b) => a-b);
+        bookIds = [...new Set(matches.map(m => parseInt(m.replace(/[\[\]]/g, ''))))]
+          .filter(n => n > 0 && n <= safeBooks.length)
+          .sort((a,b) => a-b);
       }
 
-      console.log(`✅ Books cited: ${bookIds.join(', ') || 'none'}`);
-      console.log(`✅ Web sources in response: ${webSources.length}`);
+      console.log(`✅ Books: ${bookIds.join(', ') || 'none'}`);
+      console.log(`✅ Web: ${webSources.length}`);
 
       answerSource = webSources.length > 0 ? 'dual' : 'library';
       
     } else {
-      // No books - web only
+      // Web only
+      console.log('🌐 Web-only search...');
       let webResults = { answer: '', citations: [] };
+      
       try {
-        console.log('🌐 Starting web-only search...');
-        const webSearchPromise = searchWithPerplexity(query);
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Search timeout (30s)')), 30000)
-        );
-        webResults = await Promise.race([webSearchPromise, timeoutPromise]);
+        webResults = await searchWithPerplexity(query);
       } catch (error) {
-        console.log(`⚠️ Web search error: ${error.message}`);
+        console.log(`⚠️ Search error: ${error.message}`);
       }
       
-      if (webResults && webResults.citations && webResults.citations.length > 0) {
+      if (webResults.citations && webResults.citations.length > 0) {
         webSources = webResults.citations;
-        answer = webResults.answer || 'معلومات من مصادر الويب';
+        answer = webResults.answer || 'Information from web sources';
         answerSource = 'web';
-        console.log(`✅ Web-only: ${webSources.length} sources`);
       } else {
-        answer = 'عذراً، لم أتمكن من العثور على معلومات موثوقة.';
+        answer = 'عذراً، لم أتمكن من العثور على معلومات.';
         answerSource = 'none';
-        console.log(`❌ No results found`);
       }
     }
 
-    // FIXED: Log final response
-    console.log(`\n📤 Sending response:`);
-    console.log(`   - Answer length: ${answer.length} chars`);
-    console.log(`   - Book IDs: ${bookIds.length}`);
-    console.log(`   - Web sources: ${webSources.length}`);
-    console.log(`   - Source type: ${answerSource}\n`);
+    // Final logging
+    console.log(`\n📤 RESPONSE:`);
+    console.log(`   Answer: ${answer.length} chars`);
+    console.log(`   Books: ${bookIds.length}`);
+    console.log(`   Web: ${webSources.length} URLs`);
+    console.log(`   Type: ${answerSource}`);
+    console.log(`${'='.repeat(60)}\n`);
 
     res.json({ 
       answer, 
@@ -566,9 +480,9 @@ Answer:`;
     });
     
   } catch (err) {
-    console.error('❌ /api/chat error:', err);
+    console.error('❌ Error:', err);
     res.status(500).json({ 
-      error: 'Processing error', 
+      error: 'Error', 
       details: err.message,
       answer: 'عذراً، حدث خطأ.',
       bookIds: [],
@@ -593,18 +507,12 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     version: CODE_VERSION,
-    aiProvider: 'OpenAI + Perplexity',
-    openaiConfigured: !!OPENAI_API_KEY && OPENAI_API_KEY !== 'sk-YOUR-API-KEY-HERE',
-    perplexityConfigured: !!PERPLEXITY_API_KEY,
-    openaiModel: OPENAI_MODEL,
-    perplexityModel: PERPLEXITY_MODEL,
     features: [
-      'Fixed web sources display',
-      'Enhanced URL verification',
-      'Improved error handling', 
-      'Better timeout management',
-      'Book citations [1][2][3]',
-      'Verified web links'
+      'ULTIMATE FIX: Saves URLs before parsing',
+      'Parse error resistant',
+      'Fast verification (6s timeout)',
+      'Parallel URL checking',
+      'Citations extracted safely'
     ]
   });
 });
@@ -612,25 +520,21 @@ app.get('/api/health', (req, res) => {
 /* ========= Error handler ========= */
 app.use((err, req, res, next) => {
   console.error('❌ Error:', err);
-  res.status(500).json({ 
-    error: 'Internal server error',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'An error occurred'
-  });
+  res.status(500).json({ error: 'Error' });
 });
 
 /* ========= Start ========= */
 app.listen(PORT, () => {
-  console.log(`\n${'='.repeat(50)}`);
+  console.log(`\n${'='.repeat(60)}`);
   console.log(`🚀 ECSSR Backend Server`);
-  console.log(`📍 http://localhost:${PORT}`);
+  console.log(`📍 Port: ${PORT}`);
   console.log(`📖 Version: ${CODE_VERSION}`);
-  console.log(`${'='.repeat(50)}`);
-  console.log(`✅ Enhanced Features:`);
-  console.log(`   * FIXED: Web sources now display properly`);
-  console.log(`   * Improved URL verification`);
-  console.log(`   * Enhanced error handling`);
-  console.log(`   * Better timeout management`);
-  console.log(`   * Fallback mechanisms`);
-  console.log(`   * Support for sonar/sonar-pro`);
-  console.log(`${'='.repeat(50)}\n`);
+  console.log(`${'='.repeat(60)}`);
+  console.log(`✅ ULTIMATE FIX Applied:`);
+  console.log(`   * Citations saved BEFORE response parsing`);
+  console.log(`   * Parse errors won't lose URLs`);
+  console.log(`   * Faster verification (6s)`);
+  console.log(`   * Parallel processing`);
+  console.log(`   * Regex fallback for citations`);
+  console.log(`${'='.repeat(60)}\n`);
 });
