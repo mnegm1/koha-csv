@@ -49,8 +49,20 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFE
 .spinner{width:32px;height:32px;border-radius:50%;background:#fff var(--logo-url) center/90% no-repeat;border:3px solid rgba(0,0,0,.06);box-shadow:0 2px 8px rgba(0,0,0,.12);animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes rotate{0%,100%{transform:rotate(0deg)}50%{transform:rotate(180deg)}}
-.busytext{font-weight:600;color:#555}
+@keyframes hourglassAnimation{0%{transform:scaleY(1)}50%{transform:scaleY(0.85)}100%{transform:scaleY(1)}}
+.hourglass-icon{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;font-size:20px;animation:hourglassAnimation 1.5s ease-in-out infinite;transform-origin:center;margin-right:8px}
+.busytext{font-weight:600;color:#555;display:flex;align-items:center;gap:6px}
 .item-type-badge{display:inline-block;background:#BF9849;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px}
+/* Web sources styling with hyperlinks */
+.web-sources-section{margin-top:15px;padding:15px;background:#e8f4f8;border-left:4px solid #BF9849;border-radius:8px}
+.web-sources-title{font-weight:700;color:#BF9849;margin-bottom:10px;font-size:14px}
+.web-sources-subtitle{font-size:12px;color:#666;margin-bottom:12px}
+.web-source-item{margin-bottom:12px;padding:12px;background:white;border-radius:6px;border:1px solid #ddd;transition:all 0.2s ease}
+.web-source-item:hover{border-color:#BF9849;box-shadow:0 2px 8px rgba(191,152,73,0.15)}
+.web-source-domain{font-weight:600;color:#BF9849;margin-bottom:6px;font-size:12px;text-transform:uppercase;letter-spacing:0.5px}
+.web-source-link{display:inline-block;color:#BF9849;font-size:13px;text-decoration:none;font-weight:600;padding:6px 0;border-bottom:2px solid transparent;transition:all 0.2s ease}
+.web-source-link:hover{border-bottom-color:#BF9849;color:#D4AB5E}
+.web-source-link::before{content:"🔗 "}
 </style>
 </head>
 <body>
@@ -62,7 +74,7 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFE
 
 <div class="box" id="box">
   <div class="head"><div>UAE Federation Library AI Search</div><button class="close" id="close">×</button></div>
-  <div class="busybar" id="busybar"><div class="spinner"></div><div class="busytext" id="busytext">Loading...</div></div>
+  <div class="busybar" id="busybar"><div class="hourglass-icon">⏳</div><div class="busytext" id="busytext">Loading...</div></div>
   <div class="status" id="status">Ready</div>
   <div class="body" id="body"></div>
   <div class="input-wrap"><div class="input"><input id="q" type="text" placeholder="اكتب: اسم مؤلف / عنوان / موضوع / سنة" dir="auto"><button id="go">Search</button></div></div>
@@ -659,10 +671,10 @@ async function renderAll(list,field,raw){
       // Add WEB sources section if available (with REAL LINKS for verification)
       if(result.webSources && result.webSources.length > 0){
         const webSourcesDiv = document.createElement("div");
-        webSourcesDiv.style.cssText = "margin-top:15px;padding:15px;background:#e8f4f8;border-left:4px solid #BF9849;border-radius:8px";
+        webSourcesDiv.className = "web-sources-section";
         
-        let webHTML = '<div style="font-weight:700;color:#BF9849;margin-bottom:10px;font-size:14px">🌐 مصادر المواقع الإماراتية المستخدمة / UAE Web Sources Used:</div>';
-        webHTML += '<div style="font-size:12px;color:#666;margin-bottom:10px">✅ جميع المصادر قابلة للتحقق - انقر للتأكد / All sources verifiable - click to verify</div>';
+        let webHTML = '<div class="web-sources-title">🌐 مصادر المواقع الإماراتية المستخدمة / UAE Web Sources Used:</div>';
+        webHTML += '<div class="web-sources-subtitle">✅ جميع المصادر قابلة للتحقق - انقر للتأكد / All sources verifiable - click to verify</div>';
         
         result.webSources.forEach((source, idx) => {
           // Handle both string URLs and object format
@@ -673,7 +685,7 @@ async function renderAll(list,field,raw){
             url = source;
             try {
               const urlObj = new URL(url);
-              domain = urlObj.hostname;
+              domain = urlObj.hostname.replace('www.', '');
               title = url.length > 80 ? url.substring(0, 77) + '...' : url;
             } catch {
               domain = 'UAE Source';
@@ -686,11 +698,13 @@ async function renderAll(list,field,raw){
             title = source.title || url;
           }
           
-          webHTML += `<div style="margin-bottom:10px;padding:10px;background:white;border-radius:5px;border:1px solid #ddd">`;
-          webHTML += `<div style="font-weight:600;color:#BF9849;margin-bottom:5px">${domain}</div>`;
-          webHTML += `<div style="font-size:11px;color:#666;margin-bottom:5px;word-break:break-all">${title}</div>`;
-          webHTML += `<a href="${url}" target="_blank" style="color:#BF9849;font-size:12px;text-decoration:none;font-weight:600">`;
-          webHTML += `🔗 التحقق من المصدر / Verify Source →</a>`;
+          webHTML += `<div class="web-source-item">`;
+          webHTML += `<div class="web-source-domain">${domain}</div>`;
+          if(url && url !== '#'){
+            webHTML += `<a href="${url}" target="_blank" class="web-source-link">${title}</a>`;
+          } else {
+            webHTML += `<span style="color:#999;font-size:12px">${title}</span>`;
+          }
           webHTML += `</div>`;
         });
         
