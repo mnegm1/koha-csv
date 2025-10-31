@@ -628,8 +628,29 @@ async function renderAll(list,field,raw){
       // REMOVE URL text patterns like (https://...) from the answer
       let cleanedAnswer = result.answer.replace(/\s*\(https?:\/\/[^\)]*\)\s*/g, ' ').trim();
       
+      // NEW: Convert bracketed text [text here] to clickable links using web sources
+      // Pattern: [any text] - these are URLs that need to be clickable
+      let answerWithBracketLinks = cleanedAnswer.replace(/\[([^\[\]]+)\]/g, (match, bracketText) => {
+        // Check if this looks like a URL description (has Arabic or mixed text)
+        // and if we have web sources available
+        if(result.webSources && result.webSources.length > 0 && bracketText.length > 3){
+          // Try to find a matching web source
+          for(let i = 0; i < result.webSources.length; i++){
+            const source = result.webSources[i];
+            let url = typeof source === 'string' ? source : (source.url || '');
+            let sourceTitle = typeof source === 'string' ? source : (source.title || source.domain || '');
+            
+            // If this bracket text looks like it could match a source
+            if(url){
+              return `<a href="${url}" target="_blank" style="color:#BF9849;font-weight:700;text-decoration:none;border-bottom:2px solid #BF9849;padding:2px 6px;background:rgba(191,152,73,0.1);border-radius:3px;cursor:pointer;display:inline-block" title="${sourceTitle}" onclick="event.stopPropagation()">[${bracketText}]</a>`;
+            }
+          }
+        }
+        return match;
+      });
+      
       // Replace citations [1] with clickable links (BOOK sources)
-      let answerWithLinks = cleanedAnswer.replace(/\[(\d+)\]/g, (match, num) => {
+      let answerWithLinks = answerWithBracketLinks.replace(/\[(\d+)\]/g, (match, num) => {
         const bookIndex = parseInt(num) - 1;
         if(bookIndex >= 0 && bookIndex < list.length){
           const book = list[bookIndex];
