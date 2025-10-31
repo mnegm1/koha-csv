@@ -504,6 +504,12 @@ async function getAISummary(query,matchedBooks){
 
 // ---------- RENDER ----------
 function clearResults(){body.innerHTML=""}
+function startNewResearch(){
+  clearResults();
+  q.value="";
+  q.focus();
+  status.textContent="Ready";
+}
 function renderChunk(items){
   const frag=document.createDocumentFragment();
   for(const it of items){
@@ -622,7 +628,7 @@ async function renderAll(list,field,raw){
       // REMOVE URL text patterns like (https://...) from the answer
       let cleanedAnswer = result.answer.replace(/\s*\(https?:\/\/[^\)]*\)\s*/g, ' ').trim();
       
-      // Replace citations [1] with clickable links
+      // Replace citations [1] with clickable links (BOOK sources)
       let answerWithLinks = cleanedAnswer.replace(/\[(\d+)\]/g, (match, num) => {
         const bookIndex = parseInt(num) - 1;
         if(bookIndex >= 0 && bookIndex < list.length){
@@ -631,9 +637,26 @@ async function renderAll(list,field,raw){
           const bookUrl = book.raw.book_url || book.raw.book_Url || '#';
           
           if(bookUrl && bookUrl !== '#'){
-            return `<a href="${bookUrl}" target="_blank" style="color:#BF9849;font-weight:700;text-decoration:none;border-bottom:2px solid #BF9849;padding:0 2px;background:rgba(191,152,73,0.1);border-radius:3px" title="${title}" onclick="event.stopPropagation()">[${num}]</a>`;
+            return `<a href="${bookUrl}" target="_blank" style="color:#BF9849;font-weight:700;text-decoration:none;border-bottom:2px solid #BF9849;padding:0 2px;background:rgba(191,152,73,0.1);border-radius:3px;cursor:pointer" title="${title}" onclick="event.stopPropagation()">[${num}]</a>`;
           } else {
-            return `<span style="color:#BF9849;font-weight:700;background:rgba(191,152,73,0.1);padding:0 2px;border-radius:3px" title="${title}">[${num}]</span>`;
+            return `<span style="color:#BF9849;font-weight:700;background:rgba(191,152,73,0.1);padding:0 2px;border-radius:3px;cursor:pointer" title="${title}">[${num}]</span>`;
+          }
+        }
+        return match;
+      });
+      
+      // Replace citations [W1] [W2] etc with clickable web sources (WEB sources)
+      answerWithLinks = answerWithLinks.replace(/\[W(\d+)\]/g, (match, num) => {
+        const webIndex = parseInt(num) - 1;
+        if(result.webSources && webIndex >= 0 && webIndex < result.webSources.length){
+          const source = result.webSources[webIndex];
+          let url = typeof source === 'string' ? source : (source.url || '#');
+          let title = typeof source === 'string' ? source : (source.title || source.domain || 'Web Source');
+          
+          if(url && url !== '#'){
+            return `<a href="${url}" target="_blank" style="color:#BF9849;font-weight:700;text-decoration:none;border-bottom:2px solid #BF9849;padding:0 2px;background:rgba(191,152,73,0.1);border-radius:3px;cursor:pointer" title="${title}" onclick="event.stopPropagation()">[W${num}]</a>`;
+          } else {
+            return `<span style="color:#BF9849;font-weight:700;background:rgba(191,152,73,0.1);padding:0 2px;border-radius:3px;cursor:pointer" title="${title}">[W${num}]</span>`;
           }
         }
         return match;
@@ -740,6 +763,12 @@ async function renderAll(list,field,raw){
         current = current.nextElementSibling;
       }
       lastElement.after(sourceNote);
+      
+      // Add "Start New Research" button
+      const newResearchBtn = document.createElement("div");
+      newResearchBtn.style.cssText = "margin-top:20px;padding:15px;text-align:center";
+      newResearchBtn.innerHTML = `<button onclick="startNewResearch()" style="background:#BF9849;color:#fff;border:none;padding:12px 30px;border-radius:8px;font-weight:600;font-size:14px;cursor:pointer;transition:all 0.3s ease">🔄 Start New Research</button>`;
+      sourceNote.after(newResearchBtn);
     }else{
       console.error('❌ No AI result or answer:', result);
       aiSummaryDiv.innerHTML = '⚠️ AI summary unavailable';
