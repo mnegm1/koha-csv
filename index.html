@@ -60,8 +60,8 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFE
 .web-source-item{margin-bottom:12px;padding:12px;background:white;border-radius:6px;border:1px solid #ddd;transition:all 0.2s ease}
 .web-source-item:hover{border-color:#BF9849;box-shadow:0 2px 8px rgba(191,152,73,0.15)}
 .web-source-domain{font-weight:600;color:#BF9849;margin-bottom:6px;font-size:12px;text-transform:uppercase;letter-spacing:0.5px}
-.web-source-link{display:inline-block;color:#BF9849;font-size:13px;text-decoration:none;font-weight:600;padding:6px 0;border-bottom:2px solid transparent;transition:all 0.2s ease}
-.web-source-link:hover{border-bottom-color:#BF9849;color:#D4AB5E}
+.web-source-link{display:inline-block;color:#BF9849;font-size:13px;text-decoration:underline;font-weight:600;padding:6px 0;border-bottom:2px solid transparent;transition:all 0.2s ease;cursor:pointer}
+.web-source-link:hover{border-bottom-color:#BF9849;color:#D4AB5E;text-decoration:underline}
 .web-source-link::before{content:"🔗 "}
 </style>
 </head>
@@ -122,7 +122,7 @@ const FAMOUS_PEOPLE=new Set(["محمد بن زايد","محمد بن راشد","
 const KNOWN_LOCATIONS=new Set(["دبي","dubai","أبوظبي","أبو ظبي","ابوظبي","abu dhabi","الشارقة","sharjah","عجمان","ajman","رأس الخيمة","ras al khaimah","الفجيرة","fujairah","ام القيوين","umm al quwain","العين","al ain","الظفرة","مصر","egypt","السعودية","saudi arabia","الرياض","riyadh","جدة","jeddah","الكويت","kuwait","قطر","qatar","الدوحة","doha","البحرين","bahrain","المنامة","manama","عمان","oman","مسقط","muscat","الأردن","jordan","عمّان","amman","لبنان","lebanon","بيروت","beirut","سوريا","syria","دمشق","damascus","العراق","iraq","بغداد","baghdad","فلسطين","palestine","القدس","jerusalem","اليمن","yemen","صنعاء","sanaa","المغرب","morocco","الرباط","rabat","تونس","tunisia","الجزائر","algeria","ليبيا","libya","السودان","sudan","الخرطوم","khartoum","لندن","london","باريس","paris","نيويورك","new york","واشنطن","washington","موسكو","moscow","بكين","beijing","طوكيو","tokyo","برلين","berlin","روما","rome","مدريد","madrid","القاهرة","cairo","اسطنبول","istanbul","طهران","tehran"]);
 
 // Publisher location keywords
-const PUBLISHER_KEYWORDS=new Set(["دار","دار نشر","publisher","published in","مطبعة","مطبوع في","نشر في","صدر في","صادر عن","مركز"]);
+const PUBLISHER_KEYWORDS=new Set(["دار","دار نشر","publisher","published in","مطبعة","مطبوع في","نشر في","صدر في","صادر عن"]);
 
 function looksLikeYear(q){return/^\d{4}$/.test(q.trim())}
 
@@ -696,7 +696,36 @@ async function renderAll(list,field,raw){
         let webHTML = '<div class="web-sources-title">🌐 مصادر المواقع الإماراتية المستخدمة / UAE Web Sources Used:</div>';
         webHTML += '<div class="web-sources-subtitle">✅ جميع المصادر قابلة للتحقق - انقر للتأكد / All sources verifiable - click to verify</div>';
         
-        result.webSources.forEach((source, idx) => {
+        // Filter web sources to match the search query (to avoid unrelated centers)
+        const searchQueryNorm = norm(raw).toLowerCase();
+        let relevantSources = result.webSources;
+        
+        // If we have a relevant search term, filter sources
+        if(raw && raw.trim().length > 2){
+          relevantSources = result.webSources.filter(source => {
+            let sourceText = '';
+            if(typeof source === 'string'){
+              sourceText = source.toLowerCase();
+            } else {
+              sourceText = (source.title || source.domain || source.url || '').toLowerCase();
+            }
+            // Check if source contains search terms or is clearly relevant
+            return sourceText.includes(searchQueryNorm) || 
+                   sourceText.includes('ecssr') || 
+                   sourceText.includes('sheikh') ||
+                   sourceText.includes('zayed') ||
+                   sourceText.includes('محمد') ||
+                   sourceText.includes('زايد') ||
+                   sourceText.includes('شيخ');
+          });
+        }
+        
+        // If filtering removed everything, show all sources
+        if(relevantSources.length === 0){
+          relevantSources = result.webSources;
+        }
+        
+        relevantSources.forEach((source, idx) => {
           // Handle both string URLs and object format
           let url, domain, title;
           
