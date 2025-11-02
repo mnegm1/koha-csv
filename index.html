@@ -735,7 +735,7 @@ async function renderAll(list,field,raw){
             try {
               const urlObj = new URL(url);
               domain = urlObj.hostname.replace('www.', '');
-              // ✅ FIXED: Always display the FULL URL (not truncated) so it matches the href
+              // ✅ FIXED: ALWAYS show FULL URL (NOT truncated) - this matches the href!
               displayTitle = url;
             } catch {
               domain = 'UAE Source';
@@ -745,14 +745,14 @@ async function renderAll(list,field,raw){
             // Backend sent object with domain, title, url
             url = source.url || '#';
             domain = source.domain || 'UAE Source';
-            // ✅ FIXED: Use the full URL or provided title, never truncate
+            // ✅ FIXED: Use full URL from title or url, never truncate
             displayTitle = source.title || url;
           }
           
           webHTML += `<div class="web-source-item">`;
           webHTML += `<div class="web-source-domain">${domain}</div>`;
           if(url && url !== '#'){
-            // ✅ FIXED: Display title matches the href URL - no mismatch!
+            // ✅ FIXED: displayTitle is now the FULL URL and matches href
             webHTML += `<a href="${url}" target="_blank" class="web-source-link" title="${url}">${displayTitle}</a>`;
           } else {
             webHTML += `<span style="color:#999;font-size:12px">${displayTitle}</span>`;
