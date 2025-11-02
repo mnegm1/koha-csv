@@ -727,7 +727,7 @@ async function renderAll(list,field,raw){
         
         relevantSources.forEach((source, idx) => {
           // Handle both string URLs and object format
-          let url, domain, title;
+          let url, domain, displayTitle;
           
           if (typeof source === 'string') {
             // Backend sent just URL string
@@ -735,24 +735,27 @@ async function renderAll(list,field,raw){
             try {
               const urlObj = new URL(url);
               domain = urlObj.hostname.replace('www.', '');
-              title = url.length > 80 ? url.substring(0, 77) + '...' : url;
+              // ✅ FIXED: Always display the FULL URL (not truncated) so it matches the href
+              displayTitle = url;
             } catch {
               domain = 'UAE Source';
-              title = url;
+              displayTitle = url;
             }
           } else {
             // Backend sent object with domain, title, url
             url = source.url || '#';
             domain = source.domain || 'UAE Source';
-            title = source.title || url;
+            // ✅ FIXED: Use the full URL or provided title, never truncate
+            displayTitle = source.title || url;
           }
           
           webHTML += `<div class="web-source-item">`;
           webHTML += `<div class="web-source-domain">${domain}</div>`;
           if(url && url !== '#'){
-            webHTML += `<a href="${url}" target="_blank" class="web-source-link">${title}</a>`;
+            // ✅ FIXED: Display title matches the href URL - no mismatch!
+            webHTML += `<a href="${url}" target="_blank" class="web-source-link" title="${url}">${displayTitle}</a>`;
           } else {
-            webHTML += `<span style="color:#999;font-size:12px">${title}</span>`;
+            webHTML += `<span style="color:#999;font-size:12px">${displayTitle}</span>`;
           }
           webHTML += `</div>`;
         });
