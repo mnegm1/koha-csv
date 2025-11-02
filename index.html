@@ -573,6 +573,7 @@ function renderCitations(citations){
 
 async function renderAll(list,field,raw){
   clearResults();
+  LAST={items:list,shown:0,field};
   if(list.length===0){
     const el=document.createElement("div");
     el.className="info";
@@ -582,6 +583,13 @@ async function renderAll(list,field,raw){
     return
   }
   
+  // Show searching message
+  const infoDiv=document.createElement("div");
+  infoDiv.className="info";
+  infoDiv.dir=isArabic(raw)?"rtl":"ltr";
+  infoDiv.innerHTML=`<span style="opacity:0.7">🔍 ${isArabic(raw)?'جاري البحث':'Searching'}: <strong>${field!=='default'?field:'all fields'}</strong> + <strong>${MATCH_NOTE||'AI Analysis'}</strong></span>`;
+  body.appendChild(infoDiv);
+
   // Set LAST.field BEFORE calling AI
   LAST.field=field;
 
@@ -600,17 +608,39 @@ async function renderAll(list,field,raw){
   LAST.items=list;LAST.shown=Math.min(PAGE_SIZE,list.length);
   renderChunk(list.slice(0,LAST.shown));
   addShowMoreIfNeeded();
-
-  // 4. Add AI summary section AFTER records
+  
+  // Add "Load More" button if needed
+  if(list.length>PAGE_SIZE){
+    const moreDiv=document.createElement("div");
+    moreDiv.className="more-row";
+    const btn=document.createElement("button");
+    btn.textContent=isArabic(raw)?`عرض المزيد (${list.length-PAGE_SIZE} متبقي)`:`Load More (${list.length-PAGE_SIZE} remaining)`;
+    btn.onclick=()=>{
+      const nextChunk=LAST.items.slice(LAST.shown,LAST.shown+PAGE_SIZE);
+      renderChunk(nextChunk);
+      LAST.shown+=nextChunk.length;
+      if(LAST.shown>=LAST.items.length)moreDiv.remove();
+      else btn.textContent=isArabic(raw)?`عرض المزيد (${LAST.items.length-LAST.shown} متبقي)`:`Load More (${LAST.items.length-LAST.shown} remaining)`
+    };
+    moreDiv.appendChild(btn);
+    body.appendChild(moreDiv)
+  }
+  
+  status.textContent=`✅ Found ${list.length} results`;
+  
+  // 4. Add AI summary section HEADER AT BOTTOM
   const aiSectionHeader=document.createElement("div");
   aiSectionHeader.style.cssText="background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;padding:12px;margin:25px 0 10px 0;border-radius:10px;font-weight:bold;text-align:center;font-size:16px;border-top:3px solid #BF9849";
   aiSectionHeader.textContent="🤖 ملخص الذكاء الاصطناعي / AI Summary";
   body.appendChild(aiSectionHeader);
 
-  const aiSummaryDiv=document.createElement("div");aiSummaryDiv.className="ai-summary";
+  // 5. AI Summary analyzing container (shown at bottom)
+  const aiSummaryDiv=document.createElement("div");
+  aiSummaryDiv.className="ai-summary";
   aiSummaryDiv.innerHTML='<span style="display:inline-block;animation:rotate 1.5s linear infinite">⏳</span> AI analyzing data...';
   body.appendChild(aiSummaryDiv);
   
+  // Get AI summary asynchronously
   getAISummary(raw, list).then(result => {
     if(result && result.answer){
       console.log('✅ AI Summary received:', result);
