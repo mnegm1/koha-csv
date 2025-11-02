@@ -157,7 +157,7 @@ async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
   return (data.choices && data.choices[0]?.message?.content) || '';
 }
 
-/* ========= Perplexity Search - GET DIVERSE SOURCES ========= */
+/* ========= Perplexity Search - STRICT .AE ONLY ========= */
 async function searchWithPerplexity(query) {
   if (!PERPLEXITY_API_KEY) {
     console.log('⚠️ Perplexity API key not set');
@@ -167,32 +167,26 @@ async function searchWithPerplexity(query) {
   try {
     const isArabic = /[\u0600-\u06FF]/.test(query);
     
-    // ✅ CRITICAL FIX: Explicitly request diverse sources from MULTIPLE different websites
+    // ✅ STRICT: Only .ae domains, NO Wikipedia, NO external sources
     const searchQuery = isArabic 
-      ? `البحث عن: "${query}"
+      ? `ابحث فقط في المواقع الإماراتية الرسمية (.ae) عن: ${query}
       
-⚠️ هام جداً - أرجو تقديم مصادر من مواقع إماراتية مختلفة ومتنوعة:
-- وكالة أنباء الإمارات (WAM)
-- مركز الإمارات للدراسات الاستراتيجية (ECSSR)
-- موقع حكومة الإمارات الرسمي
-- المتاحف والمؤسسات الثقافية
-- الهيئات الحكومية المختلفة
-- المكتبات والأرشيفات
+⚠️ قواعد STRICT جداً:
+1. استخدم فقط مواقع .ae الإماراتية (وام، اكسر، حكومة الإمارات، إلخ)
+2. لا تستخدم ويكيبيديا أو أي مواقع خارجية
+3. لا تذكر ويكيبيديا في الإجابة أبداً
+4. الإجابة يجب أن تكون من مصادر .ae فقط
+5. إذا لم تجد معلومات من .ae، قل "لا توجد معلومات في المصادر الإماراتية"`
+      : `Search ONLY in official UAE websites (.ae) for: ${query}
 
-استخدم مصادر من مؤسسات مختلفة متعددة وليس موقع واحد فقط!`
-      : `Search for: "${query}"
+⚠️ STRICT RULES:
+1. Use ONLY .ae UAE websites (WAM, ECSSR, government, etc)
+2. Do NOT use Wikipedia or external websites
+3. Do NOT mention Wikipedia in answer EVER
+4. Answer must be from .ae sources ONLY
+5. If no .ae sources available, say "No information in UAE sources"`;
 
-⚠️ CRITICAL - Please provide sources from MULTIPLE different UAE websites:
-- UAE News Agency (WAM)
-- Emirates Center for Strategic Studies (ECSSR)
-- Official UAE Government Website
-- Museums and Cultural Institutions
-- Different Government Authorities
-- Libraries and Archives
-
-Use sources from DIFFERENT MULTIPLE institutions, NOT just one website!`;
-
-    console.log(`🌐 Perplexity search (DIVERSE SOURCES): "${searchQuery.substring(0, 80)}..."`);
+    console.log(`🌐 Perplexity search (STRICT .AE ONLY): "${searchQuery.substring(0, 80)}..."`);
 
     const requestBody = {
       model: 'sonar',
@@ -200,8 +194,8 @@ Use sources from DIFFERENT MULTIPLE institutions, NOT just one website!`;
         role: 'user',
         content: searchQuery
       }],
-      temperature: 0.5,  // ✅ Higher temperature for more variety
-      max_tokens: 2500,  // ✅ More tokens = more diverse content
+      temperature: 0.1,  // Low temp = strict compliance
+      max_tokens: 1500,
       return_citations: true
     };
 
@@ -221,57 +215,54 @@ Use sources from DIFFERENT MULTIPLE institutions, NOT just one website!`;
     }
 
     const data = await response.json();
-    const answer = data.choices?.[0]?.message?.content || '';
+    let answer = data.choices?.[0]?.message?.content || '';
     let citations = data.citations || [];
     
-    console.log(`📊 Perplexity returned ${citations.length} citations`);
-    console.log(`📋 Citations: ${citations.slice(0, 5).map(u => new URL(u).hostname).join(', ')}...`);
+    console.log(`📝 Perplexity returned: ${citations.length} citations`);
     
-    // ✅ CRITICAL FIX: Enforce DIVERSITY - group by domain
-    const domainUrls = {};
+    // ✅ STRICT FILTER 1: Remove Wikipedia from answer text
+    answer = answer
+      .replace(/\[?ويكيبيديا\]?/gi, '')  // Arabic Wikipedia
+      .replace(/\[?wikipedia\]?/gi, '')   // English Wikipedia
+      .replace(/ويكيبيديا.*?(\[|\.|,|$)/gi, '')  // Any Wikipedia reference
+      .replace(/wikipedia.*?(\[|\.|,|$)/gi, '')
+      .trim();
     
-    // Group all URLs by domain
-    for (const url of citations) {
-      try {
-        const urlObj = new URL(url);
-        const domain = urlObj.hostname;
-        
-        if (!domainUrls[domain]) {
-          domainUrls[domain] = [];
-        }
-        domainUrls[domain].push(url);
-      } catch (e) {
-        // Skip invalid URLs
+    console.log(`🔍 Removed Wikipedia references from answer`);
+    
+    // ✅ STRICT FILTER 2: Only .ae citations (NO Wikipedia, NO external)
+    const uaeCitations = citations.filter(url => {
+      const isUAE = url.includes('.ae');
+      const isNotWiki = !url.includes('wikipedia') && !url.includes('wiki');
+      const isNotExternal = !url.includes('en.wikipedia') && !url.includes('ar.wikipedia');
+      
+      if (!isUAE) {
+        console.log(`⏭️ Rejected non-.ae: ${url}`);
+        return false;
       }
-    }
-    
-    console.log(`🔗 Found ${Object.keys(domainUrls).length} different domains`);
-    
-    // ✅ CRITICAL: Take URLs from DIFFERENT domains to ensure diversity
-    const diverseCitations = [];
-    for (const domain in domainUrls) {
-      // Take up to 2 URLs from each domain
-      for (let i = 0; i < Math.min(2, domainUrls[domain].length); i++) {
-        diverseCitations.push(domainUrls[domain][i]);
+      if (!isNotWiki) {
+        console.log(`⏭️ Rejected Wikipedia: ${url}`);
+        return false;
       }
-    }
+      
+      return true;
+    });
     
-    console.log(`✅ Selected ${diverseCitations.length} URLs from ${Object.keys(domainUrls).length} different domains`);
-    console.log(`   Domains: ${Object.keys(domainUrls).join(', ')}`);
+    console.log(`✅ Filtered to ${uaeCitations.length} .ae citations (removed Wikipedia/external)`);
     
-    if (diverseCitations.length === 0) {
-      console.log('⚠️ No citations found after processing');
+    if (uaeCitations.length === 0) {
+      console.log('⚠️ No .ae citations after filtering');
       return null;
     }
     
-    const validUrls = await verifyURLs(diverseCitations);
+    const validUrls = await verifyURLs(uaeCitations);
     
     if (validUrls.length === 0) {
-      console.log('⚠️ No valid URLs after verification');
+      console.log('⚠️ No valid .ae URLs after verification');
       return null;
     }
     
-    console.log(`✅ Final valid URLs: ${validUrls.length}`);
+    console.log(`✅ Final: ${validUrls.length} verified .ae URLs`);
     validUrls.forEach(url => console.log(`   - ${url}`));
     
     return {
