@@ -573,7 +573,6 @@ function renderCitations(citations){
 
 async function renderAll(list,field,raw){
   clearResults();
-  LAST={items:list,shown:0,field};
   if(list.length===0){
     const el=document.createElement("div");
     el.className="info";
@@ -583,44 +582,35 @@ async function renderAll(list,field,raw){
     return
   }
   
-  // Show searching message
-  const infoDiv=document.createElement("div");
-  infoDiv.className="info";
-  infoDiv.dir=isArabic(raw)?"rtl":"ltr";
-  infoDiv.innerHTML=`<span style="opacity:0.7">🔍 ${isArabic(raw)?'جاري البحث':'Searching'}: <strong>${field!=='default'?field:'all fields'}</strong> + <strong>${MATCH_NOTE||'AI Analysis'}</strong></span>`;
-  body.appendChild(infoDiv);
+  // Set LAST.field BEFORE calling AI
+  LAST.field=field;
 
-  // Show AI summary first
-  const aiSummaryDiv=document.createElement("div");
-  aiSummaryDiv.className="ai-summary";
-  aiSummaryDiv.innerHTML=isArabic(raw)?'⏳ جاري إنشاء الملخص الذكي...':'⏳ Generating AI summary...';
+  // 1. Show results count
+  const info=document.createElement("div");info.className="info";
+  info.textContent=`وجدت ${list.length} نتيجة / Found ${list.length} results`;
+  body.appendChild(info);
+
+  // 2. Show bibliographic records section header
+  const recordsHeader=document.createElement("div");
+  recordsHeader.style.cssText="background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;padding:12px;margin:15px 0 10px 0;border-radius:10px;font-weight:bold;text-align:center;font-size:16px";
+  recordsHeader.textContent="📚 التسجيلات الببليوغرافية / Bibliographic Records";
+  body.appendChild(recordsHeader);
+
+  // 3. Render bibliographic records FIRST
+  LAST.items=list;LAST.shown=Math.min(PAGE_SIZE,list.length);
+  renderChunk(list.slice(0,LAST.shown));
+  addShowMoreIfNeeded();
+
+  // 4. Add AI summary section AFTER records
+  const aiSectionHeader=document.createElement("div");
+  aiSectionHeader.style.cssText="background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;padding:12px;margin:25px 0 10px 0;border-radius:10px;font-weight:bold;text-align:center;font-size:16px;border-top:3px solid #BF9849";
+  aiSectionHeader.textContent="🤖 ملخص الذكاء الاصطناعي / AI Summary";
+  body.appendChild(aiSectionHeader);
+
+  const aiSummaryDiv=document.createElement("div");aiSummaryDiv.className="ai-summary";
+  aiSummaryDiv.innerHTML='<span style="display:inline-block;animation:rotate 1.5s linear infinite">⏳</span> AI analyzing data...';
   body.appendChild(aiSummaryDiv);
-
-  // Render first page
-  const chunk=list.slice(0,PAGE_SIZE);
-  renderChunk(chunk);
-  LAST.shown=chunk.length;
   
-  // Add "Load More" button if needed
-  if(list.length>PAGE_SIZE){
-    const moreDiv=document.createElement("div");
-    moreDiv.className="more-row";
-    const btn=document.createElement("button");
-    btn.textContent=isArabic(raw)?`عرض المزيد (${list.length-PAGE_SIZE} متبقي)`:`Load More (${list.length-PAGE_SIZE} remaining)`;
-    btn.onclick=()=>{
-      const nextChunk=LAST.items.slice(LAST.shown,LAST.shown+PAGE_SIZE);
-      renderChunk(nextChunk);
-      LAST.shown+=nextChunk.length;
-      if(LAST.shown>=LAST.items.length)moreDiv.remove();
-      else btn.textContent=isArabic(raw)?`عرض المزيد (${LAST.items.length-LAST.shown} متبقي)`:`Load More (${LAST.items.length-LAST.shown} remaining)`
-    };
-    moreDiv.appendChild(btn);
-    body.appendChild(moreDiv)
-  }
-  
-  status.textContent=`✅ Found ${list.length} results`;
-  
-  // Get AI summary asynchronously
   getAISummary(raw, list).then(result => {
     if(result && result.answer){
       console.log('✅ AI Summary received:', result);
@@ -685,15 +675,47 @@ async function renderAll(list,field,raw){
       
       aiSummaryDiv.innerHTML=answerWithLinks;
       
+      // REORDER: Add aiSummaryDiv to body FIRST (will be moved after)
+      body.appendChild(aiSummaryDiv);
+      
       // Add WEB sources section SECOND (right after AI summary)
       if(result.webSources && result.webSources.length > 0){
         const webSourcesDiv = document.createElement("div");
-        webSourcesDiv.style.cssText = "margin-top:15px;padding:15px;background:#e8f4f8;border-left:4px solid #BF9849;border-radius:8px";
+        webSourcesDiv.className = "web-sources-section";
         
-        let webHTML = '<div style="font-weight:700;color:#BF9849;margin-bottom:10px;font-size:14px">🌐 مصادر المواقع الإماراتية المستخدمة / UAE Web Sources Used:</div>';
-        webHTML += '<div style="font-size:12px;color:#666;margin-bottom:10px">✅ جميع المصادر قابلة للتحقق - انقر للتأكد / All sources verifiable - click to verify</div>';
+        let webHTML = '<div class="web-sources-title">🌐 مصادر المواقع الإماراتية المستخدمة / UAE Web Sources Used:</div>';
+        webHTML += '<div class="web-sources-subtitle">✅ جميع المصادر قابلة للتحقق - انقر للتأكد / All sources verifiable - click to verify</div>';
         
-        result.webSources.forEach((source, idx) => {
+        // Filter web sources to match the search query (to avoid unrelated centers)
+        const searchQueryNorm = norm(raw).toLowerCase();
+        let relevantSources = result.webSources;
+        
+        // If we have a relevant search term, filter sources
+        if(raw && raw.trim().length > 2){
+          relevantSources = result.webSources.filter(source => {
+            let sourceText = '';
+            if(typeof source === 'string'){
+              sourceText = source.toLowerCase();
+            } else {
+              sourceText = (source.title || source.domain || source.url || '').toLowerCase();
+            }
+            // Check if source contains search terms or is clearly relevant
+            return sourceText.includes(searchQueryNorm) || 
+                   sourceText.includes('ecssr') || 
+                   sourceText.includes('sheikh') ||
+                   sourceText.includes('zayed') ||
+                   sourceText.includes('محمد') ||
+                   sourceText.includes('زايد') ||
+                   sourceText.includes('شيخ');
+          });
+        }
+        
+        // If filtering removed everything, show all sources
+        if(relevantSources.length === 0){
+          relevantSources = result.webSources;
+        }
+        
+        relevantSources.forEach((source, idx) => {
           // Handle both string URLs and object format
           let url, domain, title;
           
