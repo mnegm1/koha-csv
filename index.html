@@ -597,9 +597,25 @@ async function renderAll(list,field,raw){
   body.appendChild(aiSummaryDiv);
 
   // Render first page
+  // ===== SECTION 1: RESULTS COUNT =====
+  const info=document.createElement("div");
+  info.className="info";
+  info.textContent=`${isArabic(raw)?`وجدت ${list.length} نتيجة`:`Found ${list.length} results`}`;
+  body.appendChild(info);
+  
+  status.textContent=`✅ ${isArabic(raw)?`وجدت ${list.length} نتيجة`:`Found ${list.length} results`}`;
+  
+  // ===== SECTION 2: BIBLIOGRAPHIC RECORDS HEADER =====
+  const recordsHeader=document.createElement("div");
+  recordsHeader.style.cssText="background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;padding:12px;margin:15px 0 10px 0;border-radius:10px;font-weight:bold;text-align:center;font-size:16px";
+  recordsHeader.textContent=isArabic(raw)?"📚 التسجيلات الببليوغرافية / Bibliographic Records":"📚 Bibliographic Records / التسجيلات الببليوغرافية";
+  body.appendChild(recordsHeader);
+  
+  // ===== SECTION 3: RENDER BIBLIOGRAPHIC RECORDS =====
   const chunk=list.slice(0,PAGE_SIZE);
   renderChunk(chunk);
   LAST.shown=chunk.length;
+  LAST.items=list;
   
   // Add "Load More" button if needed
   if(list.length>PAGE_SIZE){
@@ -618,12 +634,17 @@ async function renderAll(list,field,raw){
     body.appendChild(moreDiv)
   }
   
-  status.textContent=`✅ Found ${list.length} results`;
   
   // Get AI summary asynchronously
   getAISummary(raw, list).then(result => {
     if(result && result.answer){
       console.log('✅ AI Summary received:', result);
+      
+      // ===== SECTION 4: AI SUMMARY HEADER =====
+      const aiSectionHeader=document.createElement("div");
+      aiSectionHeader.style.cssText="background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;padding:12px;margin:25px 0 10px 0;border-radius:10px;font-weight:bold;text-align:center;font-size:16px;border-top:3px solid #BF9849";
+      aiSectionHeader.textContent=isArabic(raw)?"🤖 ملخص ذكي من محتوى الكتب / AI Summary":"🤖 AI Summary from Book Content / ملخص ذكي";
+      body.appendChild(aiSectionHeader);
       
       // REMOVE URL text patterns like (https://...) from the answer
       let cleanedAnswer = result.answer.replace(/\s*\(https?:\/\/[^\)]*\)\s*/g, ' ').trim();
@@ -727,7 +748,7 @@ async function renderAll(list,field,raw){
         
         relevantSources.forEach((source, idx) => {
           // Handle both string URLs and object format
-          let url, domain, title;
+          let url, domain, displayTitle;
           
           if (typeof source === 'string') {
             // Backend sent just URL string
@@ -735,24 +756,27 @@ async function renderAll(list,field,raw){
             try {
               const urlObj = new URL(url);
               domain = urlObj.hostname.replace('www.', '');
-              title = url.length > 80 ? url.substring(0, 77) + '...' : url;
+              // ✅ CRITICAL FIX: Display FULL URL (NOT truncated) to match href
+              displayTitle = url;
             } catch {
               domain = 'UAE Source';
-              title = url;
+              displayTitle = url;
             }
           } else {
             // Backend sent object with domain, title, url
             url = source.url || '#';
             domain = source.domain || 'UAE Source';
-            title = source.title || url;
+            // ✅ FIXED: Use full URL/title, never truncate
+            displayTitle = source.title || url;
           }
           
           webHTML += `<div class="web-source-item">`;
           webHTML += `<div class="web-source-domain">${domain}</div>`;
           if(url && url !== '#'){
-            webHTML += `<a href="${url}" target="_blank" class="web-source-link">${title}</a>`;
+            // ✅ CRITICAL FIX: displayTitle matches href - what you see is what you click!
+            webHTML += `<a href="${url}" target="_blank" class="web-source-link" title="${url}">${displayTitle}</a>`;
           } else {
-            webHTML += `<span style="color:#999;font-size:12px">${title}</span>`;
+            webHTML += `<span style="color:#999;font-size:12px">${displayTitle}</span>`;
           }
           webHTML += `</div>`;
         });
