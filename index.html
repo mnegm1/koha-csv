@@ -49,8 +49,9 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFE
 .spinner{width:32px;height:32px;border-radius:50%;background:#fff var(--logo-url) center/90% no-repeat;border:3px solid rgba(0,0,0,.06);box-shadow:0 2px 8px rgba(0,0,0,.12);animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes rotate{0%,100%{transform:rotate(0deg)}50%{transform:rotate(180deg)}}
-@keyframes hourglassAnimation{0%{transform:scaleY(1)}50%{transform:scaleY(0.85)}100%{transform:scaleY(1)}}
-.hourglass-icon{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;font-size:20px;animation:hourglassAnimation 1.5s ease-in-out infinite;transform-origin:center;margin-right:8px}
+@keyframes rotateHourglass{0%{transform:rotate(0deg)}50%{transform:rotate(180deg)}100%{transform:rotate(360deg)}}
+.hourglass-icon{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;font-size:18px;animation:rotateHourglass 1.5s linear infinite;transform-origin:center;margin-right:8px}
+.timer-display{font-weight:700;color:#BF9849;font-size:13px;font-family:'Courier New',monospace;letter-spacing:0.5px;margin-left:auto}
 .busytext{font-weight:600;color:#555;display:flex;align-items:center;gap:6px}
 .item-type-badge{display:inline-block;background:#BF9849;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px}
 /* Web sources styling with hyperlinks */
@@ -74,7 +75,7 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFE
 
 <div class="box" id="box">
   <div class="head"><div>UAE Federation Library AI Search</div><button class="close" id="close">×</button></div>
-  <div class="busybar" id="busybar"><div class="hourglass-icon">⏳</div><div class="busytext" id="busytext">Loading...</div></div>
+  <div class="busybar" id="busybar"><div class="hourglass-icon">⏳</div><div class="busytext" id="busytext">Loading...</div><div class="timer-display" id="timerDisplay">Estimating: 20s</div></div>
   <div class="status" id="status">Ready</div>
   <div class="body" id="body"></div>
   <div class="input-wrap"><div class="input"><input id="q" type="text" placeholder="اكتب: اسم مؤلف / عنوان / موضوع / سنة" dir="auto"><button id="go">Search</button></div></div>
@@ -92,7 +93,13 @@ setTimeout(()=>{const b=document.getElementById("slideBanner");if(b)b.remove()},
 fab.onclick=()=>{box.style.display=(box.style.display==="flex")?"none":"flex";if(box.style.display==="flex"){if(!LOADED){setBusy(true,"Initializing…");ensureLoaded().then(()=>setBusy(false))}setTimeout(()=>q.focus(),50)}};
 close.onclick=()=>box.style.display="none";
 
-function setBusy(on,label){const bar=document.getElementById("busybar"),txt=document.getElementById("busytext");if(label)txt.textContent=label;if(on){box.classList.add("busy");go.disabled=true;q.disabled=true}else{box.classList.remove("busy");go.disabled=false;q.disabled=false}}
+let TIMER_INTERVAL=null;
+let PROCESS_START_TIME=null;
+const ESTIMATED_TIME=20000;
+
+function setBusy(on,label){const bar=document.getElementById("busybar"),txt=document.getElementById("busytext"),timerDisplay=document.getElementById("timerDisplay");if(label)txt.textContent=label;if(on){box.classList.add("busy");go.disabled=true;q.disabled=true;PROCESS_START_TIME=Date.now();startTimer()}else{box.classList.remove("busy");go.disabled=false;q.disabled=false;if(TIMER_INTERVAL)clearInterval(TIMER_INTERVAL);TIMER_INTERVAL=null;timerDisplay.textContent="Estimating: 20s"}}
+
+function startTimer(){if(!PROCESS_START_TIME)return;const timerDisplay=document.getElementById("timerDisplay");if(TIMER_INTERVAL)clearInterval(TIMER_INTERVAL);TIMER_INTERVAL=setInterval(()=>{if(!PROCESS_START_TIME){clearInterval(TIMER_INTERVAL);return}const elapsed=Date.now()-PROCESS_START_TIME;const remaining=Math.max(0,ESTIMATED_TIME-elapsed);const seconds=Math.ceil(remaining/1000);timerDisplay.textContent=`Estimating: ${seconds}s`;if(remaining<=0){clearInterval(TIMER_INTERVAL);TIMER_INTERVAL=null}},100)}
 function stripBidi(s){return String(s||"").replace(/[\u200E\u200F\u202A-\u202E]/g,"")}
 function clean(s){return stripBidi(String(s||"").replace(/^\uFEFF/,""))}
 function canonHeader(h){return clean(h).toLowerCase().replace(/\s+/g," ").trim()}
