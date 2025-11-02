@@ -434,13 +434,16 @@ LIBRARY BOOKS:
 ${bookContext}
 ${webContext}
 
-RULES:
+⚠️ CRITICAL RULES - MUST FOLLOW:
 1. For book info → cite [1], [2], [3]
 2. For web info → create markdown links: [text](url) using ONLY URLs from "VERIFIED WEB LINKS"
-3. Answer in ${isArabic ? 'Arabic' : 'English'}
-
-Example:
-"الشيخ زايد [كان مؤسس دولة الإمارات](https://wam.ae/actual-url) وفقاً لوكالة أنباء الإمارات [1]."
+3. **CRITICAL**: The link text MUST accurately describe what the URL actually contains
+4. **MUST**: Never write one website name but link to a completely different website
+5. **MUST**: Match domain name in text with domain name in URL
+6. Example - WRONG ❌: "الموقع الرسمي للشيخ زايد [رابط](https://dewa.gov.ae)" - text says Zayed but URL is DEWA
+7. Example - RIGHT ✅: "دائرة الكهرباء والماء [رابط](https://dewa.gov.ae)" - text matches DEWA URL
+8. Answer in ${isArabic ? 'Arabic' : 'English'}
+9. Ensure all [text] descriptions MATCH the actual content of the URL's domain
 
 Answer now:`;
 
