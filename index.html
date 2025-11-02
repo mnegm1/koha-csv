@@ -97,7 +97,7 @@ let TIMER_INTERVAL=null;
 let PROCESS_START_TIME=null;
 const ESTIMATED_TIME=20000;
 
-function setBusy(on,label){const bar=document.getElementById("busybar"),txt=document.getElementById("busytext"),timerDisplay=document.getElementById("timerDisplay");if(label)txt.textContent=label;if(on){box.classList.add("busy");go.disabled=true;q.disabled=true;PROCESS_START_TIME=Date.now();startTimer()}else{box.classList.remove("busy");go.disabled=false;q.disabled=false;if(TIMER_INTERVAL)clearInterval(TIMER_INTERVAL);TIMER_INTERVAL=null;timerDisplay.textContent="Estimating: 20s"}}
+function setBusy(on,label){const bar=document.getElementById("busybar"),txt=document.getElementById("busytext"),timerDisplay=document.getElementById("timerDisplay");if(label)txt.textContent=label;if(on){box.classList.add("busy");go.disabled=true;q.disabled=true;PROCESS_START_TIME=Date.now();if(timerDisplay)timerDisplay.textContent="Estimating: 20s";startTimer()}else{box.classList.remove("busy");go.disabled=false;q.disabled=false;if(TIMER_INTERVAL)clearInterval(TIMER_INTERVAL);TIMER_INTERVAL=null;if(timerDisplay)timerDisplay.textContent="Estimating: 20s"}}
 
 function startTimer(){if(!PROCESS_START_TIME)return;const timerDisplay=document.getElementById("timerDisplay");if(TIMER_INTERVAL)clearInterval(TIMER_INTERVAL);TIMER_INTERVAL=setInterval(()=>{if(!PROCESS_START_TIME){clearInterval(TIMER_INTERVAL);return}const elapsed=Date.now()-PROCESS_START_TIME;const remaining=Math.max(0,ESTIMATED_TIME-elapsed);const seconds=Math.ceil(remaining/1000);timerDisplay.textContent=`Estimating: ${seconds}s`;if(remaining<=0){clearInterval(TIMER_INTERVAL);TIMER_INTERVAL=null}},100)}
 function stripBidi(s){return String(s||"").replace(/[\u200E\u200F\u202A-\u202E]/g,"")}
@@ -490,11 +490,31 @@ async function getAISummary(query,matchedBooks){
       item_type:b.raw.item_type||"",
       book_url:b.raw.book_url||""
     }));
+    
+    // Start timer for AI analysis
+    const timerDisplay=document.getElementById("timerDisplay");
+    const aiStartTime=Date.now();
+    const aiEstimatedTime=15000; // 15 seconds for AI analysis
+    let aiTimerInterval=null;
+    
+    if(timerDisplay){
+      aiTimerInterval=setInterval(()=>{
+        const elapsed=Date.now()-aiStartTime;
+        const remaining=Math.max(0,aiEstimatedTime-elapsed);
+        const seconds=Math.ceil(remaining/1000);
+        timerDisplay.textContent=`AI: ${seconds}s`;
+        if(remaining<=0)clearInterval(aiTimerInterval);
+      },100);
+    }
+    
     const response=await fetch(`${BACKEND_URL}/chat`,{
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({query,books:booksWithSummaries,searchField:LAST.field})
     });
+    
+    if(aiTimerInterval)clearInterval(aiTimerInterval);
+    
     if(!response.ok)return null;
     const data=await response.json();
     return {
