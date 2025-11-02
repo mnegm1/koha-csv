@@ -157,7 +157,7 @@ async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
   return (data.choices && data.choices[0]?.message?.content) || '';
 }
 
-/* ========= Perplexity Search ========= */
+/* ========= Perplexity Search - GET DIVERSE SOURCES ========= */
 async function searchWithPerplexity(query) {
   if (!PERPLEXITY_API_KEY) {
     console.log('⚠️ Perplexity API key not set');
@@ -167,11 +167,32 @@ async function searchWithPerplexity(query) {
   try {
     const isArabic = /[\u0600-\u06FF]/.test(query);
     
+    // ✅ CRITICAL FIX: Explicitly request diverse sources from MULTIPLE different websites
     const searchQuery = isArabic 
-      ? `ابحث في المواقع الإماراتية عن: ${query}`
-      : `Search UAE websites for: ${query}`;
+      ? `البحث عن: "${query}"
+      
+⚠️ هام جداً - أرجو تقديم مصادر من مواقع إماراتية مختلفة ومتنوعة:
+- وكالة أنباء الإمارات (WAM)
+- مركز الإمارات للدراسات الاستراتيجية (ECSSR)
+- موقع حكومة الإمارات الرسمي
+- المتاحف والمؤسسات الثقافية
+- الهيئات الحكومية المختلفة
+- المكتبات والأرشيفات
 
-    console.log(`🌐 Perplexity search: "${searchQuery}"`);
+استخدم مصادر من مؤسسات مختلفة متعددة وليس موقع واحد فقط!`
+      : `Search for: "${query}"
+
+⚠️ CRITICAL - Please provide sources from MULTIPLE different UAE websites:
+- UAE News Agency (WAM)
+- Emirates Center for Strategic Studies (ECSSR)
+- Official UAE Government Website
+- Museums and Cultural Institutions
+- Different Government Authorities
+- Libraries and Archives
+
+Use sources from DIFFERENT MULTIPLE institutions, NOT just one website!`;
+
+    console.log(`🌐 Perplexity search (DIVERSE SOURCES): "${searchQuery.substring(0, 80)}..."`);
 
     const requestBody = {
       model: 'sonar',
@@ -179,8 +200,8 @@ async function searchWithPerplexity(query) {
         role: 'user',
         content: searchQuery
       }],
-      temperature: 0.1,
-      max_tokens: 1500,
+      temperature: 0.5,  // ✅ Higher temperature for more variety
+      max_tokens: 2500,  // ✅ More tokens = more diverse content
       return_citations: true
     };
 
@@ -203,17 +224,55 @@ async function searchWithPerplexity(query) {
     const answer = data.choices?.[0]?.message?.content || '';
     let citations = data.citations || [];
     
-    const uaeCitations = citations.filter(url => url.includes('.ae'));
+    console.log(`📊 Perplexity returned ${citations.length} citations`);
+    console.log(`📋 Citations: ${citations.slice(0, 5).map(u => new URL(u).hostname).join(', ')}...`);
     
-    if (uaeCitations.length === 0) {
+    // ✅ CRITICAL FIX: Enforce DIVERSITY - group by domain
+    const domainUrls = {};
+    
+    // Group all URLs by domain
+    for (const url of citations) {
+      try {
+        const urlObj = new URL(url);
+        const domain = urlObj.hostname;
+        
+        if (!domainUrls[domain]) {
+          domainUrls[domain] = [];
+        }
+        domainUrls[domain].push(url);
+      } catch (e) {
+        // Skip invalid URLs
+      }
+    }
+    
+    console.log(`🔗 Found ${Object.keys(domainUrls).length} different domains`);
+    
+    // ✅ CRITICAL: Take URLs from DIFFERENT domains to ensure diversity
+    const diverseCitations = [];
+    for (const domain in domainUrls) {
+      // Take up to 2 URLs from each domain
+      for (let i = 0; i < Math.min(2, domainUrls[domain].length); i++) {
+        diverseCitations.push(domainUrls[domain][i]);
+      }
+    }
+    
+    console.log(`✅ Selected ${diverseCitations.length} URLs from ${Object.keys(domainUrls).length} different domains`);
+    console.log(`   Domains: ${Object.keys(domainUrls).join(', ')}`);
+    
+    if (diverseCitations.length === 0) {
+      console.log('⚠️ No citations found after processing');
       return null;
     }
     
-    const validUrls = await verifyURLs(uaeCitations);
+    const validUrls = await verifyURLs(diverseCitations);
     
     if (validUrls.length === 0) {
+      console.log('⚠️ No valid URLs after verification');
       return null;
     }
+    
+    console.log(`✅ Final valid URLs: ${validUrls.length}`);
+    validUrls.forEach(url => console.log(`   - ${url}`));
     
     return {
       answer,
@@ -434,16 +493,13 @@ LIBRARY BOOKS:
 ${bookContext}
 ${webContext}
 
-⚠️ CRITICAL RULES - MUST FOLLOW:
+RULES:
 1. For book info → cite [1], [2], [3]
 2. For web info → create markdown links: [text](url) using ONLY URLs from "VERIFIED WEB LINKS"
-3. **CRITICAL**: The link text MUST accurately describe what the URL actually contains
-4. **MUST**: Never write one website name but link to a completely different website
-5. **MUST**: Match domain name in text with domain name in URL
-6. Example - WRONG ❌: "الموقع الرسمي للشيخ زايد [رابط](https://dewa.gov.ae)" - text says Zayed but URL is DEWA
-7. Example - RIGHT ✅: "دائرة الكهرباء والماء [رابط](https://dewa.gov.ae)" - text matches DEWA URL
-8. Answer in ${isArabic ? 'Arabic' : 'English'}
-9. Ensure all [text] descriptions MATCH the actual content of the URL's domain
+3. Answer in ${isArabic ? 'Arabic' : 'English'}
+
+Example:
+"الشيخ زايد [كان مؤسس دولة الإمارات](https://wam.ae/actual-url) وفقاً لوكالة أنباء الإمارات [1]."
 
 Answer now:`;
 
