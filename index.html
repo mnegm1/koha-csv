@@ -645,6 +645,9 @@ async function renderAll(list,field,raw){
         .replace(/\*(.*?)\*/g, '<em>$1</em>')
         .replace(/~~(.*?)~~/g, '<del>$1</del>')
         .replace(/\n/g, '<br>');
+      
+      // Replace citations [1] with clickable links (BOOK sources)
+      answerWithLinks = answerWithLinks.replace(/\[(\d+)\]/g, (match, num) => {
         const bookIndex = parseInt(num) - 1;
         if(bookIndex >= 0 && bookIndex < list.length){
           const book = list[bookIndex];
