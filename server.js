@@ -157,6 +157,21 @@ async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
   return (data.choices && data.choices[0]?.message?.content) || '';
 }
 
+/* ========= FIX: Replace Hallucinated URLs ========= */
+function replaceHallucinatedURLs(answer, verifiedUrls) {
+  if (!verifiedUrls || verifiedUrls.length === 0) return answer;
+  const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
+  const matches = [...answer.matchAll(linkRegex)];
+  let modifiedAnswer = answer;
+  matches.slice(0, verifiedUrls.length).forEach((match, index) => {
+    if (index < verifiedUrls.length) {
+      const newLink = `[${match[1]}](${verifiedUrls[index]})`;
+      modifiedAnswer = modifiedAnswer.replace(match[0], newLink);
+    }
+  });
+  return modifiedAnswer;
+}
+
 /* ========= Perplexity Search ========= */
 async function searchWithPerplexity(query) {
   if (!PERPLEXITY_API_KEY) {
@@ -449,6 +464,11 @@ Answer now:`;
         OPENAI_MODEL,
         { temperature: 0.1 }
       );
+
+      // FIX: Replace hallucinated URLs with verified ones
+      if (webSources.length > 0) {
+        answer = replaceHallucinatedURLs(answer, webSources);
+      }
 
       const matches = answer.match(/\[(\d+)\]/g);
       if (matches) {
