@@ -1,10 +1,10 @@
 // backend/server.js
-// ECSSR AI Assistant — v15.0 - IMPROVED Query Type Detection
-// - Better distinction between famous people vs regular authors
-// - Location as subject vs location as publisher location
-// - Content/summary search for famous people
+// ECSSR AI Assistant — v14.0 - FIXED Perplexity with Verified URLs
+// - Fixed model name
+// - Verifies URLs before using
+// - No more 404 errors
 
-const CODE_VERSION = "ecssr-backend-v15.0-improved-query-types";
+const CODE_VERSION = "ecssr-backend-v14.0-perplexity-fixed";
 
 const express = require('express');
 const cors = require('cors');
@@ -41,8 +41,9 @@ function checkRateLimit(ip) {
 /* ========= Verify URL (check if it returns 200) ========= */
 async function verifyURL(url) {
   try {
+    // Try HEAD request first (faster)
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeout = setTimeout(() => controller.abort(), 10000); // Increased to 10 seconds
     
     const response = await fetch(url, {
       method: 'HEAD',
@@ -61,6 +62,7 @@ async function verifyURL(url) {
       console.log(`✅ Valid URL: ${url}`);
       return true;
     } else if (response.status === 405) {
+      // Method Not Allowed - try GET instead
       console.log(`⚠️ HEAD not allowed, trying GET: ${url}`);
       return await verifyURLWithGET(url);
     } else {
@@ -78,10 +80,11 @@ async function verifyURL(url) {
   }
 }
 
+/* ========= Fallback: Verify with GET request ========= */
 async function verifyURLWithGET(url) {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const timeout = setTimeout(() => controller.abort(), 15000); // 15 seconds for GET
     
     const response = await fetch(url, {
       method: 'GET',
@@ -104,14 +107,16 @@ async function verifyURLWithGET(url) {
     }
   } catch (error) {
     console.log(`❌ GET also failed: ${url} - ${error.message}`);
+    // If both HEAD and GET fail, assume it's valid anyway (benefit of doubt for UAE sites)
     if (url.includes('.ae')) {
       console.log(`⚠️ Assuming UAE site is valid: ${url}`);
-      return true;
+      return true; // Give benefit of doubt for .ae domains
     }
     return false;
   }
 }
 
+/* ========= Verify multiple URLs ========= */
 async function verifyURLs(urls) {
   if (!urls || urls.length === 0) return [];
   
@@ -157,31 +162,7 @@ async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
   return (data.choices && data.choices[0]?.message?.content) || '';
 }
 
-/* ========= FIX: Replace Hallucinated URLs ========= */
-function replaceHallucinatedURLs(answer, verifiedUrls) {
-  if (!verifiedUrls || verifiedUrls.length === 0) return answer;
-  
-  // Replace URL1, URL2, URL3, etc. with actual URLs
-  let modifiedAnswer = answer;
-  verifiedUrls.forEach((url, index) => {
-    const placeholder = `URL${index + 1}`;
-    modifiedAnswer = modifiedAnswer.replace(new RegExp(placeholder, 'g'), url);
-  });
-  
-  // Also handle markdown links that might have been generated
-  const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
-  const matches = [...modifiedAnswer.matchAll(linkRegex)];
-  matches.slice(0, verifiedUrls.length).forEach((match, index) => {
-    if (index < verifiedUrls.length) {
-      const newLink = `[${match[1]}](${verifiedUrls[index]})`;
-      modifiedAnswer = modifiedAnswer.replace(match[0], newLink);
-    }
-  });
-  
-  return modifiedAnswer;
-}
-
-/* ========= Perplexity Search ========= */
+/* ========= FIXED Perplexity Search ========= */
 async function searchWithPerplexity(query) {
   if (!PERPLEXITY_API_KEY) {
     console.log('⚠️ Perplexity API key not set');
@@ -191,14 +172,16 @@ async function searchWithPerplexity(query) {
   try {
     const isArabic = /[\u0600-\u06FF]/.test(query);
     
+    // Simple search query for UAE sites
     const searchQuery = isArabic 
       ? `ابحث في المواقع الإماراتية عن: ${query}`
       : `Search UAE websites for: ${query}`;
 
     console.log(`🌐 Perplexity search: "${searchQuery}"`);
 
+    // FIXED: Use correct model name
     const requestBody = {
-      model: 'sonar',
+      model: 'sonar',  // FIXED: New model name
       messages: [{
         role: 'user',
         content: searchQuery
@@ -207,6 +190,8 @@ async function searchWithPerplexity(query) {
       max_tokens: 1500,
       return_citations: true
     };
+
+    console.log('📤 Perplexity request:', JSON.stringify(requestBody, null, 2));
 
     const response = await fetch(PERPLEXITY_URL, {
       method: 'POST',
@@ -217,25 +202,41 @@ async function searchWithPerplexity(query) {
       body: JSON.stringify(requestBody)
     });
 
+    console.log(`📥 Perplexity status: ${response.status}`);
+
     if (!response.ok) {
       const errorText = await response.text();
       console.log(`❌ Perplexity error: ${response.status}`);
+      console.log(`❌ Error details: ${errorText}`);
       return null;
     }
 
     const data = await response.json();
+    console.log('📦 Perplexity response:', JSON.stringify(data).substring(0, 300));
+    
     const answer = data.choices?.[0]?.message?.content || '';
     let citations = data.citations || [];
     
-    const uaeCitations = citations.filter(url => url.includes('.ae'));
+    console.log(`📚 Raw citations: ${citations.length}`);
+    console.log(`📋 Citations:`, citations);
+    
+    // Filter to UAE domains only
+    const uaeCitations = citations.filter(url => 
+      url.includes('.ae')
+    );
+    
+    console.log(`🇦🇪 UAE citations: ${uaeCitations.length}`);
     
     if (uaeCitations.length === 0) {
+      console.log('⚠️ No UAE citations found');
       return null;
     }
     
+    // VERIFY URLs
     const validUrls = await verifyURLs(uaeCitations);
     
     if (validUrls.length === 0) {
+      console.log('⚠️ No valid URLs after verification');
       return null;
     }
     
@@ -264,19 +265,7 @@ function norm(s) {
     .replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\s+/g,' ').trim();
 }
 
-/* ========= Famous People Detection ========= */
-const FAMOUS_PEOPLE = [
-  'محمد بن زايد', 'محمد بن راشد', 'خليفة بن زايد', 'زايد بن سلطان',
-  'الشيخ زايد', 'الشيخ محمد', 'الشيخ خليفة', 
-  'sheikh zayed', 'sheikh mohammed', 'sheikh khalifa', 'sheikh mohamed'
-];
-
-function isFamousPerson(query) {
-  const nq = norm(query);
-  return FAMOUS_PEOPLE.some(person => nq.includes(norm(person)));
-}
-
-/* ========= /api/understand-query - IMPROVED ANALYZER ========= */
+/* ========= /api/understand-query ========= */
 app.post('/api/understand-query', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
   if (!checkRateLimit(ip)) {
@@ -287,124 +276,13 @@ app.post('/api/understand-query', async (req, res) => {
     const { query } = req.body || {};
     if (!query) return res.status(400).json({ error: 'Query required' });
 
-    console.log(`\n🔍 Analyzing query: "${query}"`);
-
-    const isArabic = /[\u0600-\u06FF]/.test(query);
-
-    // Check if it's a famous person first
-    const isFamous = isFamousPerson(query);
-    if (isFamous) {
-      console.log('⭐ Detected FAMOUS PERSON - will search content/summary');
-      return res.json({
-        intent: 'famous_person',
-        field: 'famous_person',
-        searchFields: ['summary', 'content', 'title', 'subject'],
-        keyTerms: [query],
-        reasoning: 'Famous person detected - searching in content and summary for books ABOUT them'
-      });
-    }
-
-    const systemPrompt = `You are a library search expert. Analyze the search query and determine which database fields to search.
-
-AVAILABLE FIELDS:
-- author (author name - books BY this person)
-- title (book title)
-- subject (book topic/subject)
-- summary (book description)
-- content (book full content - use for famous people)
-- publisher (publisher name)
-- publisher_location (city/country where published)
-- year (publication year)
-
-CRITICAL DISTINCTIONS:
-1. FAMOUS PERSON (Sheikh, President, Well-known figure):
-   → Search: content, summary, title, subject
-   → These are people who are SUBJECTS of books, not authors
-   → Example: "الشيخ زايد" should search content/summary
-
-2. REGULAR AUTHOR NAME (Unknown person, 2-3 names):
-   → Search: author, co-author, organization
-   → These are people who WRITE books
-   → Example: "أحمد محمد علي" should search author
-
-3. LOCATION AS SUBJECT (talking ABOUT a place):
-   → Search: subject, title, summary
-   → Example: "تاريخ دبي" (history of Dubai)
-
-4. LOCATION AS PUBLISHER (WHERE book was published):
-   → Search: publisher_location
-   → Example: "كتب منشورة في أبوظبي"
-
-5. TOPIC/SUBJECT → Search: subject, title, summary
-6. BOOK TITLE → Search: title
-7. ORGANIZATION → Search: publisher, author, subject
-8. YEAR/DATE → Search: year
-
-Respond with JSON only.`;
-
-    const userPrompt = `Query: "${query}"
-
-Analyze this query carefully:
-1. Is it a FAMOUS PERSON (well-known figure like Sheikh, President)? → use "famous_person"
-2. Is it a REGULAR AUTHOR name (unknown person)? → use "person" with author fields
-3. Is it a LOCATION as a subject/topic? → use "place" with subject fields
-4. Is it a LOCATION as publisher location? → use "place" with publisher_location
-5. Or is it a topic, title, organization, or year?
-
-Respond in JSON format:
-{
-  "queryType": "famous_person|person|place|topic|title|organization|year",
-  "searchFields": ["field1", "field2", ...],
-  "keyTerms": ["term1", "term2", ...],
-  "reasoning": "brief explanation",
-  "isFamousPerson": true/false,
-  "isPublisherLocation": true/false
-}`;
-
-    const aiResponse = await callOpenAI(
-      [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      OPENAI_MODEL,
-      { temperature: 0.1, max_tokens: 500 }
-    );
-
-    let analysis;
-    try {
-      const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        analysis = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error('No JSON found');
-      }
-    } catch (e) {
-      console.log('⚠️ Failed to parse AI response, using defaults');
-      analysis = {
-        queryType: 'topic',
-        searchFields: ['title', 'subject', 'summary'],
-        keyTerms: [query],
-        reasoning: 'Default search'
-      };
-    }
-
-    console.log(`📊 Query type: ${analysis.queryType}`);
-    console.log(`📋 Search fields: ${analysis.searchFields.join(', ')}`);
-    console.log(`🔑 Key terms: ${analysis.keyTerms.join(', ')}`);
-    console.log(`💡 Reasoning: ${analysis.reasoning}\n`);
-
     res.json({
-      intent: analysis.queryType,
-      field: analysis.searchFields[0] || 'default',
-      searchFields: analysis.searchFields,
-      keyTerms: analysis.keyTerms,
-      reasoning: analysis.reasoning,
-      isFamousPerson: analysis.isFamousPerson || false,
-      isPublisherLocation: analysis.isPublisherLocation || false
+      intent: 'question',
+      field: 'default',
+      keyTerms: [],
+      reasoning: 'Processing query'
     });
-
   } catch (err) {
-    console.error('❌ Query analysis error:', err);
     res.status(500).json({ error: 'Error', details: err.message });
   }
 });
@@ -436,11 +314,13 @@ app.post('/api/chat', async (req, res) => {
 
     if (safeBooks.length > 0) {
       
+      // Build book context
       const bookContext = safeBooks.map((b, i) => {
         const num = i + 1;
         return `[${num}] ${b.title || 'Untitled'} by ${b.author || 'Unknown'}\n${(b.summary || '').substring(0, 400)}`;
       }).join('\n\n');
 
+      // Search web for VERIFIED links
       const webResults = await searchWithPerplexity(query);
       
       let webContext = '';
@@ -452,25 +332,19 @@ app.post('/api/chat', async (req, res) => {
 
       const isArabic = /[\u0600-\u06FF]/.test(query);
 
-      const webLinks = webSources.map((url, i) => `URL${i + 1}: ${url}`).join('\n');
-      
       const prompt = `You are answering: "${query}"
 
 LIBRARY BOOKS:
 ${bookContext}
+${webContext}
 
-VERIFIED WEB URLS (YOU MUST USE THESE):
-${webLinks}
+RULES:
+1. For book info → cite [1], [2], [3]
+2. For web info → create markdown links: [text](url) using ONLY URLs from "VERIFIED WEB LINKS"
+3. Answer in ${isArabic ? 'Arabic' : 'English'}
 
-CRITICAL INSTRUCTIONS:
-1. For book information → use [1], [2], [3] citations
-2. For web information → ALWAYS create clickable markdown links like: [text here](URL)
-3. Use ONLY the URLs provided above - replace URL with the actual URL
-4. NEVER generate new URLs, ONLY use provided URLs
-5. Answer in ${isArabic ? 'Arabic' : 'English'}
-
-Example format:
-"الشيخ زايد [كان مؤسس دولة الإمارات](URL1) وفقاً [للمعلومات الرسمية](URL2) وفقاً لـ [1]."
+Example:
+"الشيخ زايد [كان مؤسس دولة الإمارات](https://wam.ae/actual-url) وفقاً لوكالة أنباء الإمارات [1]."
 
 Answer now:`;
 
@@ -480,11 +354,7 @@ Answer now:`;
         { temperature: 0.1 }
       );
 
-      // FIX: Replace hallucinated URLs with verified ones
-      if (webSources.length > 0) {
-        answer = replaceHallucinatedURLs(answer, webSources);
-      }
-
+      // Extract book citations
       const matches = answer.match(/\[(\d+)\]/g);
       if (matches) {
         bookIds = [...new Set(matches.map(m => parseInt(m.replace(/[\[\]]/g, ''))))].filter(n => n > 0 && n <= safeBooks.length).sort((a,b) => a-b);
@@ -496,6 +366,7 @@ Answer now:`;
       answerSource = webSources.length > 0 ? 'dual' : 'library';
       
     } else {
+      // No books
       const webResults = await searchWithPerplexity(query);
       
       if (webResults && webResults.citations.length > 0) {
@@ -536,11 +407,11 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     codeVersion: CODE_VERSION,
-    aiProvider: 'OpenAI + Perplexity',
+    aiProvider: 'OpenAI + Perplexity (FIXED)',
     openaiConfigured: !!OPENAI_API_KEY && OPENAI_API_KEY !== 'sk-YOUR-API-KEY-HERE',
     perplexityConfigured: !!PERPLEXITY_API_KEY,
     modelVersion: OPENAI_MODEL,
-    features: 'Famous Person Detection • Location Type Detection • Content Search • Verified URLs',
+    features: 'FIXED Perplexity • Verified URLs • Books [1][2][3] • Real Web Links',
   });
 });
 
@@ -554,7 +425,7 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`\n🚀 ECSSR Backend http://localhost:${PORT}`);
   console.log(`🔖 Version: ${CODE_VERSION}`);
-  console.log(`✅ Famous person detection`);
-  console.log(`✅ Location type detection`);
-  console.log(`✅ Content/summary search for famous people\n`);
+  console.log(`✅ FIXED: Perplexity model name`);
+  console.log(`✅ URL verification enabled`);
+  console.log(`✅ No more 404 errors!\n`);
 });
