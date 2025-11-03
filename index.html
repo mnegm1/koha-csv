@@ -44,25 +44,13 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFE
 .info{background:#e8f4f8;border-left:4px solid #BF9849;padding:10px;margin:10px 0;border-radius:8px;font-size:13px}
 .more-row{display:flex;justify-content:center;margin-top:10px}
 .more-row button{background:#BF9849;color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:700;cursor:pointer}
-.busybar{display:none;align-items:center;gap:12px;padding:12px 14px;background:#fff;border-bottom:1px solid #e8eef3}
+.busybar{display:none;align-items:center;gap:10px;padding:8px 12px;background:#fff;border-bottom:1px solid #e8eef3}
 .box.busy .busybar{display:flex}
 .spinner{width:32px;height:32px;border-radius:50%;background:#fff var(--logo-url) center/90% no-repeat;border:3px solid rgba(0,0,0,.06);box-shadow:0 2px 8px rgba(0,0,0,.12);animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes rotate{0%,100%{transform:rotate(0deg)}50%{transform:rotate(180deg)}}
-@keyframes hourglassAnimation{0%{transform:scaleY(1)}50%{transform:scaleY(0.85)}100%{transform:scaleY(1)}}
-.hourglass-icon{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;font-size:20px;animation:hourglassAnimation 1.5s ease-in-out infinite;transform-origin:center;margin-right:8px}
-.busytext{font-weight:600;color:#555;display:flex;align-items:center;gap:6px}
+.busytext{font-weight:600;color:#555}
 .item-type-badge{display:inline-block;background:#BF9849;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px}
-/* Web sources styling with hyperlinks */
-.web-sources-section{margin-top:15px;padding:15px;background:#e8f4f8;border-left:4px solid #BF9849;border-radius:8px}
-.web-sources-title{font-weight:700;color:#BF9849;margin-bottom:10px;font-size:14px}
-.web-sources-subtitle{font-size:12px;color:#666;margin-bottom:12px}
-.web-source-item{margin-bottom:12px;padding:12px;background:white;border-radius:6px;border:1px solid #ddd;transition:all 0.2s ease}
-.web-source-item:hover{border-color:#BF9849;box-shadow:0 2px 8px rgba(191,152,73,0.15)}
-.web-source-domain{font-weight:600;color:#BF9849;margin-bottom:6px;font-size:12px;text-transform:uppercase;letter-spacing:0.5px}
-.web-source-link{display:inline-block;color:#BF9849;font-size:13px;text-decoration:underline;font-weight:600;padding:6px 0;border-bottom:2px solid transparent;transition:all 0.2s ease;cursor:pointer}
-.web-source-link:hover{border-bottom-color:#BF9849;color:#D4AB5E;text-decoration:underline}
-.web-source-link::before{content:"🔗 "}
 </style>
 </head>
 <body>
@@ -74,7 +62,7 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#F3EFE
 
 <div class="box" id="box">
   <div class="head"><div>UAE Federation Library AI Search</div><button class="close" id="close">×</button></div>
-  <div class="busybar" id="busybar"><div class="hourglass-icon">⏳</div><div class="busytext" id="busytext">Loading...</div></div>
+  <div class="busybar" id="busybar"><div class="spinner"></div><div class="busytext" id="busytext">Loading...</div></div>
   <div class="status" id="status">Ready</div>
   <div class="body" id="body"></div>
   <div class="input-wrap"><div class="input"><input id="q" type="text" placeholder="اكتب: اسم مؤلف / عنوان / موضوع / سنة" dir="auto"><button id="go">Search</button></div></div>
@@ -122,7 +110,7 @@ const FAMOUS_PEOPLE=new Set(["محمد بن زايد","محمد بن راشد","
 const KNOWN_LOCATIONS=new Set(["دبي","dubai","أبوظبي","أبو ظبي","ابوظبي","abu dhabi","الشارقة","sharjah","عجمان","ajman","رأس الخيمة","ras al khaimah","الفجيرة","fujairah","ام القيوين","umm al quwain","العين","al ain","الظفرة","مصر","egypt","السعودية","saudi arabia","الرياض","riyadh","جدة","jeddah","الكويت","kuwait","قطر","qatar","الدوحة","doha","البحرين","bahrain","المنامة","manama","عمان","oman","مسقط","muscat","الأردن","jordan","عمّان","amman","لبنان","lebanon","بيروت","beirut","سوريا","syria","دمشق","damascus","العراق","iraq","بغداد","baghdad","فلسطين","palestine","القدس","jerusalem","اليمن","yemen","صنعاء","sanaa","المغرب","morocco","الرباط","rabat","تونس","tunisia","الجزائر","algeria","ليبيا","libya","السودان","sudan","الخرطوم","khartoum","لندن","london","باريس","paris","نيويورك","new york","واشنطن","washington","موسكو","moscow","بكين","beijing","طوكيو","tokyo","برلين","berlin","روما","rome","مدريد","madrid","القاهرة","cairo","اسطنبول","istanbul","طهران","tehran"]);
 
 // Publisher location keywords
-const PUBLISHER_KEYWORDS=new Set(["دار","دار نشر","publisher","published in","مطبعة","مطبوع في","نشر في","مركز","صدر في","صادر عن"]);
+const PUBLISHER_KEYWORDS=new Set(["دار","دار نشر","publisher","published in","مطبعة","مطبوع في","نشر في","صدر في","صادر عن"]);
 
 function looksLikeYear(q){return/^\d{4}$/.test(q.trim())}
 
@@ -504,12 +492,6 @@ async function getAISummary(query,matchedBooks){
 
 // ---------- RENDER ----------
 function clearResults(){body.innerHTML=""}
-function startNewResearch(){
-  clearResults();
-  q.value="";
-  q.focus();
-  status.textContent="Ready";
-}
 function renderChunk(items){
   const frag=document.createDocumentFragment();
   for(const it of items){
@@ -574,7 +556,6 @@ function renderCitations(citations){
 async function renderAll(list,field,raw){
   clearResults();
   LAST={items:list,shown:0,field};
-  
   if(list.length===0){
     const el=document.createElement("div");
     el.className="info";
@@ -584,22 +565,23 @@ async function renderAll(list,field,raw){
     return
   }
   
-  // 1. Show results count
-  const info=document.createElement("div");
-  info.className="info";
-  info.textContent=`وجدت ${list.length} نتيجة / Found ${list.length} results`;
-  body.appendChild(info);
-  
-  // 2. Show bibliographic records section header
-  const recordsHeader=document.createElement("div");
-  recordsHeader.style.cssText="background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;padding:12px;margin:15px 0 10px 0;border-radius:10px;font-weight:bold;text-align:center;font-size:16px";
-  recordsHeader.textContent="📚 التسجيلات الببليوغرافية / Bibliographic Records";
-  body.appendChild(recordsHeader);
-  
-  // 3. Render bibliographic records FIRST
-  LAST.items=list;
-  LAST.shown=Math.min(PAGE_SIZE,list.length);
-  renderChunk(list.slice(0,LAST.shown));
+  // Show searching message
+  const infoDiv=document.createElement("div");
+  infoDiv.className="info";
+  infoDiv.dir=isArabic(raw)?"rtl":"ltr";
+  infoDiv.innerHTML=`<span style="opacity:0.7">🔍 ${isArabic(raw)?'جاري البحث':'Searching'}: <strong>${field!=='default'?field:'all fields'}</strong> + <strong>${MATCH_NOTE||'AI Analysis'}</strong></span>`;
+  body.appendChild(infoDiv);
+
+  // Show AI summary first
+  const aiSummaryDiv=document.createElement("div");
+  aiSummaryDiv.className="ai-summary";
+  aiSummaryDiv.innerHTML=isArabic(raw)?'⏳ جاري إنشاء الملخص الذكي...':'⏳ Generating AI summary...';
+  body.appendChild(aiSummaryDiv);
+
+  // Render first page
+  const chunk=list.slice(0,PAGE_SIZE);
+  renderChunk(chunk);
+  LAST.shown=chunk.length;
   
   // Add "Load More" button if needed
   if(list.length>PAGE_SIZE){
@@ -618,17 +600,6 @@ async function renderAll(list,field,raw){
     body.appendChild(moreDiv)
   }
   
-  // 4. Add AI summary section AFTER records
-  const aiSectionHeader=document.createElement("div");
-  aiSectionHeader.style.cssText="background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;padding:12px;margin:25px 0 10px 0;border-radius:10px;font-weight:bold;text-align:center;font-size:16px;border-top:3px solid #BF9849";
-  aiSectionHeader.textContent="🤖 ملخص ذكي / AI Summary";
-  body.appendChild(aiSectionHeader);
-  
-  const aiSummaryDiv=document.createElement("div");
-  aiSummaryDiv.className="ai-summary";
-  aiSummaryDiv.innerHTML='<span style="display:inline-block;animation:rotate 1.5s linear infinite">⏳</span> AI analyzing data...';
-  body.appendChild(aiSummaryDiv);
-  
   status.textContent=`✅ Found ${list.length} results`;
   
   // Get AI summary asynchronously
@@ -636,18 +607,8 @@ async function renderAll(list,field,raw){
     if(result && result.answer){
       console.log('✅ AI Summary received:', result);
       
-      // REMOVE URL text patterns like (https://...) from the answer
-      let cleanedAnswer = result.answer.replace(/\s*\(https?:\/\/[^\)]*\)\s*/g, ' ').trim();
-      
-      // Convert markdown to HTML
-      let answerWithLinks = cleanedAnswer
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        .replace(/~~(.*?)~~/g, '<del>$1</del>')
-        .replace(/\n/g, '<br>');
-      
-      // Replace citations [1] with clickable links (BOOK sources)
-      answerWithLinks = answerWithLinks.replace(/\[(\d+)\]/g, (match, num) => {
+      // Replace citations [1] with clickable links
+      let answerWithLinks = result.answer.replace(/\[(\d+)\]/g, (match, num) => {
         const bookIndex = parseInt(num) - 1;
         if(bookIndex >= 0 && bookIndex < list.length){
           const book = list[bookIndex];
@@ -655,26 +616,9 @@ async function renderAll(list,field,raw){
           const bookUrl = book.raw.book_url || book.raw.book_Url || '#';
           
           if(bookUrl && bookUrl !== '#'){
-            return `<a href="${bookUrl}" target="_blank" style="color:#BF9849;font-weight:700;text-decoration:none;border-bottom:2px solid #BF9849;padding:0 2px;background:rgba(191,152,73,0.1);border-radius:3px;cursor:pointer" title="${title}" onclick="event.stopPropagation()">[${num}]</a>`;
+            return `<a href="${bookUrl}" target="_blank" style="color:#BF9849;font-weight:700;text-decoration:none;border-bottom:2px solid #BF9849;padding:0 2px;background:rgba(191,152,73,0.1);border-radius:3px" title="${title}" onclick="event.stopPropagation()">[${num}]</a>`;
           } else {
-            return `<span style="color:#BF9849;font-weight:700;background:rgba(191,152,73,0.1);padding:0 2px;border-radius:3px;cursor:pointer" title="${title}">[${num}]</span>`;
-          }
-        }
-        return match;
-      });
-      
-      // Replace citations [W1] [W2] etc with clickable web sources (WEB sources)
-      answerWithLinks = answerWithLinks.replace(/\[W(\d+)\]/g, (match, num) => {
-        const webIndex = parseInt(num) - 1;
-        if(result.webSources && webIndex >= 0 && webIndex < result.webSources.length){
-          const source = result.webSources[webIndex];
-          let url = typeof source === 'string' ? source : (source.url || '#');
-          let title = typeof source === 'string' ? source : (source.title || source.domain || 'Web Source');
-          
-          if(url && url !== '#'){
-            return `<a href="${url}" target="_blank" style="color:#BF9849;font-weight:700;text-decoration:none;border-bottom:2px solid #BF9849;padding:0 2px;background:rgba(191,152,73,0.1);border-radius:3px;cursor:pointer" title="${title}" onclick="event.stopPropagation()">[W${num}]</a>`;
-          } else {
-            return `<span style="color:#BF9849;font-weight:700;background:rgba(191,152,73,0.1);padding:0 2px;border-radius:3px;cursor:pointer" title="${title}">[W${num}]</span>`;
+            return `<span style="color:#BF9849;font-weight:700;background:rgba(191,152,73,0.1);padding:0 2px;border-radius:3px" title="${title}">[${num}]</span>`;
           }
         }
         return match;
@@ -682,83 +626,7 @@ async function renderAll(list,field,raw){
       
       aiSummaryDiv.innerHTML=answerWithLinks;
       
-      // REORDER: Add aiSummaryDiv to body FIRST (will be moved after)
-      body.appendChild(aiSummaryDiv);
-      
-      // Add WEB sources section SECOND (right after AI summary)
-      if(result.webSources && result.webSources.length > 0){
-        const webSourcesDiv = document.createElement("div");
-        webSourcesDiv.className = "web-sources-section";
-        
-        let webHTML = '<div class="web-sources-title">🌐 مصادر المواقع الإماراتية المستخدمة / UAE Web Sources Used:</div>';
-        webHTML += '<div class="web-sources-subtitle">✅ جميع المصادر قابلة للتحقق - انقر للتأكد / All sources verifiable - click to verify</div>';
-        
-        // Filter web sources to match the search query (to avoid unrelated centers)
-        const searchQueryNorm = norm(raw).toLowerCase();
-        let relevantSources = result.webSources;
-        
-        // If we have a relevant search term, filter sources
-        if(raw && raw.trim().length > 2){
-          relevantSources = result.webSources.filter(source => {
-            let sourceText = '';
-            if(typeof source === 'string'){
-              sourceText = source.toLowerCase();
-            } else {
-              sourceText = (source.title || source.domain || source.url || '').toLowerCase();
-            }
-            // Check if source contains search terms or is clearly relevant
-            return sourceText.includes(searchQueryNorm) || 
-                   sourceText.includes('ecssr') || 
-                   sourceText.includes('sheikh') ||
-                   sourceText.includes('zayed') ||
-                   sourceText.includes('محمد') ||
-                   sourceText.includes('زايد') ||
-                   sourceText.includes('شيخ');
-          });
-        }
-        
-        // If filtering removed everything, show all sources
-        if(relevantSources.length === 0){
-          relevantSources = result.webSources;
-        }
-        
-        relevantSources.forEach((source, idx) => {
-          // Handle both string URLs and object format
-          let url, domain, title;
-          
-          if (typeof source === 'string') {
-            // Backend sent just URL string
-            url = source;
-            try {
-              const urlObj = new URL(url);
-              domain = urlObj.hostname.replace('www.', '');
-              title = url.length > 80 ? url.substring(0, 77) + '...' : url;
-            } catch {
-              domain = 'UAE Source';
-              title = url;
-            }
-          } else {
-            // Backend sent object with domain, title, url
-            url = source.url || '#';
-            domain = source.domain || 'UAE Source';
-            title = source.title || url;
-          }
-          
-          webHTML += `<div class="web-source-item">`;
-          webHTML += `<div class="web-source-domain">${domain}</div>`;
-          if(url && url !== '#'){
-            webHTML += `<a href="${url}" target="_blank" class="web-source-link">${title}</a>`;
-          } else {
-            webHTML += `<span style="color:#999;font-size:12px">${title}</span>`;
-          }
-          webHTML += `</div>`;
-        });
-        
-        webSourcesDiv.innerHTML = webHTML;
-        aiSummaryDiv.after(webSourcesDiv);
-      }
-      
-      // Add book sources section THIRD (after web sources)
+      // Add book sources section if available
       if(result.bookIds && result.bookIds.length > 0){
         const bookSourcesDiv = document.createElement("div");
         bookSourcesDiv.style.cssText = "margin-top:15px;padding:15px;background:#fafafa;border-left:4px solid #BF9849;border-radius:8px";
@@ -785,48 +653,68 @@ async function renderAll(list,field,raw){
         });
         
         bookSourcesDiv.innerHTML = sourcesHTML;
-        // Find the last section and add after it
-        const lastSection = aiSummaryDiv.nextElementSibling;
-        if(lastSection){
-          lastSection.after(bookSourcesDiv);
-        } else {
-          aiSummaryDiv.after(bookSourcesDiv);
-        }
+        aiSummaryDiv.after(bookSourcesDiv);
       }
       
-      // Add Disclaimer note LAST
+      // Add WEB sources section if available (with REAL LINKS for verification)
+      if(result.webSources && result.webSources.length > 0){
+        const webSourcesDiv = document.createElement("div");
+        webSourcesDiv.style.cssText = "margin-top:15px;padding:15px;background:#e8f4f8;border-left:4px solid #BF9849;border-radius:8px";
+        
+        let webHTML = '<div style="font-weight:700;color:#BF9849;margin-bottom:10px;font-size:14px">🌐 مصادر المواقع الإماراتية المستخدمة / UAE Web Sources Used:</div>';
+        webHTML += '<div style="font-size:12px;color:#666;margin-bottom:10px">✅ جميع المصادر قابلة للتحقق - انقر للتأكد / All sources verifiable - click to verify</div>';
+        
+        result.webSources.forEach((source, idx) => {
+          // Handle both string URLs and object format
+          let url, domain, title;
+          
+          if (typeof source === 'string') {
+            // Backend sent just URL string
+            url = source;
+            try {
+              const urlObj = new URL(url);
+              domain = urlObj.hostname;
+              title = url.length > 80 ? url.substring(0, 77) + '...' : url;
+            } catch {
+              domain = 'UAE Source';
+              title = url;
+            }
+          } else {
+            // Backend sent object with domain, title, url
+            url = source.url || '#';
+            domain = source.domain || 'UAE Source';
+            title = source.title || url;
+          }
+          
+          webHTML += `<div style="margin-bottom:10px;padding:10px;background:white;border-radius:5px;border:1px solid #ddd">`;
+          webHTML += `<div style="font-weight:600;color:#BF9849;margin-bottom:5px">${domain}</div>`;
+          webHTML += `<div style="font-size:11px;color:#666;margin-bottom:5px;word-break:break-all">${title}</div>`;
+          webHTML += `<a href="${url}" target="_blank" style="color:#BF9849;font-size:12px;text-decoration:none;font-weight:600">`;
+          webHTML += `🔗 التحقق من المصدر / Verify Source →</a>`;
+          webHTML += `</div>`;
+        });
+        
+        webSourcesDiv.innerHTML = webHTML;
+        aiSummaryDiv.after(webSourcesDiv);
+      }
+      
+      // Add Disclaimer note after AI summary with correct terminology
       const sourceNote=document.createElement("div");
       sourceNote.className="info";
       sourceNote.style.marginTop="8px";
       sourceNote.style.fontSize="12px";
       sourceNote.style.background="linear-gradient(135deg,#fff9e6,#fffbf0)";
       sourceNote.innerHTML="<strong>📚 إخلاء مسؤولية معلومات الذكاء الاصطناعي:</strong> يتم إنشاء هذا الملخص تلقائيًا بواسطة تقنيات الذكاء الاصطناعي بهدف تيسير فهم المحتوى وتقديم نظرة عامة سريعة. يرجى ملاحظة أن المعلومات المولدة قد لا تكون دقيقة تمامًا أو شاملة، لذا يُنصح دائمًا بمراجعة المصدر الأصلي قبل الاعتماد عليها. ولا تتحمل المكتبة أي مسؤولية عن النتائج الصادرة عن الذكاء الاصطناعي.<br><strong>📚 AI Information Disclaimer:</strong> This summary is automatically generated using artificial intelligence technologies to provide a quick overview of the content. The information presented may not be fully accurate or complete; therefore, it is recommended to verify details from the original source before relying on them. The library assumes no responsibility for any outcomes resulting from AI-generated conten.";
-      
-      // Add disclaimer after all sections
-      let lastElement = aiSummaryDiv;
-      let current = aiSummaryDiv.nextElementSibling;
-      while(current){
-        lastElement = current;
-        current = current.nextElementSibling;
-      }
-      lastElement.after(sourceNote);
-      
-      // Add "Start New Research" button
-      const newResearchBtn = document.createElement("div");
-      newResearchBtn.style.cssText = "margin-top:20px;padding:15px;text-align:center";
-      newResearchBtn.innerHTML = `<button onclick="startNewResearch()" style="background:#BF9849;color:#fff;border:none;padding:12px 30px;border-radius:8px;font-weight:600;font-size:14px;cursor:pointer;transition:all 0.3s ease">🔄 Start New Research</button>`;
-      sourceNote.after(newResearchBtn);
+      aiSummaryDiv.after(sourceNote);
     }else{
       console.error('❌ No AI result or answer:', result);
       aiSummaryDiv.innerHTML = '⚠️ AI summary unavailable';
       aiSummaryDiv.style.color = '#999';
-      body.appendChild(aiSummaryDiv);
     }
   }).catch(error => {
     console.error('❌ AI Summary error:', error);
     aiSummaryDiv.innerHTML = '⚠️ Error generating AI summary';
     aiSummaryDiv.style.color = '#999';
-    body.appendChild(aiSummaryDiv);
   });
 }
 
