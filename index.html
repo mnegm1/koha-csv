@@ -636,15 +636,22 @@ async function renderAll(list,field,raw){
     if(result && result.answer){
       console.log('✅ AI Summary received:', result);
       
-      // REMOVE URL text patterns like (https://...) from the answer
-      let cleanedAnswer = result.answer.replace(/\s*\(https?:\/\/[^\)]*\)\s*/g, ' ').trim();
-      
-      // Convert markdown to HTML
-      let answerWithLinks = cleanedAnswer
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        .replace(/~~(.*?)~~/g, '<del>$1</del>')
-        .replace(/\n/g, '<br>');
+      // Convert links correctly (do NOT strip them)
+let cleanedAnswer = result.answer.trim();
+
+// 1) Convert Markdown links [text](url) → <a href="url">text</a>
+let answerWithLinks = cleanedAnswer
+  .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+           '<a href="$2" target="_blank" style="color:#BF9849;font-weight:600;text-decoration:underline;">$1</a>')
+  // 2) Convert raw (https://...) → <a href="...">...</a>
+  .replace(/\((https?:\/\/[^\s)]+)\)/g,
+           '<a href="$1" target="_blank" style="color:#BF9849;font-weight:600;text-decoration:underline;">$1</a>')
+  // 3) Basic markdown formatting
+  .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+  .replace(/\*(.*?)\*/g, '<em>$1</em>')
+  .replace(/~~(.*?)~~/g, '<del>$1</del>')
+  .replace(/\n/g, '<br>');
+
       
       // Replace citations [1] with clickable links (BOOK sources)
       answerWithLinks = answerWithLinks.replace(/\[(\d+)\]/g, (match, num) => {
