@@ -574,6 +574,7 @@ function renderCitations(citations){
 async function renderAll(list,field,raw){
   clearResults();
   LAST={items:list,shown:0,field};
+  
   if(list.length===0){
     const el=document.createElement("div");
     el.className="info";
@@ -583,23 +584,22 @@ async function renderAll(list,field,raw){
     return
   }
   
-  // Show searching message
-  const infoDiv=document.createElement("div");
-  infoDiv.className="info";
-  infoDiv.dir=isArabic(raw)?"rtl":"ltr";
-  infoDiv.innerHTML=`<span style="opacity:0.7">🔍 ${isArabic(raw)?'جاري البحث':'Searching'}: <strong>${field!=='default'?field:'all fields'}</strong> + <strong>${MATCH_NOTE||'AI Analysis'}</strong></span>`;
-  body.appendChild(infoDiv);
-
-  // Show AI summary first
-  const aiSummaryDiv=document.createElement("div");
-  aiSummaryDiv.className="ai-summary";
-  aiSummaryDiv.innerHTML=isArabic(raw)?'⏳ جاري إنشاء الملخص الذكي...':'⏳ Generating AI summary...';
-  body.appendChild(aiSummaryDiv);
-
-  // Render first page
-  const chunk=list.slice(0,PAGE_SIZE);
-  renderChunk(chunk);
-  LAST.shown=chunk.length;
+  // 1. Show results count
+  const info=document.createElement("div");
+  info.className="info";
+  info.textContent=`وجدت ${list.length} نتيجة / Found ${list.length} results`;
+  body.appendChild(info);
+  
+  // 2. Show bibliographic records section header
+  const recordsHeader=document.createElement("div");
+  recordsHeader.style.cssText="background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;padding:12px;margin:15px 0 10px 0;border-radius:10px;font-weight:bold;text-align:center;font-size:16px";
+  recordsHeader.textContent="📚 التسجيلات الببليوغرافية / Bibliographic Records";
+  body.appendChild(recordsHeader);
+  
+  // 3. Render bibliographic records FIRST
+  LAST.items=list;
+  LAST.shown=Math.min(PAGE_SIZE,list.length);
+  renderChunk(list.slice(0,LAST.shown));
   
   // Add "Load More" button if needed
   if(list.length>PAGE_SIZE){
@@ -618,6 +618,17 @@ async function renderAll(list,field,raw){
     body.appendChild(moreDiv)
   }
   
+  // 4. Add AI summary section AFTER records
+  const aiSectionHeader=document.createElement("div");
+  aiSectionHeader.style.cssText="background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;padding:12px;margin:25px 0 10px 0;border-radius:10px;font-weight:bold;text-align:center;font-size:16px;border-top:3px solid #BF9849";
+  aiSectionHeader.textContent="🤖 ملخص ذكي من محتوى الكتب / AI Summary from Book Content";
+  body.appendChild(aiSectionHeader);
+  
+  const aiSummaryDiv=document.createElement("div");
+  aiSummaryDiv.className="ai-summary";
+  aiSummaryDiv.innerHTML='<span style="display:inline-block;animation:rotate 1.5s linear infinite">⏳</span> AI analyzing data...';
+  body.appendChild(aiSummaryDiv);
+  
   status.textContent=`✅ Found ${list.length} results`;
   
   // Get AI summary asynchronously
@@ -628,29 +639,12 @@ async function renderAll(list,field,raw){
       // REMOVE URL text patterns like (https://...) from the answer
       let cleanedAnswer = result.answer.replace(/\s*\(https?:\/\/[^\)]*\)\s*/g, ' ').trim();
       
-      // NEW: Convert bracketed text [text here] to clickable links using web sources
-      // Pattern: [any text] - these are URLs that need to be clickable
-      let answerWithBracketLinks = cleanedAnswer.replace(/\[([^\[\]]+)\]/g, (match, bracketText) => {
-        // Check if this looks like a URL description (has Arabic or mixed text)
-        // and if we have web sources available
-        if(result.webSources && result.webSources.length > 0 && bracketText.length > 3){
-          // Try to find a matching web source
-          for(let i = 0; i < result.webSources.length; i++){
-            const source = result.webSources[i];
-            let url = typeof source === 'string' ? source : (source.url || '');
-            let sourceTitle = typeof source === 'string' ? source : (source.title || source.domain || '');
-            
-            // If this bracket text looks like it could match a source
-            if(url){
-              return `<a href="${url}" target="_blank" style="color:#BF9849;font-weight:700;text-decoration:none;border-bottom:2px solid #BF9849;padding:2px 6px;background:rgba(191,152,73,0.1);border-radius:3px;cursor:pointer;display:inline-block" title="${sourceTitle}" onclick="event.stopPropagation()">[${bracketText}]</a>`;
-            }
-          }
-        }
-        return match;
-      });
-      
-      // Replace citations [1] with clickable links (BOOK sources)
-      let answerWithLinks = answerWithBracketLinks.replace(/\[(\d+)\]/g, (match, num) => {
+      // Convert markdown to HTML
+      let answerWithLinks = cleanedAnswer
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/~~(.*?)~~/g, '<del>$1</del>')
+        .replace(/\n/g, '<br>');
         const bookIndex = parseInt(num) - 1;
         if(bookIndex >= 0 && bookIndex < list.length){
           const book = list[bookIndex];
