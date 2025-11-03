@@ -103,34 +103,9 @@ function norm(s){
   return s
 }
 function isArabic(s){return/[\u0600-\u06FF]/.test(s||"")}
-// Famous people (search in content/summary - books ABOUT them)
-const FAMOUS_PEOPLE=new Set(["محمد بن زايد","محمد بن راشد","خليفة بن زايد","زايد بن سلطان","محمد بن زايد آل نهيان","sheikh mohamed","sheikh mohammed","sheikh khalifa","sheikh zayed","الشيخ محمد","الشيخ خليفة","الشيخ زايد","صاحب السمو"]);
-
-// Common UAE/Arab cities and locations
-const KNOWN_LOCATIONS=new Set(["دبي","dubai","أبوظبي","أبو ظبي","ابوظبي","abu dhabi","الشارقة","sharjah","عجمان","ajman","رأس الخيمة","ras al khaimah","الفجيرة","fujairah","ام القيوين","umm al quwain","العين","al ain","الظفرة","مصر","egypt","السعودية","saudi arabia","الرياض","riyadh","جدة","jeddah","الكويت","kuwait","قطر","qatar","الدوحة","doha","البحرين","bahrain","المنامة","manama","عمان","oman","مسقط","muscat","الأردن","jordan","عمّان","amman","لبنان","lebanon","بيروت","beirut","سوريا","syria","دمشق","damascus","العراق","iraq","بغداد","baghdad","فلسطين","palestine","القدس","jerusalem","اليمن","yemen","صنعاء","sanaa","المغرب","morocco","الرباط","rabat","تونس","tunisia","الجزائر","algeria","ليبيا","libya","السودان","sudan","الخرطوم","khartoum","لندن","london","باريس","paris","نيويورك","new york","واشنطن","washington","موسكو","moscow","بكين","beijing","طوكيو","tokyo","برلين","berlin","روما","rome","مدريد","madrid","القاهرة","cairo","اسطنبول","istanbul","طهران","tehran"]);
-
-// Publisher location keywords
-const PUBLISHER_KEYWORDS=new Set(["دار","دار نشر","publisher","published in","مطبعة","مطبوع في","نشر في","صدر في","صادر عن"]);
-
+const FAMOUS_PEOPLE=new Set(["محمد بن زايد","محمد بن راشد","خليفة بن زايد","زايد بن سلطان","محمد بن زايد آل نهيان","sheikh mohamed","sheikh mohammed","sheikh khalifa","sheikh zayed","الشيخ محمد","الشيخ خليفة","الشيخ زايد"]);
 function looksLikeYear(q){return/^\d{4}$/.test(q.trim())}
-
-function isFamousPerson(q){
-  const nq=norm(q);
-  for(const p of FAMOUS_PEOPLE)if(nq.includes(norm(p)))return true;
-  return/\b(president|رئيس|سمو|صاحب السمو|شيخ|الشيخ)\b/i.test(q);
-}
-
-function isKnownLocation(q){
-  const nq=norm(q);
-  for(const loc of KNOWN_LOCATIONS)if(nq.includes(norm(loc)))return true;
-  return false;
-}
-
-function hasPublisherKeywords(q){
-  const nq=norm(q);
-  for(const kw of PUBLISHER_KEYWORDS)if(nq.includes(norm(kw)))return true;
-  return false;
-}
+function isFamousPerson(q){const nq=norm(q);for(const p of FAMOUS_PEOPLE)if(nq.includes(norm(p)))return true;return/\b(president|رئيس|سمو|صاحب السمو)\b/i.test(q)}
 
 // ---------- AUTHOR MATCHING (surname anchor + non-common name) ----------
 const NAME_STOP = new Set(["بن","بنت","ابن","أبن","آل","ال","أبو","ابو","بو","بنّ","عبد","عبدال"]);
@@ -187,100 +162,58 @@ function flexibleAuthorMatch(qTokens, name){
 }
 
 
-// ---------- AI QUERY UNDERSTANDING - REMOVED (TOO SLOW) ----------
-// Removed this function to speed up search - was making extra API call
-
+// ---------- AI QUERY UNDERSTANDING ----------
+async function understandQueryWithAI(query){
+  try{
+    const response = await fetch(`${BACKEND_URL}/understand-query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query })
+    });
+    if(!response.ok) throw new Error('AI understanding failed');
+    const analysis = await response.json();
+    
+    // Update MATCH_NOTE with AI reasoning
+    if(analysis.reasoning){
+      MATCH_NOTE = `AI: ${analysis.reasoning}`;
+    }
+    
+    return analysis.field || 'default';
+  }catch(error){
+    console.error('AI query understanding error:', error);
+    return null; // Fall back to rule-based
+  }
+}
 
 // ---------- FIELD CHOOSER (with AI fallback) ----------
 async function chooseFieldSmart(q){
   const raw=q.trim();
   
-  // 1. Check for YEAR first
-  if(looksLikeYear(raw)){
-    MATCH_NOTE="Year detected";
-    return "year";
-  }
-  
-  // 2. Check if it's a FAMOUS PERSON (highest priority - search in content/summary)
-  if(isFamousPerson(raw)){
-    MATCH_NOTE="Famous person → Content & Summary (books ABOUT them)";
-    return "famous_person";
-  }
-  
-  // 3. Check if it's a KNOWN LOCATION
-  if(isKnownLocation(raw)){
-    // If it has publisher keywords → search publisher location
-    if(hasPublisherKeywords(raw)){
-      MATCH_NOTE="Location with publisher keyword → Publisher location";
-      return "pub_location";
-    } else {
-      // Otherwise → location as subject
-      MATCH_NOTE="Location as subject → Subject, Title";
-      return "location_subject";
-    }
-  }
-  
-  // 4. Check for PUBLISHER keywords (without location)
-  if(hasPublisherKeywords(raw)){
+  // Skip AI for obvious cases (faster)
+  if(/(ناشر|publisher|دار نشر|دار النشر|publishing house|press books)/i.test(raw)){
     MATCH_NOTE="Publisher keyword → Publisher field";
     return "pub";
   }
-  
-  // 5. Call AI-powered backend for smart analysis
-  try {
-    console.log(`🤖 Asking AI to analyze: "${raw}"`);
-    
-    const response = await fetch(`${BACKEND_URL}/understand-query`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({query: raw})
-    });
-    
-    if(!response.ok) throw new Error('AI analysis failed');
-    
-    const analysis = await response.json();
-    console.log('📊 AI analysis:', analysis);
-    
-    // Map AI analysis to search fields
-    const queryType = analysis.intent || analysis.queryType;
-    const searchFields = analysis.searchFields || [];
-    
-    // For PERSON queries → this is a REGULAR AUTHOR (not famous)
-    if (queryType === 'person' && searchFields.includes('author')) {
-      MATCH_NOTE = `AI: Author name → Author, Co-author, Corporate author`;
-      return 'author';
-    } 
-    // For PLACE queries → distinguish between subject and publisher location
-    else if (queryType === 'place') {
-      if (searchFields.includes('publisher_location')) {
-        MATCH_NOTE = `AI: Publisher location → Publisher field`;
-        return 'pub_location';
-      } else {
-        MATCH_NOTE = `AI: Location as subject → Subject, Title`;
-        return 'location_subject';
-      }
-    } 
-    // For TITLE queries
-    else if (queryType === 'title' || (searchFields.includes('title') && searchFields.length === 1)) {
-      MATCH_NOTE = `AI: Book title → Title`;
-      return 'title';
-    } 
-    // For SUBJECT/TOPIC queries
-    else if (searchFields.includes('subject')) {
-      MATCH_NOTE = `AI: Topic/Subject → Subject`;
-      return 'subject';
-    } 
-    // Default
-    else {
-      MATCH_NOTE = `AI: General search → All fields`;
-      return 'default';
-    }
-    
-  } catch (error) {
-    console.error('⚠️ AI analysis failed, using fallback:', error);
-    // Fallback to rule-based logic
-    return chooseField(raw);
+  if(looksLikeYear(raw)){
+    return "year";
   }
+  
+  // Use AI for almost all queries (to distinguish topics from author names)
+  const words=raw.split(/\s+/).filter(Boolean);
+  
+  // Use AI for: 2+ Arabic words, questions, or queries with context keywords
+  const shouldUseAI = 
+    words.length >= 2 || 
+    /^(what|how|why|when|where|who|which|ما|كيف|لماذا|متى|أين|من|ماذا|كيفية|هل|كتب|معلومات|عن)/i.test(raw) ||
+    isArabic(raw);
+  
+  if(shouldUseAI){
+    const aiField = await understandQueryWithAI(raw);
+    if(aiField) return aiField; // Use AI decision if available
+  }
+  
+  // Fall back to rule-based logic
+  return chooseField(raw);
 }
 
 // ---------- FIELD CHOOSER (rule-based) ----------
@@ -289,10 +222,7 @@ function chooseField(q){
   if(/(ناشر|publisher|دار نشر|دار النشر|publishing house|press books)/i.test(raw)){MATCH_NOTE="Publisher keyword → Publisher field";return "pub"}
   if(looksLikeYear(raw))return "year";
   if(/^(what|how|why|when|where|who|which|ما|كيف|لماذا|متى|أين|من|ماذا|كيفية|هل)\b/i.test(raw)){MATCH_NOTE="Question → Summary";return "summary"}
-  
-  // Famous people → search in content/summary (books ABOUT them)
-  if(isFamousPerson(raw)){MATCH_NOTE="Famous person → Content & Summary (books ABOUT them)";return "famous_person"}
-  
+  if(isFamousPerson(raw)){MATCH_NOTE="Famous person → Summary (answer from book content)";return "summary"}
   if(/(تراث|التراث|ثقافة|الثقافة|تاريخ|التاريخ|فن|الفن|علوم|العلوم|أدب|الأدب|شعر|الشعر|سياسة|السياسة|اقتصاد|الاقتصاد|تعليم|التعليم|صحة|الصحة|بيئة|البيئة|تكنولوجيا|التكنولوجيا|ذكاء|الذكاء|طاقة|الطاقة|مياه|المياه|زراعة|الزراعة|نفط|النفط|غاز|الغاز|امارات|الامارات|إمارات|الإمارات)/i.test(raw)){MATCH_NOTE="Topic keyword → Subject";return "subject"}
   if(LOADED && INDEX.length>0){
     const nq=norm(raw);let a=0,s=0;
@@ -345,43 +275,6 @@ function searchField(field,q){
         const authorMatch = tokens.filter(tok=>r.nAuthorAll.includes(tok)).length;
         const totalMatch = Math.max(titleMatch, subjectMatch, authorMatch);
         if(totalMatch >= tokens.length * 0.5){sc = 30 + totalMatch * 8;hit=true}
-      }
-
-    } else if (field === "famous_person") {
-      // *** Famous people: Search in CONTENT and SUMMARY (books ABOUT them) ***
-      if(r.nSummary.includes(nq)){sc=100;hit=true}
-      else if(r.nContent.includes(nq)){sc=95;hit=true}
-      else if(r.nTitle.includes(nq)){sc=90;hit=true}
-      else if(r.nSubject.includes(nq)){sc=85;hit=true}
-      else {
-        const summaryMatch = tokens.filter(tok=>r.nSummary.includes(tok)).length;
-        const contentMatch = tokens.filter(tok=>r.nContent.includes(tok)).length;
-        const titleMatch = tokens.filter(tok=>r.nTitle.includes(tok)).length;
-        const subjectMatch = tokens.filter(tok=>r.nSubject.includes(tok)).length;
-        const totalMatch = Math.max(summaryMatch, contentMatch, titleMatch, subjectMatch);
-        if(totalMatch >= tokens.length * 0.6){
-          sc = 40 + totalMatch * 10;
-          hit=true;
-        }
-      }
-
-    } else if (field === "location_subject") {
-      // *** Location as a SUBJECT/TOPIC ***
-      if(r.nSubject.includes(nq)){sc=100;hit=true}
-      else if(r.nTitle.includes(nq)){sc=90;hit=true}
-      else {
-        const subjectMatch = tokens.filter(tok=>r.nSubject.includes(tok)).length;
-        const titleMatch = tokens.filter(tok=>r.nTitle.includes(tok)).length;
-        const totalMatch = Math.max(subjectMatch, titleMatch);
-        if(totalMatch >= tokens.length * 0.6){sc = 40 + totalMatch * 10;hit=true}
-      }
-
-    } else if (field === "pub_location") {
-      // *** Location as PUBLISHER LOCATION ***
-      if(r.nPub.includes(nq)){sc=100;hit=true}
-      else {
-        const matchCount = tokens.filter(tok=>r.nPub.includes(tok)).length;
-        if(matchCount >= tokens.length * 0.5){sc = 50 + matchCount * 10;hit=true}
       }
 
     } else if (field === "author") {
@@ -474,16 +367,11 @@ async function getAISummary(query,matchedBooks){
     const response=await fetch(`${BACKEND_URL}/chat`,{
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({query,books:booksWithSummaries,searchField:LAST.field})
+      body:JSON.stringify({query,matchedBooks:booksWithSummaries,searchField:LAST.field})
     });
     if(!response.ok)return null;
     const data=await response.json();
-    return {
-      answer: data.answer, 
-      bookIds: data.bookIds || [],
-      source: data.source || 'library',
-      webSources: data.webSources || [] // {url, title, domain}
-    };
+    return {answer: data.answer, citations: data.citations || []};
   }catch(error){
     console.error("AI summary error:",error);
     return null;
@@ -553,68 +441,76 @@ function renderCitations(citations){
   body.appendChild(citationsDiv);
 }
 
-async function renderAll(list,field,raw){
+function addShowMoreIfNeeded(){
+  const old=document.getElementById("more-btn");if(old)old.remove();
+  if(LAST.shown>=LAST.items.length)return;
+  const row=document.createElement("div");row.className="more-row";row.id="more-btn";
+  const btn=document.createElement("button"),remaining=LAST.items.length-LAST.shown;
+  btn.textContent=remaining>PAGE_SIZE?"Show more":"Show all";
+  btn.onclick=()=>{const next=Math.min(LAST.shown+PAGE_SIZE,LAST.items.length);renderChunk(LAST.items.slice(LAST.shown,next));LAST.shown=next;addShowMoreIfNeeded()};
+  row.appendChild(btn);body.appendChild(row)
+}
+async function renderAll(list,field,query){
   clearResults();
-  LAST={items:list,shown:0,field};
-  if(list.length===0){
-    const el=document.createElement("div");
-    el.className="info";
-    el.textContent=isArabic(raw)?`لا توجد نتائج / No results found`:`No results found`;
-    body.appendChild(el);
-    status.textContent="No results";
-    return
-  }
-  
-  // Show searching message
-  const infoDiv=document.createElement("div");
-  infoDiv.className="info";
-  infoDiv.dir=isArabic(raw)?"rtl":"ltr";
-  infoDiv.innerHTML=`<span style="opacity:0.7">🔍 ${isArabic(raw)?'جاري البحث':'Searching'}: <strong>${field!=='default'?field:'all fields'}</strong> + <strong>${MATCH_NOTE||'AI Analysis'}</strong></span>`;
-  body.appendChild(infoDiv);
+  const labelAR={author:"المؤلف + المؤلف المشارك",title:"العنوان",subject:"الموضوع + العنوان",summary:"الملخص + المحتويات",year:"سنة النشر",pub:"الناشر"}[field]||field;
+  const note=document.createElement("div");note.className="info";
+  const extra=MATCH_NOTE?" • "+MATCH_NOTE:"";
+  note.textContent=`Searching: ${labelAR}${extra}`;
+  body.appendChild(note);
 
-  // Show AI summary first
-  const aiSummaryDiv=document.createElement("div");
-  aiSummaryDiv.className="ai-summary";
-  aiSummaryDiv.innerHTML=isArabic(raw)?'⏳ جاري إنشاء الملخص الذكي...':'⏳ Generating AI summary...';
+  if(!list.length){
+    const empty=document.createElement("div");empty.className="info";
+    empty.textContent="لا توجد نتائج / No results found";
+    body.appendChild(empty);return
+  }
+
+  // Set LAST.field BEFORE calling AI
+  LAST.field=field;
+
+  // 1. Show results count
+  const info=document.createElement("div");info.className="info";
+  info.textContent=`وجدت ${list.length} نتيجة / Found ${list.length} results`;
+  body.appendChild(info);
+
+  // 2. Show bibliographic records section header
+  const recordsHeader=document.createElement("div");
+  recordsHeader.style.cssText="background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;padding:12px;margin:15px 0 10px 0;border-radius:10px;font-weight:bold;text-align:center;font-size:16px";
+  recordsHeader.textContent="📚 التسجيلات الببليوغرافية / Bibliographic Records";
+  body.appendChild(recordsHeader);
+
+  // 3. Render bibliographic records FIRST
+  LAST.items=list;LAST.shown=Math.min(PAGE_SIZE,list.length);
+  renderChunk(list.slice(0,LAST.shown));
+  addShowMoreIfNeeded();
+
+  // 4. Add AI summary section AFTER records
+  const aiSectionHeader=document.createElement("div");
+  aiSectionHeader.style.cssText="background:linear-gradient(135deg,#BF9849,#D4AB5E);color:#fff;padding:12px;margin:25px 0 10px 0;border-radius:10px;font-weight:bold;text-align:center;font-size:16px;border-top:3px solid #BF9849";
+  aiSectionHeader.textContent="🤖 ملخص ذكي من محتوى الكتب / AI Summary from Book Content";
+  body.appendChild(aiSectionHeader);
+
+  const aiSummaryDiv=document.createElement("div");aiSummaryDiv.className="ai-summary";
+  aiSummaryDiv.innerHTML='<span style="display:inline-block;animation:rotate 1.5s linear infinite">⏳</span> AI analyzing data...';
   body.appendChild(aiSummaryDiv);
-
-  // Render first page
-  const chunk=list.slice(0,PAGE_SIZE);
-  renderChunk(chunk);
-  LAST.shown=chunk.length;
   
-  // Add "Load More" button if needed
-  if(list.length>PAGE_SIZE){
-    const moreDiv=document.createElement("div");
-    moreDiv.className="more-row";
-    const btn=document.createElement("button");
-    btn.textContent=isArabic(raw)?`عرض المزيد (${list.length-PAGE_SIZE} متبقي)`:`Load More (${list.length-PAGE_SIZE} remaining)`;
-    btn.onclick=()=>{
-      const nextChunk=LAST.items.slice(LAST.shown,LAST.shown+PAGE_SIZE);
-      renderChunk(nextChunk);
-      LAST.shown+=nextChunk.length;
-      if(LAST.shown>=LAST.items.length)moreDiv.remove();
-      else btn.textContent=isArabic(raw)?`عرض المزيد (${LAST.items.length-LAST.shown} متبقي)`:`Load More (${LAST.items.length-LAST.shown} remaining)`
-    };
-    moreDiv.appendChild(btn);
-    body.appendChild(moreDiv)
-  }
-  
-  status.textContent=`✅ Found ${list.length} results`;
-  
-  // Get AI summary asynchronously
-  getAISummary(raw, list).then(result => {
+  getAISummary(query,list.slice(0,20)).then(result=>{
     if(result && result.answer){
-      console.log('✅ AI Summary received:', result);
+      let answerWithLinks = result.answer;
       
-      // Replace citations [1] with clickable links
-      let answerWithLinks = result.answer.replace(/\[(\d+)\]/g, (match, num) => {
-        const bookIndex = parseInt(num) - 1;
-        if(bookIndex >= 0 && bookIndex < list.length){
-          const book = list[bookIndex];
-          const title = (book.raw.title || 'Untitled').toString();
-          const bookUrl = book.raw.book_url || book.raw.book_Url || '#';
-          
+      // Convert markdown to HTML
+      answerWithLinks = answerWithLinks
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/~~(.*?)~~/g, '<del>$1</del>')
+        .replace(/\n/g, '<br>');
+      
+      // Find all [number] patterns and replace with clickable links
+      answerWithLinks = answerWithLinks.replace(/\[(\d+)\]/g, (match, num) => {
+        const index = parseInt(num) - 1;
+        if(index >= 0 && index < list.length){
+          const book = list[index];
+          const bookUrl = book.raw.book_url || book.raw.book_Url || '';
+          const title = (book.raw.title || 'Source ' + num).substring(0, 100);
           if(bookUrl && bookUrl !== '#'){
             return `<a href="${bookUrl}" target="_blank" style="color:#BF9849;font-weight:700;text-decoration:none;border-bottom:2px solid #BF9849;padding:0 2px;background:rgba(191,152,73,0.1);border-radius:3px" title="${title}" onclick="event.stopPropagation()">[${num}]</a>`;
           } else {
@@ -626,95 +522,22 @@ async function renderAll(list,field,raw){
       
       aiSummaryDiv.innerHTML=answerWithLinks;
       
-      // Add book sources section if available
-      if(result.bookIds && result.bookIds.length > 0){
-        const bookSourcesDiv = document.createElement("div");
-        bookSourcesDiv.style.cssText = "margin-top:15px;padding:15px;background:#fafafa;border-left:4px solid #BF9849;border-radius:8px";
-        
-        let sourcesHTML = '<div style="font-weight:700;color:#BF9849;margin-bottom:10px;font-size:14px">📚 المصادر المستخدمة / Sources Used:</div>';
-        
-        result.bookIds.forEach(bookNum => {
-          const bookIndex = bookNum - 1;
-          if(bookIndex >= 0 && bookIndex < list.length){
-            const book = list[bookIndex];
-            const title = (book.raw.title || 'Untitled').toString();
-            const author = (book.raw.author || 'Unknown').toString();
-            const bookUrl = book.raw.book_url || book.raw.book_Url || '#';
-            
-            sourcesHTML += `<div style="margin-bottom:10px;padding:8px;background:white;border-radius:5px;border:1px solid #eee">`;
-            sourcesHTML += `<span style="font-weight:700;color:#BF9849;font-size:16px">[${bookNum}]</span> `;
-            sourcesHTML += `<strong>${title}</strong><br>`;
-            sourcesHTML += `<span style="color:#666;font-size:12px">المؤلف / Author: ${author}</span>`;
-            if(bookUrl && bookUrl !== '#'){
-              sourcesHTML += `<br><a href="${bookUrl}" target="_blank" style="color:#BF9849;font-size:12px;text-decoration:none;font-weight:600">🔗 فتح الكتاب / Open Book →</a>`;
-            }
-            sourcesHTML += `</div>`;
-          }
-        });
-        
-        bookSourcesDiv.innerHTML = sourcesHTML;
-        aiSummaryDiv.after(bookSourcesDiv);
-      }
-      
-      // Add WEB sources section if available (with REAL LINKS for verification)
-      if(result.webSources && result.webSources.length > 0){
-        const webSourcesDiv = document.createElement("div");
-        webSourcesDiv.style.cssText = "margin-top:15px;padding:15px;background:#e8f4f8;border-left:4px solid #BF9849;border-radius:8px";
-        
-        let webHTML = '<div style="font-weight:700;color:#BF9849;margin-bottom:10px;font-size:14px">🌐 مصادر المواقع الإماراتية المستخدمة / UAE Web Sources Used:</div>';
-        webHTML += '<div style="font-size:12px;color:#666;margin-bottom:10px">✅ جميع المصادر قابلة للتحقق - انقر للتأكد / All sources verifiable - click to verify</div>';
-        
-        result.webSources.forEach((source, idx) => {
-          // Handle both string URLs and object format
-          let url, domain, title;
-          
-          if (typeof source === 'string') {
-            // Backend sent just URL string
-            url = source;
-            try {
-              const urlObj = new URL(url);
-              domain = urlObj.hostname;
-              title = url.length > 80 ? url.substring(0, 77) + '...' : url;
-            } catch {
-              domain = 'UAE Source';
-              title = url;
-            }
-          } else {
-            // Backend sent object with domain, title, url
-            url = source.url || '#';
-            domain = source.domain || 'UAE Source';
-            title = source.title || url;
-          }
-          
-          webHTML += `<div style="margin-bottom:10px;padding:10px;background:white;border-radius:5px;border:1px solid #ddd">`;
-          webHTML += `<div style="font-weight:600;color:#BF9849;margin-bottom:5px">${domain}</div>`;
-          webHTML += `<div style="font-size:11px;color:#666;margin-bottom:5px;word-break:break-all">${title}</div>`;
-          webHTML += `<a href="${url}" target="_blank" style="color:#BF9849;font-size:12px;text-decoration:none;font-weight:600">`;
-          webHTML += `🔗 التحقق من المصدر / Verify Source →</a>`;
-          webHTML += `</div>`;
-        });
-        
-        webSourcesDiv.innerHTML = webHTML;
-        aiSummaryDiv.after(webSourcesDiv);
-      }
-      
       // Add Disclaimer note after AI summary with correct terminology
       const sourceNote=document.createElement("div");
       sourceNote.className="info";
       sourceNote.style.marginTop="8px";
       sourceNote.style.fontSize="12px";
       sourceNote.style.background="linear-gradient(135deg,#fff9e6,#fffbf0)";
-      sourceNote.innerHTML="<strong>📚 إخلاء مسؤولية معلومات الذكاء الاصطناعي:</strong> يتم إنشاء هذا الملخص تلقائيًا بواسطة تقنيات الذكاء الاصطناعي بهدف تيسير فهم المحتوى وتقديم نظرة عامة سريعة. يرجى ملاحظة أن المعلومات المولدة قد لا تكون دقيقة تمامًا أو شاملة، لذا يُنصح دائمًا بمراجعة المصدر الأصلي قبل الاعتماد عليها. ولا تتحمل المكتبة أي مسؤولية عن النتائج الصادرة عن الذكاء الاصطناعي.<br><strong>📚 AI Information Disclaimer:</strong> This summary is automatically generated using artificial intelligence technologies to provide a quick overview of the content. The information presented may not be fully accurate or complete; therefore, it is recommended to verify details from the original source before relying on them. The library assumes no responsibility for any outcomes resulting from AI-generated conten.";
+      sourceNote.innerHTML="<strong>📚 إخلاء مسؤولية معلومات الذكاء الاصطناعي:</strong> تُولَّد المعلومات المعروضة بواسطة تقنيات الذكاء الاصطناعي، وقد لا تكون دقيقة أو محدثة بشكل كامل. يُنصح بالتحقق من المصادر الأصلية قبل الاعتماد عليها، ولا تتحمل المكتبة أي مسؤولية عن النتائج الصادرة عن الذكاء الاصطناعي.<br><strong>📚 AI Information Disclaimer:</strong> The information presented is generated by artificial intelligence technologies and may not be entirely accurate or up to date. Users are advised to verify the information from original sources before relying on it. The library assumes no responsibility for any outcomes resulting from AI-generated conten.";
       aiSummaryDiv.after(sourceNote);
+      
+      if(result.citations && result.citations.length > 0){
+        renderCitations(result.citations);
+      }
     }else{
-      console.error('❌ No AI result or answer:', result);
-      aiSummaryDiv.innerHTML = '⚠️ AI summary unavailable';
-      aiSummaryDiv.style.color = '#999';
+      aiSummaryDiv.remove();
+      aiSectionHeader.remove();
     }
-  }).catch(error => {
-    console.error('❌ AI Summary error:', error);
-    aiSummaryDiv.innerHTML = '⚠️ Error generating AI summary';
-    aiSummaryDiv.style.color = '#999';
   });
 }
 
