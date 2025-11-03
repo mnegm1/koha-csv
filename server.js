@@ -160,15 +160,24 @@ async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
 /* ========= FIX: Replace Hallucinated URLs ========= */
 function replaceHallucinatedURLs(answer, verifiedUrls) {
   if (!verifiedUrls || verifiedUrls.length === 0) return answer;
-  const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
-  const matches = [...answer.matchAll(linkRegex)];
+  
+  // Replace URL1, URL2, URL3, etc. with actual URLs
   let modifiedAnswer = answer;
+  verifiedUrls.forEach((url, index) => {
+    const placeholder = `URL${index + 1}`;
+    modifiedAnswer = modifiedAnswer.replace(new RegExp(placeholder, 'g'), url);
+  });
+  
+  // Also handle markdown links that might have been generated
+  const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
+  const matches = [...modifiedAnswer.matchAll(linkRegex)];
   matches.slice(0, verifiedUrls.length).forEach((match, index) => {
     if (index < verifiedUrls.length) {
       const newLink = `[${match[1]}](${verifiedUrls[index]})`;
       modifiedAnswer = modifiedAnswer.replace(match[0], newLink);
     }
   });
+  
   return modifiedAnswer;
 }
 
@@ -443,19 +452,25 @@ app.post('/api/chat', async (req, res) => {
 
       const isArabic = /[\u0600-\u06FF]/.test(query);
 
+      const webLinks = webSources.map((url, i) => `URL${i + 1}: ${url}`).join('\n');
+      
       const prompt = `You are answering: "${query}"
 
 LIBRARY BOOKS:
 ${bookContext}
-${webContext}
 
-RULES:
-1. For book info → cite [1], [2], [3]
-2. For web info → create markdown links: [text](url) using ONLY URLs from "VERIFIED WEB LINKS"
-3. Answer in ${isArabic ? 'Arabic' : 'English'}
+VERIFIED WEB URLS (YOU MUST USE THESE):
+${webLinks}
 
-Example:
-"الشيخ زايد [كان مؤسس دولة الإمارات](https://wam.ae/actual-url) وفقاً لوكالة أنباء الإمارات [1]."
+CRITICAL INSTRUCTIONS:
+1. For book information → use [1], [2], [3] citations
+2. For web information → ALWAYS create clickable markdown links like: [text here](URL)
+3. Use ONLY the URLs provided above - replace URL with the actual URL
+4. NEVER generate new URLs, ONLY use provided URLs
+5. Answer in ${isArabic ? 'Arabic' : 'English'}
+
+Example format:
+"الشيخ زايد [كان مؤسس دولة الإمارات](URL1) وفقاً [للمعلومات الرسمية](URL2) وفقاً لـ [1]."
 
 Answer now:`;
 
