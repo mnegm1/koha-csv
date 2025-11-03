@@ -663,21 +663,14 @@ async function renderAll(list,field,raw){
         return match;
       });
       
-      // Replace citations [W1] [W2] etc with clickable web sources (WEB sources)
-      answerWithLinks = answerWithLinks.replace(/\[W(\d+)\]/g, (match, num) => {
-        const webIndex = parseInt(num) - 1;
-        if(result.webSources && webIndex >= 0 && webIndex < result.webSources.length){
-          const source = result.webSources[webIndex];
-          let url = typeof source === 'string' ? source : (source.url || '#');
-          let title = typeof source === 'string' ? source : (source.title || source.domain || 'Web Source');
-          
-          if(url && url !== '#'){
-            return `<a href="${url}" target="_blank" style="color:#BF9849;font-weight:700;text-decoration:none;border-bottom:2px solid #BF9849;padding:0 2px;background:rgba(191,152,73,0.1);border-radius:3px;cursor:pointer" title="${title}" onclick="event.stopPropagation()">[W${num}]</a>`;
-          } else {
-            return `<span style="color:#BF9849;font-weight:700;background:rgba(191,152,73,0.1);padding:0 2px;border-radius:3px;cursor:pointer" title="${title}">[W${num}]</span>`;
-          }
+      // Convert markdown links [text](url) to clickable HTML anchors
+      answerWithLinks = answerWithLinks.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
+        try {
+          new URL(url); // Validate URL format
+          return `<a href="${url}" target="_blank" style="color:#BF9849;font-weight:700;text-decoration:underline;cursor:pointer" onclick="event.stopPropagation()">${text}</a>`;
+        } catch {
+          return match; // If URL is invalid, keep original text
         }
-        return match;
       });
       
       aiSummaryDiv.innerHTML=answerWithLinks;
