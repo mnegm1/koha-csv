@@ -254,20 +254,10 @@ function isFamousPerson(query) {
 
 /* ========= /api/understand-query - IMPROVED ANALYZER ========= */
 app.post('/api/understand-query', async (req, res) => {
-  const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
-  if (!checkRateLimit(ip)) {
-    return res.status(429).json({ error: 'Rate limit exceeded' });
-  }
-
   try {
     const { query } = req.body || {};
     if (!query) return res.status(400).json({ error: 'Query required' });
 
-    console.log(`\n🔍 Analyzing query: "${query}"`);
-
-    const isArabic = /[\u0600-\u06FF]/.test(query);
-
-    // Check if it's a famous person first
     const isFamous = isFamousPerson(query);
     if (isFamous) {
       console.log('⭐ Detected FAMOUS PERSON - will search content/summary');
@@ -385,6 +375,61 @@ Respond in JSON format:
   }
 });
 
+/* ========= HELPER: Inject web links into answer ========= */
+function injectWebLinksIntoAnswer(answer, webSources) {
+  if (!answer || !webSources || webSources.length === 0) {
+    return answer;
+  }
+
+  console.log(`🔗 Injecting ${webSources.length} web links into answer...`);
+  
+  let modifiedAnswer = answer;
+  
+  // Find key terms/phrases that should be linked
+  // Strategy: Look for common patterns and link them to relevant URLs
+  
+  webSources.forEach((url, idx) => {
+    try {
+      // Extract domain and try to infer what this URL is about
+      const urlObj = new URL(url);
+      const domain = urlObj.hostname.replace('www.', '');
+      
+      // Try to extract meaningful keywords from URL
+      const pathParts = urlObj.pathname.split('/').filter(p => p.length > 0);
+      const lastPart = pathParts[pathParts.length - 1] || '';
+      
+      // Create keywords to search for in the answer
+      let keywords = [];
+      
+      if (domain.includes('wam.ae')) keywords.push('وكالة', 'أنباء', 'الإمارات', 'UAE');
+      if (domain.includes('sheikhmohammed.ae')) keywords.push('الشيخ', 'محمد', 'Mohammed');
+      if (domain.includes('government')) keywords.push('حكومة', 'government');
+      if (domain.includes('dubai')) keywords.push('دبي', 'Dubai');
+      if (domain.includes('abudhabi')) keywords.push('أبوظبي', 'Abu Dhabi');
+      
+      // Try to find and link the first occurrence of these keywords
+      for (let keyword of keywords) {
+        if (!modifiedAnswer.includes(`[${keyword}]`) && !modifiedAnswer.includes(`](${url})`)) {
+          // Create a word boundary regex to find whole words
+          const pattern = new RegExp(`\\b${keyword}\\b`, 'gi');
+          const match = modifiedAnswer.match(pattern);
+          
+          if (match) {
+            // Replace first occurrence with markdown link
+            modifiedAnswer = modifiedAnswer.replace(pattern, (m) => `[${m}](${url})`, 1);
+            console.log(`  ✅ Linked "${keyword}" to ${domain}`);
+            break; // Move to next URL after linking one keyword
+          }
+        }
+      }
+    } catch (e) {
+      console.log(`  ⚠️ Could not process URL: ${url}`);
+    }
+  });
+  
+  return modifiedAnswer;
+}
+
 /* ========= /api/chat - Books + Verified Web Links ========= */
 app.post('/api/chat', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
@@ -450,6 +495,9 @@ Answer now:`;
         { temperature: 0.1 }
       );
 
+      // ✨ NEW: If AI didn't create proper markdown links, inject them automatically
+      answer = injectWebLinksIntoAnswer(answer, webSources);
+
       const matches = answer.match(/\[(\d+)\]/g);
       if (matches) {
         bookIds = [...new Set(matches.map(m => parseInt(m.replace(/[\[\]]/g, ''))))].filter(n => n > 0 && n <= safeBooks.length).sort((a,b) => a-b);
@@ -466,6 +514,10 @@ Answer now:`;
       if (webResults && webResults.citations.length > 0) {
         webSources = webResults.citations;
         answer = webResults.answer;
+        
+        // ✨ NEW: Inject links into web-only response too
+        answer = injectWebLinksIntoAnswer(answer, webSources);
+        
         answerSource = 'web';
       } else {
         answer = 'عذراً، لم أتمكن من العثور على معلومات موثوقة.';
@@ -505,7 +557,7 @@ app.get('/api/health', (req, res) => {
     openaiConfigured: !!OPENAI_API_KEY && OPENAI_API_KEY !== 'sk-YOUR-API-KEY-HERE',
     perplexityConfigured: !!PERPLEXITY_API_KEY,
     modelVersion: OPENAI_MODEL,
-    features: 'Famous Person Detection • Location Type Detection • Content Search • Verified URLs',
+    features: 'Famous Person Detection • Location Type Detection • Content Search • Verified URLs • Auto Link Injection',
   });
 });
 
@@ -521,5 +573,6 @@ app.listen(PORT, () => {
   console.log(`🔖 Version: ${CODE_VERSION}`);
   console.log(`✅ Famous person detection`);
   console.log(`✅ Location type detection`);
-  console.log(`✅ Content/summary search for famous people\n`);
+  console.log(`✅ Content/summary search for famous people`);
+  console.log(`✅ Auto-inject web links into answers\n`);
 });
