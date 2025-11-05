@@ -136,22 +136,22 @@ async function verifyURL(url) {
     clearTimeout(timeout);
     
     if (response.ok) {
-      console.log(`✅ Valid URL: ${url}`);
+      console.log('✅ Valid URL: ${url}');
       return true;
     } else if (response.status === 405) {
-      console.log(`⚠️ HEAD not allowed, trying GET: ${url}`);
+      console.log('⚠️ HEAD not allowed, trying GET: ${url}');
       return await verifyURLWithGET(url);
     } else {
-      console.log(`❌ Invalid URL (${response.status}): ${url}`);
+      console.log('❌ Invalid URL (${response.status}): ${url}');
       return false;
     }
   } catch (error) {
-  console.log(`❌ GET also failed: ${url} - ${error.message}`);
+  console.log('HEAD failed, trying GET: ' + url + ' - ' + (error && error.message ? error.message : String(error)));
   return false; // strict: do not assume validity even if .ae
-}`);
+}');
       return await verifyURLWithGET(url);
     } else {
-      console.log(`⚠️ HEAD failed, trying GET: ${url} - ${error.message}`);
+      console.log('HEAD failed, trying GET: ' + url + ' - ' + (error && error.message ? error.message : String(error)));
       return await verifyURLWithGET(url);
     }
   }
@@ -175,16 +175,16 @@ async function verifyURLWithGET(url) {
     clearTimeout(timeout);
     
     if (response.ok) {
-      console.log(`✅ Valid URL (GET): ${url}`);
+      console.log('✅ Valid URL (GET): ${url}');
       return true;
     } else {
-      console.log(`❌ Invalid URL (${response.status}): ${url}`);
+      console.log('❌ Invalid URL (${response.status}): ${url}');
       return false;
     }
   } catch (error) {
-    console.log(`❌ GET also failed: ${url} - ${error.message}`);
+    console.log('HEAD failed, trying GET: ' + url + ' - ' + (error && error.message ? error.message : String(error)));
     if (url.includes('.ae')) {
-      console.log(`⚠️ Assuming UAE site is valid: ${url}`);
+      console.log('⚠️ Assuming UAE site is valid: ${url}');
       return true;
     }
     return false;
@@ -195,7 +195,7 @@ async function verifyURLs(urls) {
   urls = filterUaeDomains(urls);
   if (!urls || urls.length === 0) return [];
   
-  console.log(`🔍 Verifying ${urls.length} URLs...`);
+  console.log('🔍 Verifying ${urls.length} URLs...');
   
   const results = await Promise.all(
     urls.map(async (url) => ({
@@ -205,7 +205,7 @@ async function verifyURLs(urls) {
   );
   
   const validUrls = results.filter(r => r.valid).map(r => r.url);
-  console.log(`✅ Valid: ${validUrls.length}/${urls.length} URLs`);
+  console.log('✅ Valid: ${validUrls.length}/${urls.length} URLs');
   
   return validUrls;
 }
@@ -222,7 +222,7 @@ async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
   const resp = await fetch(OPENAI_URL, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      'Authorization': 'Bearer ${OPENAI_API_KEY}',
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(requestBody),
@@ -230,7 +230,7 @@ async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
 
   if (!resp.ok) {
     const txt = await resp.text();
-    throw new Error(`OpenAI API error: ${resp.status} - ${txt}`);
+    throw new Error('OpenAI API error: ${resp.status} - ${txt}');
   }
 
   const data = await resp.json();
@@ -248,10 +248,10 @@ async function searchWithPerplexity(query) {
     const isArabic = /[\u0600-\u06FF]/.test(query);
     
     const searchQuery = isArabic 
-      ? `ابحث في المواقع الإماراتية عن: ${query}`
-      : `Search UAE websites for: ${query}`;
+      ? 'ابحث في المواقع الإماراتية عن: ${query}'
+      : 'Search UAE websites for: ${query}';
 
-    console.log(`🌐 Perplexity search: "${searchQuery}"`);
+    console.log('🌐 Perplexity search: "${searchQuery}"');
 
     const requestBody = {
       model: 'sonar',
@@ -267,7 +267,7 @@ async function searchWithPerplexity(query) {
     const response = await fetch(PERPLEXITY_URL, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${PERPLEXITY_API_KEY}`,
+        'Authorization': 'Bearer ${PERPLEXITY_API_KEY}',
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(requestBody)
@@ -275,7 +275,7 @@ async function searchWithPerplexity(query) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.log(`❌ Perplexity error: ${response.status}`);
+      console.log('❌ Perplexity error: ${response.status}');
       return null;
     }
 
@@ -342,7 +342,7 @@ app.post('/api/understand-query', async (req, res) => {
     const { query } = req.body || {};
     if (!query) return res.status(400).json({ error: 'Query required' });
 
-    console.log(`\n🔍 Analyzing query: "${query}"`);
+    console.log('\\n🔍 Analyzing query: "${query}"');
 
     const isArabic = /[\u0600-\u06FF]/.test(query);
 
@@ -359,7 +359,7 @@ app.post('/api/understand-query', async (req, res) => {
       });
     }
 
-    const systemPrompt = `You are a library search expert. Analyze the search query and determine which database fields to search.
+    const systemPrompt = 'You are a library search expert. Analyze the search query and determine which database fields to search.
 
 AVAILABLE FIELDS:
 - author (author name - books BY this person)
@@ -395,9 +395,9 @@ CRITICAL DISTINCTIONS:
 7. ORGANIZATION → Search: publisher, author, subject
 8. YEAR/DATE → Search: year
 
-Respond with JSON only.`;
+Respond with JSON only.';
 
-    const userPrompt = `Query: "${query}"
+    const userPrompt = 'Query: "${query}"
 
 Analyze this query carefully:
 1. Is it a FAMOUS PERSON (well-known figure like Sheikh, President)? → use "famous_person"
@@ -414,7 +414,7 @@ Respond in JSON format:
   "reasoning": "brief explanation",
   "isFamousPerson": true/false,
   "isPublisherLocation": true/false
-}`;
+}';
 
     const aiResponse = await callOpenAI(
       [
@@ -443,10 +443,10 @@ Respond in JSON format:
       };
     }
 
-    console.log(`📊 Query type: ${analysis.queryType}`);
-    console.log(`📋 Search fields: ${analysis.searchFields.join(', ')}`);
-    console.log(`🔑 Key terms: ${analysis.keyTerms.join(', ')}`);
-    console.log(`💡 Reasoning: ${analysis.reasoning}\n`);
+    console.log('📊 Query type: ${analysis.queryType}');
+    console.log("📋 Search fields: ${analysis.searchFields.join(', ')}");
+    console.log("🔑 Key terms: ${analysis.keyTerms.join(', ')}");
+    console.log('💡 Reasoning: ${analysis.reasoning}\\n');
 
     res.json({
       intent: analysis.queryType,
@@ -479,10 +479,10 @@ app.post('/api/chat', async (req, res) => {
       .filter(b => b && typeof b === 'object')
       .slice(0, 30);
 
-    console.log(`\n========================================`);
-    console.log(`📚 Query: "${query}"`);
-    console.log(`📚 Books: ${safeBooks.length}`);
-    console.log(`========================================\n`);
+    console.log('\\n========================================');
+    console.log('📚 Query: "${query}"');
+    console.log('📚 Books: ${safeBooks.length}');
+    console.log('========================================\\n');
 
     let answer = '';
     let bookIds = [];
@@ -494,7 +494,7 @@ app.post('/api/chat', async (req, res) => {
       
       const bookContext = safeBooks.map((b, i) => {
         const num = i + 1;
-        return `[${num}] ${b.title || 'Untitled'} by ${b.author || 'Unknown'}\n${(b.summary || '').substring(0, 400)}`;
+        return '[${num}] ${b.title || 'Untitled'} by ${b.author || 'Unknown'}\n${(b.summary || '').substring(0, 400)}';
       }).join('\n\n');
 
       const webResults = await searchWithPerplexity(query);
@@ -502,13 +502,13 @@ app.post('/api/chat', async (req, res) => {
       let webContext = '';
       if (webResults && webResults.citations.length > 0) {
         webSources = webResults.citations;
-        console.log(`✅ Got ${webSources.length} VERIFIED web links`);
-        webContext = `\n\nVERIFIED WEB LINKS (these URLs work):\n${webSources.map((url, i) => `[W${i+1}] ${url}`).join('\n')}`;
+        console.log('✅ Got ${webSources.length} VERIFIED web links');
+        webContext = '\n\nVERIFIED WEB LINKS (these URLs work):\n${webSources.map((url, i) => '[W${i+1}] ${url}').join('\n')}';
       }
 
       const isArabic = /[\u0600-\u06FF]/.test(query);
 
-      const prompt = `You are answering: "${query}"
+      const prompt = 'You are answering: "${query}"
 
 LIBRARY BOOKS:
 ${bookContext}
@@ -522,7 +522,7 @@ RULES:
 Example:
 "الشيخ زايد [كان مؤسس دولة الإمارات](https://wam.ae/actual-url) وفقاً لوكالة أنباء الإمارات [1]."
 
-Answer now:`;
+Answer now:';
 
       answer = await callOpenAI(
         [{ role: 'user', content: prompt }],
@@ -535,8 +535,8 @@ Answer now:`;
         bookIds = [...new Set(matches.map(m => parseInt(m.replace(/[\[\]]/g, ''))))].filter(n => n > 0 && n <= safeBooks.length).sort((a,b) => a-b);
       }
 
-      console.log(`✅ Books cited: ${bookIds.join(', ')}`);
-      console.log(`✅ Web links: ${webSources.length}`);
+      console.log("✅ Books cited: ${bookIds.join(', ')}");
+      console.log('✅ Web links: ${webSources.length}');
 
       answerSource = webSources.length > 0 ? 'dual' : 'library';
       
@@ -597,9 +597,9 @@ app.use((err, req, res, next) => {
 
 /* ========= Start ========= */
 app.listen(PORT, () => {
-  console.log(`\n🚀 ECSSR Backend http://localhost:${PORT}`);
-  console.log(`🔖 Version: ${CODE_VERSION}`);
-  console.log(`✅ Famous person detection`);
-  console.log(`✅ Location type detection`);
-  console.log(`✅ Content/summary search for famous people\n`);
+  console.log('\\n🚀 ECSSR Backend http://localhost:${PORT}');
+  console.log('🔖 Version: ${CODE_VERSION}');
+  console.log('✅ Famous person detection');
+  console.log('✅ Location type detection');
+  console.log('✅ Content/summary search for famous people\\n');
 });
