@@ -409,6 +409,13 @@ async function ensureLoaded(){
 // ---------- SEARCH ----------
 function searchField(field,q){
   const nq=norm(q),tokens=nq.split(/\s+/).filter(t=>t.length>=2),out=[];
+  // Variants to handle Arabic 'و' attachment inside the query phrase
+  const nqVariants = new Set([nq]);
+  // Remove any 'و' that is attached to the following word
+  nqVariants.add(nq.replace(/\bو(?=\S)/g, ''));
+  // Insert a space after 'و' if missing
+  nqVariants.add(nq.replace(/\bو(?=\S)/g, 'و '));
+
   
   const tokensExpanded = [];
   for (const t of tokens){
@@ -421,8 +428,8 @@ function searchField(field,q){
 for(const r of INDEX){
     let sc=0,hit=false;
     if(field==="default"){
-      if(r.nTitle.includes(nq)){sc=100;hit=true}
-      else if(r.nSubject.includes(nq)){sc=70;hit=true}
+      if(([...nqVariants]).some(v=>r.nTitle.includes(v))){sc=100;hit=true}
+      else if(([...nqVariants]).some(v=>r.nSubject.includes(v))){sc=70;hit=true}
       else if(r.nAuthorAll.includes(nq)){sc=60;hit=true}
       else {
         const titleMatch = tokens.filter(tok=>r.nTitle.includes(tok)).length;
@@ -435,9 +442,9 @@ for(const r of INDEX){
     
     } else if (field === "title_author_combo") {
       // Title-first retrieval, author enforced via rerank
-      if(r.nTitle.includes(nq)){sc=110;hit=true}
-      else if(r.nSubject.includes(nq)){sc=80;hit=true}
-      else if(r.nSummary.includes(nq)){sc=60;hit=true}
+      if(([...nqVariants]).some(v=>r.nTitle.includes(v))){sc=110;hit=true}
+      else if(([...nqVariants]).some(v=>r.nSubject.includes(v))){sc=80;hit=true}
+      else if(([...nqVariants]).some(v=>r.nSummary.includes(v))){sc=60;hit=true}
       else {
         const titleMatch = tokens.filter(tok=>r.nTitle.includes(tok)).length;
         const subjectMatch = tokens.filter(tok=>r.nSubject.includes(tok)).length;
@@ -449,10 +456,10 @@ for(const r of INDEX){
       }
     } else if (field === "famous_person") {
       // *** Famous people: Search in CONTENT and SUMMARY (books ABOUT them) ***
-      if(r.nSummary.includes(nq)){sc=100;hit=true}
-      else if(r.nContent.includes(nq)){sc=95;hit=true}
-      else if(r.nTitle.includes(nq)){sc=90;hit=true}
-      else if(r.nSubject.includes(nq)){sc=85;hit=true}
+      if(([...nqVariants]).some(v=>r.nSummary.includes(v))){sc=100;hit=true}
+      else if(([...nqVariants]).some(v=>r.nContent.includes(v))){sc=95;hit=true}
+      else if(([...nqVariants]).some(v=>r.nTitle.includes(v))){sc=90;hit=true}
+      else if(([...nqVariants]).some(v=>r.nSubject.includes(v))){sc=85;hit=true}
       else {
         const summaryMatch = tokens.filter(tok=>r.nSummary.includes(tok)).length;
         const contentMatch = tokens.filter(tok=>r.nContent.includes(tok)).length;
@@ -467,8 +474,8 @@ for(const r of INDEX){
 
     } else if (field === "location_subject") {
       // *** Location as a SUBJECT/TOPIC ***
-      if(r.nSubject.includes(nq)){sc=100;hit=true}
-      else if(r.nTitle.includes(nq)){sc=90;hit=true}
+      if(([...nqVariants]).some(v=>r.nSubject.includes(v))){sc=100;hit=true}
+      else if(([...nqVariants]).some(v=>r.nTitle.includes(v))){sc=90;hit=true}
       else {
         const subjectMatch = tokens.filter(tok=>r.nSubject.includes(tok)).length;
         const titleMatch = tokens.filter(tok=>r.nTitle.includes(tok)).length;
@@ -478,7 +485,7 @@ for(const r of INDEX){
 
     } else if (field === "pub_location") {
       // *** Location as PUBLISHER LOCATION ***
-      if(r.nPub.includes(nq)){sc=100;hit=true}
+      if(([...nqVariants]).some(v=>r.nPub.includes(v))){sc=100;hit=true}
       else {
         const matchCount = tokens.filter(tok=>r.nPub.includes(tok)).length;
         if(matchCount >= tokens.length * 0.5){sc = 50 + matchCount * 10;hit=true}
@@ -517,8 +524,8 @@ for(const r of INDEX){
 
 
     } else if(field==="subject"){
-      if(r.nSubject.includes(nq)){sc=100;hit=true}
-      else if(r.nTitle.includes(nq)){sc=80;hit=true}
+      if(([...nqVariants]).some(v=>r.nSubject.includes(v))){sc=100;hit=true}
+      else if(([...nqVariants]).some(v=>r.nTitle.includes(v))){sc=80;hit=true}
       else {
         const subjectMatch = tokens.filter(tok=>r.nSubject.includes(tok)).length;
         const titleMatch = tokens.filter(tok=>r.nTitle.includes(tok)).length;
@@ -528,8 +535,8 @@ for(const r of INDEX){
       if(hit&&isFamousPerson(q))MATCH_NOTE="Books ABOUT this person"
 
     } else if(field==="summary"){
-      if(r.nSummary.includes(nq)){sc=90;hit=true}
-      else if(r.nContent.includes(nq)){sc=80;hit=true}
+      if(([...nqVariants]).some(v=>r.nSummary.includes(v))){sc=90;hit=true}
+      else if(([...nqVariants]).some(v=>r.nContent.includes(v))){sc=80;hit=true}
       else {
         const summaryMatch = tokens.filter(tok=>r.nSummary.includes(tok)).length;
         const contentMatch = tokens.filter(tok=>r.nContent.includes(tok)).length;
@@ -541,7 +548,7 @@ for(const r of INDEX){
       if(r.nYear.includes(nq)){sc=60;hit=true}
 
     } else if(field==="pub"){
-      if(r.nPub.includes(nq)){sc=100;hit=true}
+      if(([...nqVariants]).some(v=>r.nPub.includes(v))){sc=100;hit=true}
       else {
         const matchCount = tokens.filter(tok=>r.nPub.includes(tok)).length;
         if(matchCount >= tokens.length * 0.6){sc = 40 + matchCount * 10;hit=true}
@@ -956,7 +963,13 @@ async function run(){
     const cleaned = intent.cleaned;
 
     // Decide field
-    const field = intent.author && intent.title
+
+    // If user starts with 'كتاب' or 'book' and no explicit author extracted, treat as title intent
+    let preferTitle = false;
+    if (/^(?:كتاب|book)\b/i.test(raw) && !intent.author) {
+      preferTitle = true;
+    }
+        const field = preferTitle ? "title" : (intent.author && intent.title)
       ? "title_author_combo"
       : (intent.author && !intent.title ? "author" : await chooseFieldSmart(cleaned));
 
