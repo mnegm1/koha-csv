@@ -10,6 +10,22 @@ const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
 
+
+// === UAE-only domain helpers (STRICT) ===
+const UAE_SUFFIX = '.ae';
+function isUaeDomain(urlStr) {
+  try {
+    const { hostname } = new URL(String(urlStr).trim().toLowerCase());
+    return hostname.endsWith(UAE_SUFFIX);
+  } catch {
+    return false;
+  }
+}
+function filterUaeDomains(urls = []) {
+  const unique = Array.from(new Set((urls || []).filter(Boolean)));
+  return unique.filter(isUaeDomain);
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -104,15 +120,12 @@ async function verifyURLWithGET(url) {
     }
   } catch (error) {
     console.log(`❌ GET also failed: ${url} - ${error.message}`);
-    if (url.includes('.ae')) {
-      console.log(`⚠️ Assuming UAE site is valid: ${url}`);
-      return true;
-    }
-    return false;
+    return false; // strict: do not assume validity even if .ae
   }
 }
 
 async function verifyURLs(urls) {
+  urls = filterUaeDomains(urls); // keep only .ae
   if (!urls || urls.length === 0) return [];
   
   console.log(`🔍 Verifying ${urls.length} URLs...`);
@@ -203,7 +216,7 @@ async function searchWithPerplexity(query) {
     const answer = data.choices?.[0]?.message?.content || '';
     let citations = data.citations || [];
     
-    const uaeCitations = citations.filter(url => url.includes('.ae'));
+    const uaeCitations = filterUaeDomains(citations);
     
     if (uaeCitations.length === 0) {
       return null;
@@ -421,8 +434,8 @@ app.post('/api/chat', async (req, res) => {
       
       let webContext = '';
       if (webResults && webResults.citations.length > 0) {
-        webSources = webResults.citations;
-        console.log(`✅ Got ${webSources.length} VERIFIED web links`);
+        webSources = filterUaeDomains(webResults.citations);
+        console.log(`✅ Got ${webSources.length} VERIFIED web links (.ae only)`);
         webContext = `\n\nVERIFIED WEB LINKS (these URLs work):\n${webSources.map((url, i) => `[W${i+1}] ${url}`).join('\n')}`;
       }
 
