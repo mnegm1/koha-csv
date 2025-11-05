@@ -279,6 +279,18 @@ app.post('/api/understand-query', async (req, res) => {
     console.log(`\n🔍 Analyzing query: "${query}"`);
 
     const isArabic = /[\u0600-\u06FF]/.test(query);
+    // Light ignoreword strip for AI prompt hygiene (AR/EN)
+    function stripNoise(s){
+      const stop = new Set([
+        "ابحث","أبحث","بحث","استعلام","طلب","أريد","اريد","عايز","رجاء","من","من فضلك","عن","حول",
+        "كتب","كتاب","الكتب","العناوين","عنوان","المؤلف","للمؤلف","للمؤلفة","لـ","للـ","بقلم",
+        "find","search","look","looking","for","please",
+        "books","book","title","titles","by","about","on","related","author","authored","written","write"
+      ]);
+      return String(s||"").split(/\s+/).filter(t=>!stop.has(norm(t))).join(" ");
+    }
+    const promptSafeQuery = stripNoise(query);
+    
 
     // Check if it's a famous person first
     const isFamous = isFamousPerson(query);
@@ -331,7 +343,7 @@ CRITICAL DISTINCTIONS:
 
 Respond with JSON only.`;
 
-    const userPrompt = `Query: "${query}"
+    const userPrompt = `Query: "${promptSafeQuery}"
 
 Analyze this query carefully:
 1. Is it a FAMOUS PERSON (well-known figure like Sheikh, President)? → use "famous_person"
