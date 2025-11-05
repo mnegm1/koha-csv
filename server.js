@@ -1,5 +1,5 @@
 // backend/server.js
-// ECSSR AI Assistant  v15.0 - IMPROVED Query Type Detection
+// ECSSR AI Assistant — v15.0 - IMPROVED Query Type Detection
 // - Better distinction between famous people vs regular authors
 // - Location as subject vs location as publisher location
 // - Content/summary search for famous people
@@ -10,69 +10,6 @@ const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
 
-// === Arabic normalization + query intent (Dr Negm, 2025-11) ===
-const AR_DIAC = /[\u064B-\u0652]/g;          // 
-const AR_TATWEEL = /\u0640/g;                 // 
-const AR_HAMZA = /[\u0625\u0623\u0622]/g;                     //    
-const AR_YEH = /[\u064A\u0649]/g;                        // /  
-const AR_TMARBUTA = /\u0629/g;                      //    ( )
-
-const AR_GENERIC = new Set([
-  'كتاب','الكتاب','كتب','مؤلف','مؤلفات','تأليف',
-  'عن','حول','في','الى','إلى','بحث','بحوث'
-]);
-
-function normalizeArabic(s='') {
-  return String(s)
-    .replace(AR_DIAC,'')
-    .replace(AR_TATWEEL,'')
-    .replace(AR_HAMZA,'ا')
-    .replace(AR_YEH,'ي')
-    .replace(AR_TMARBUTA,'ه')
-    .replace(/\s+/g,' ')
-    .trim()
-    .toLowerCase();
-}
-
-function stripGenericTokens(n='') {
-  return n
-    .split(/\s+/)
-    .filter(tok => tok && !AR_GENERIC.has(tok))
-    .join(' ')
-    .trim();
-}
-
-//      
-function parseUserQuery(q='') {
-  const original = q;
-  const n = normalizeArabic(q);
-
-  // 1) " X"  " X"  
-  let m = n.match(/^(?:كتب|مؤلفات)\s+(.+)$/);
-  if (m && m[1]) {
-    const core = stripGenericTokens(m[1]);
-    return { intent: 'author', core, original };
-  }
-
-  // 2)  "// "    
-  let m2 = n.match(/(?:\s|^)(?:ل|لل|لـ)\s*([^\s].+)$/);
-  if (m2 && m2[1]) {
-    const core = stripGenericTokens(m2[1]);
-    return { intent: 'author', core, original };
-  }
-
-  // 3)  :     
-  const core = stripGenericTokens(n);
-  return { intent: 'auto', core, original };
-}
-
-// === Helper: fetch with timeout (HEAD/GET) ===
-function fetchWithTimeout(url, opts = {}, ms = 5000) {
-  const ac = new AbortController();
-  const id = setTimeout(() => ac.abort(), ms);
-  return fetch(url, { ...opts, signal: ac.signal })
-    .finally(() => clearTimeout(id));
-}
 
 // === UAE-only domain helpers (STRICT) ===
 const UAE_SUFFIX = '.ae';
@@ -80,13 +17,14 @@ function isUaeDomain(urlStr) {
   try {
     const { hostname } = new URL(String(urlStr).trim().toLowerCase());
     return hostname.endsWith(UAE_SUFFIX);
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 }
 function filterUaeDomains(urls = []) {
   const unique = Array.from(new Set((urls || []).filter(Boolean)));
   return unique.filter(isUaeDomain);
 }
-
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -136,22 +74,21 @@ async function verifyURL(url) {
     clearTimeout(timeout);
     
     if (response.ok) {
-      console.log(' Valid URL: ${url}');
+      console.log(`✅ Valid URL: ${url}`);
       return true;
     } else if (response.status === 405) {
-      console.log(' HEAD not allowed, trying GET: ${url}');
+      console.log(`⚠️ HEAD not allowed, trying GET: ${url}`);
       return await verifyURLWithGET(url);
     } else {
-      console.log(' Invalid URL (${response.status}): ${url}');
+      console.log(`❌ Invalid URL (${response.status}): ${url}`);
       return false;
     }
   } catch (error) {
-  console.log('HEAD failed, trying GET: ' + url + ' - ' + (error && error.message ? error.message : String(error)));
-  return false; // strict: do not assume validity even if .ae
-}');
+    if (error.name === 'AbortError') {
+      console.log(`⚠️ Timeout (10s), trying GET: ${url}`);
       return await verifyURLWithGET(url);
     } else {
-      console.log('HEAD failed, trying GET: ' + url + ' - ' + (error && error.message ? error.message : String(error)));
+      console.log(`⚠️ HEAD failed, trying GET: ${url} - ${error.message}`);
       return await verifyURLWithGET(url);
     }
   }
@@ -175,27 +112,23 @@ async function verifyURLWithGET(url) {
     clearTimeout(timeout);
     
     if (response.ok) {
-      console.log(' Valid URL (GET): ${url}');
+      console.log(`✅ Valid URL (GET): ${url}`);
       return true;
     } else {
-      console.log(' Invalid URL (${response.status}): ${url}');
+      console.log(`❌ Invalid URL (${response.status}): ${url}`);
       return false;
     }
   } catch (error) {
-    console.log('HEAD failed, trying GET: ' + url + ' - ' + (error && error.message ? error.message : String(error)));
-    if (url.includes('.ae')) {
-      console.log(' Assuming UAE site is valid: ${url}');
-      return true;
-    }
-    return false;
+    console.log(`❌ GET also failed: ${url} - ${error.message}`);
+    return false; // strict: do not assume validity even if .ae
   }
 }
 
 async function verifyURLs(urls) {
-  urls = filterUaeDomains(urls);
+  urls = filterUaeDomains(urls); // keep only .ae
   if (!urls || urls.length === 0) return [];
   
-  console.log(' Verifying ${urls.length} URLs...');
+  console.log(`🔍 Verifying ${urls.length} URLs...`);
   
   const results = await Promise.all(
     urls.map(async (url) => ({
@@ -205,7 +138,7 @@ async function verifyURLs(urls) {
   );
   
   const validUrls = results.filter(r => r.valid).map(r => r.url);
-  console.log(' Valid: ${validUrls.length}/${urls.length} URLs');
+  console.log(`✅ Valid: ${validUrls.length}/${urls.length} URLs`);
   
   return validUrls;
 }
@@ -222,7 +155,7 @@ async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
   const resp = await fetch(OPENAI_URL, {
     method: 'POST',
     headers: {
-      'Authorization': 'Bearer ${OPENAI_API_KEY}',
+      'Authorization': `Bearer ${OPENAI_API_KEY}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(requestBody),
@@ -230,7 +163,7 @@ async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
 
   if (!resp.ok) {
     const txt = await resp.text();
-    throw new Error('OpenAI API error: ${resp.status} - ${txt}');
+    throw new Error(`OpenAI API error: ${resp.status} - ${txt}`);
   }
 
   const data = await resp.json();
@@ -240,7 +173,7 @@ async function callOpenAI(messages, model = OPENAI_MODEL, options = {}) {
 /* ========= Perplexity Search ========= */
 async function searchWithPerplexity(query) {
   if (!PERPLEXITY_API_KEY) {
-    console.log(' Perplexity API key not set');
+    console.log('⚠️ Perplexity API key not set');
     return null;
   }
   
@@ -248,10 +181,10 @@ async function searchWithPerplexity(query) {
     const isArabic = /[\u0600-\u06FF]/.test(query);
     
     const searchQuery = isArabic 
-      ? 'ابحث في المواقع الإماراتية عن: ${query}'
-      : 'Search UAE websites for: ${query}';
+      ? `ابحث في المواقع الإماراتية عن: ${query}`
+      : `Search UAE websites for: ${query}`;
 
-    console.log(' Perplexity search: "${searchQuery}"');
+    console.log(`🌐 Perplexity search: "${searchQuery}"`);
 
     const requestBody = {
       model: 'sonar',
@@ -267,7 +200,7 @@ async function searchWithPerplexity(query) {
     const response = await fetch(PERPLEXITY_URL, {
       method: 'POST',
       headers: {
-        'Authorization': 'Bearer ${PERPLEXITY_API_KEY}',
+        'Authorization': `Bearer ${PERPLEXITY_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(requestBody)
@@ -275,14 +208,15 @@ async function searchWithPerplexity(query) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.log(' Perplexity error: ${response.status}');
+      console.log(`❌ Perplexity error: ${response.status}`);
       return null;
     }
 
     const data = await response.json();
     const answer = data.choices?.[0]?.message?.content || '';
-    let citations = Array.isArray(data.citations) ? data.citations : [];
-  const uaeCitations = filterUaeDomains(citations);
+    let citations = data.citations || [];
+    
+    const uaeCitations = filterUaeDomains(citations);
     
     if (uaeCitations.length === 0) {
       return null;
@@ -342,14 +276,14 @@ app.post('/api/understand-query', async (req, res) => {
     const { query } = req.body || {};
     if (!query) return res.status(400).json({ error: 'Query required' });
 
-    console.log('\\n Analyzing query: "${query}"');
+    console.log(`\n🔍 Analyzing query: "${query}"`);
 
     const isArabic = /[\u0600-\u06FF]/.test(query);
 
     // Check if it's a famous person first
     const isFamous = isFamousPerson(query);
     if (isFamous) {
-      console.log(' Detected FAMOUS PERSON - will search content/summary');
+      console.log('⭐ Detected FAMOUS PERSON - will search content/summary');
       return res.json({
         intent: 'famous_person',
         field: 'famous_person',
@@ -359,7 +293,7 @@ app.post('/api/understand-query', async (req, res) => {
       });
     }
 
-    const systemPrompt = 'You are a library search expert. Analyze the search query and determine which database fields to search.
+    const systemPrompt = `You are a library search expert. Analyze the search query and determine which database fields to search.
 
 AVAILABLE FIELDS:
 - author (author name - books BY this person)
@@ -395,9 +329,9 @@ CRITICAL DISTINCTIONS:
 7. ORGANIZATION → Search: publisher, author, subject
 8. YEAR/DATE → Search: year
 
-Respond with JSON only.';
+Respond with JSON only.`;
 
-    const userPrompt = 'Query: "${query}"
+    const userPrompt = `Query: "${query}"
 
 Analyze this query carefully:
 1. Is it a FAMOUS PERSON (well-known figure like Sheikh, President)? → use "famous_person"
@@ -414,7 +348,7 @@ Respond in JSON format:
   "reasoning": "brief explanation",
   "isFamousPerson": true/false,
   "isPublisherLocation": true/false
-}';
+}`;
 
     const aiResponse = await callOpenAI(
       [
@@ -434,7 +368,7 @@ Respond in JSON format:
         throw new Error('No JSON found');
       }
     } catch (e) {
-      console.log(' Failed to parse AI response, using defaults');
+      console.log('⚠️ Failed to parse AI response, using defaults');
       analysis = {
         queryType: 'topic',
         searchFields: ['title', 'subject', 'summary'],
@@ -443,10 +377,10 @@ Respond in JSON format:
       };
     }
 
-    console.log(' Query type: ${analysis.queryType}');
-    console.log("📋 Search fields: ${analysis.searchFields.join(', ')}");
-    console.log("🔑 Key terms: ${analysis.keyTerms.join(', ')}");
-    console.log(' Reasoning: ${analysis.reasoning}\\n');
+    console.log(`📊 Query type: ${analysis.queryType}`);
+    console.log(`📋 Search fields: ${analysis.searchFields.join(', ')}`);
+    console.log(`🔑 Key terms: ${analysis.keyTerms.join(', ')}`);
+    console.log(`💡 Reasoning: ${analysis.reasoning}\n`);
 
     res.json({
       intent: analysis.queryType,
@@ -479,36 +413,35 @@ app.post('/api/chat', async (req, res) => {
       .filter(b => b && typeof b === 'object')
       .slice(0, 30);
 
-    console.log('\\n========================================');
-    console.log(' Query: "${query}"');
-    console.log(' Books: ${safeBooks.length}');
-    console.log('========================================\\n');
+    console.log(`\n========================================`);
+    console.log(`📚 Query: "${query}"`);
+    console.log(`📚 Books: ${safeBooks.length}`);
+    console.log(`========================================\n`);
 
     let answer = '';
     let bookIds = [];
     let webSources = [];
-  webSources = filterUaeDomains(webSources);
     let answerSource = 'library';
 
     if (safeBooks.length > 0) {
       
       const bookContext = safeBooks.map((b, i) => {
         const num = i + 1;
-        return '[${num}] ${b.title || 'Untitled'} by ${b.author || 'Unknown'}\n${(b.summary || '').substring(0, 400)}';
+        return `[${num}] ${b.title || 'Untitled'} by ${b.author || 'Unknown'}\n${(b.summary || '').substring(0, 400)}`;
       }).join('\n\n');
 
       const webResults = await searchWithPerplexity(query);
       
       let webContext = '';
       if (webResults && webResults.citations.length > 0) {
-        webSources = webResults.citations;
-        console.log(' Got ${webSources.length} VERIFIED web links');
-        webContext = '\n\nVERIFIED WEB LINKS (these URLs work):\n${webSources.map((url, i) => '[W${i+1}] ${url}').join('\n')}';
+        webSources = filterUaeDomains(webResults.citations);
+        console.log(`✅ Got ${webSources.length} VERIFIED web links (.ae only)`);
+        webContext = `\n\nVERIFIED WEB LINKS (these URLs work):\n${webSources.map((url, i) => `[W${i+1}] ${url}`).join('\n')}`;
       }
 
       const isArabic = /[\u0600-\u06FF]/.test(query);
 
-      const prompt = 'You are answering: "${query}"
+      const prompt = `You are answering: "${query}"
 
 LIBRARY BOOKS:
 ${bookContext}
@@ -520,9 +453,9 @@ RULES:
 3. Answer in ${isArabic ? 'Arabic' : 'English'}
 
 Example:
-"الشيخ زايد [كان مؤسس دولة الإمارات](https://wam.ae/actual-url)     [1]."
+"الشيخ زايد [كان مؤسس دولة الإمارات](https://wam.ae/actual-url) وفقاً لوكالة أنباء الإمارات [1]."
 
-Answer now:';
+Answer now:`;
 
       answer = await callOpenAI(
         [{ role: 'user', content: prompt }],
@@ -535,8 +468,8 @@ Answer now:';
         bookIds = [...new Set(matches.map(m => parseInt(m.replace(/[\[\]]/g, ''))))].filter(n => n > 0 && n <= safeBooks.length).sort((a,b) => a-b);
       }
 
-      console.log("✅ Books cited: ${bookIds.join(', ')}");
-      console.log(' Web links: ${webSources.length}');
+      console.log(`✅ Books cited: ${bookIds.join(', ')}`);
+      console.log(`✅ Web links: ${webSources.length}`);
 
       answerSource = webSources.length > 0 ? 'dual' : 'library';
       
@@ -597,9 +530,9 @@ app.use((err, req, res, next) => {
 
 /* ========= Start ========= */
 app.listen(PORT, () => {
-  console.log('\\n ECSSR Backend http://localhost:${PORT}');
-  console.log(' Version: ${CODE_VERSION}');
-  console.log(' Famous person detection');
-  console.log(' Location type detection');
-  console.log(' Content/summary search for famous people\\n');
+  console.log(`\n🚀 ECSSR Backend http://localhost:${PORT}`);
+  console.log(`🔖 Version: ${CODE_VERSION}`);
+  console.log(`✅ Famous person detection`);
+  console.log(`✅ Location type detection`);
+  console.log(`✅ Content/summary search for famous people\n`);
 });
