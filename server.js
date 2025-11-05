@@ -10,6 +10,61 @@ const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
 
+// === Arabic normalization + query intent (Dr Negm, 2025-11) ===
+const AR_DIAC = /[\u064B-\u0652]/g;          // التشكيل
+const AR_TATWEEL = /\u0640/g;                 // ـ
+const AR_HAMZA = /[إأآ]/g;                     // أشكال الألف → ا
+const AR_YEH = /[يى]/g;                        // ي/ى → ي
+const AR_TMARBUTA = /ة/g;                      // ة → ه (للمقارنة فقط)
+
+const AR_GENERIC = new Set([
+  'كتاب','الكتاب','كتب','مؤلف','مؤلفات','تأليف',
+  'عن','حول','في','الى','إلى','بحث','بحوث'
+]);
+
+function normalizeArabic(s='') {
+  return String(s)
+    .replace(AR_DIAC,'')
+    .replace(AR_TATWEEL,'')
+    .replace(AR_HAMZA,'ا')
+    .replace(AR_YEH,'ي')
+    .replace(AR_TMARBUTA,'ه')
+    .replace(/\s+/g,' ')
+    .trim()
+    .toLowerCase();
+}
+
+function stripGenericTokens(n='') {
+  return n
+    .split(/\s+/)
+    .filter(tok => tok && !AR_GENERIC.has(tok))
+    .join(' ')
+    .trim();
+}
+
+// يحاول استنتاج النية ويعيد جوهر الاستعلام
+function parseUserQuery(q='') {
+  const original = q;
+  const n = normalizeArabic(q);
+
+  // 1) "كتب X" أو "مؤلفات X" → مؤلف
+  let m = n.match(/^(?:كتب|مؤلفات)\s+(.+)$/);
+  if (m && m[1]) {
+    const core = stripGenericTokens(m[1]);
+    return { intent: 'author', core, original };
+  }
+
+  // 2) وجود "ل/لل/لـ فلان" في النهاية → مؤلف
+  let m2 = n.match(/(?:\s|^)(?:ل|لل|لـ)\s*([^\s].+)$/);
+  if (m2 && m2[1]) {
+    const core = stripGenericTokens(m2[1]);
+    return { intent: 'author', core, original };
+  }
+
+  // 3) خلاف ذلك: أزل الكلمات العامة وخذ الباقي
+  const core = stripGenericTokens(n);
+  return { intent: 'auto', core, original };
+}
 
 // === UAE-only domain helpers (STRICT) ===
 const UAE_SUFFIX = '.ae';
@@ -17,14 +72,13 @@ function isUaeDomain(urlStr) {
   try {
     const { hostname } = new URL(String(urlStr).trim().toLowerCase());
     return hostname.endsWith(UAE_SUFFIX);
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 function filterUaeDomains(urls = []) {
   const unique = Array.from(new Set((urls || []).filter(Boolean)));
   return unique.filter(isUaeDomain);
 }
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -84,8 +138,9 @@ async function verifyURL(url) {
       return false;
     }
   } catch (error) {
-    if (error.name === 'AbortError') {
-      console.log(`⚠️ Timeout (10s), trying GET: ${url}`);
+  console.log(`❌ GET also failed: ${url} - ${error.message}`);
+  return false; // strict: do not assume validity even if .ae
+}`);
       return await verifyURLWithGET(url);
     } else {
       console.log(`⚠️ HEAD failed, trying GET: ${url} - ${error.message}`);
@@ -120,12 +175,16 @@ async function verifyURLWithGET(url) {
     }
   } catch (error) {
     console.log(`❌ GET also failed: ${url} - ${error.message}`);
-    return false; // strict: do not assume validity even if .ae
+    if (url.includes('.ae')) {
+      console.log(`⚠️ Assuming UAE site is valid: ${url}`);
+      return true;
+    }
+    return false;
   }
 }
 
 async function verifyURLs(urls) {
-  urls = filterUaeDomains(urls); // keep only .ae
+  urls = filterUaeDomains(urls);
   if (!urls || urls.length === 0) return [];
   
   console.log(`🔍 Verifying ${urls.length} URLs...`);
@@ -214,9 +273,8 @@ async function searchWithPerplexity(query) {
 
     const data = await response.json();
     const answer = data.choices?.[0]?.message?.content || '';
-    let citations = data.citations || [];
-    
-    const uaeCitations = filterUaeDomains(citations);
+    let citations = Array.isArray(data.citations) ? data.citations : [];
+  const uaeCitations = filterUaeDomains(citations);
     
     if (uaeCitations.length === 0) {
       return null;
@@ -421,6 +479,7 @@ app.post('/api/chat', async (req, res) => {
     let answer = '';
     let bookIds = [];
     let webSources = [];
+  webSources = filterUaeDomains(webSources);
     let answerSource = 'library';
 
     if (safeBooks.length > 0) {
@@ -434,8 +493,8 @@ app.post('/api/chat', async (req, res) => {
       
       let webContext = '';
       if (webResults && webResults.citations.length > 0) {
-        webSources = filterUaeDomains(webResults.citations);
-        console.log(`✅ Got ${webSources.length} VERIFIED web links (.ae only)`);
+        webSources = webResults.citations;
+        console.log(`✅ Got ${webSources.length} VERIFIED web links`);
         webContext = `\n\nVERIFIED WEB LINKS (these URLs work):\n${webSources.map((url, i) => `[W${i+1}] ${url}`).join('\n')}`;
       }
 
