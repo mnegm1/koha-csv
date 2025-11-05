@@ -114,6 +114,34 @@ function norm(s){
      .trim();
   return s
 }
+
+// Return structured intent parsed from raw user query (AR/EN)
+function parseStructuredQuery(raw) {
+  const original = String(raw||"").trim();
+  // 1) Try explicit patterns first
+  for (const { re, groups } of PATTERNS) {
+    const m = original.match(re);
+    if (m) {
+      const out = { cleaned: original, author:"", title:"", topic:"", hadStructure:true };
+      groups.forEach((g, i) => { out[g] = (m[i+1] || "").trim(); });
+      if (out.title) return { ...out, cleaned: out.title };
+      if (out.topic) return { ...out, cleaned: out.topic };
+      if (out.author) return { ...out, cleaned: out.author };
+      return out;
+    }
+  }
+  // 2) Remove ignorable words (keep semantic core)
+  const words = original.split(/\s+/);
+  const kept = words.filter(w => !IGNORE_WORDS.has(norm(w)));
+  let cleaned = kept.join(" ").trim();
+  if (!cleaned) cleaned = original; // fallback if too aggressive
+
+  // 3) Strip leading question word
+  cleaned = cleaned.replace(QUESTION_WORDS, "").trim();
+
+  return { cleaned, author:"", title:"", topic:"", hadStructure:false };
+}
+
 function isArabic(s){return/[\u0600-\u06FF]/.test(s||"")}
 // Famous people (search in content/summary - books ABOUT them)
 const FAMOUS_PEOPLE=new Set(["محمد بن زايد","محمد بن راشد","خليفة بن زايد","زايد بن سلطان","محمد بن زايد آل نهيان","sheikh mohamed","sheikh mohammed","sheikh khalifa","sheikh zayed","الشيخ محمد","الشيخ خليفة","الشيخ زايد","صاحب السمو"]);
@@ -122,6 +150,37 @@ const FAMOUS_PEOPLE=new Set(["محمد بن زايد","محمد بن راشد","
 const KNOWN_LOCATIONS=new Set(["دبي","dubai","أبوظبي","أبو ظبي","ابوظبي","abu dhabi","الشارقة","sharjah","عجمان","ajman","رأس الخيمة","ras al khaimah","الفجيرة","fujairah","ام القيوين","umm al quwain","العين","al ain","الظفرة","مصر","egypt","السعودية","saudi arabia","الرياض","riyadh","جدة","jeddah","الكويت","kuwait","قطر","qatar","الدوحة","doha","البحرين","bahrain","المنامة","manama","عمان","oman","مسقط","muscat","الأردن","jordan","عمّان","amman","لبنان","lebanon","بيروت","beirut","سوريا","syria","دمشق","damascus","العراق","iraq","بغداد","baghdad","فلسطين","palestine","القدس","jerusalem","اليمن","yemen","صنعاء","sanaa","المغرب","morocco","الرباط","rabat","تونس","tunisia","الجزائر","algeria","ليبيا","libya","السودان","sudan","الخرطوم","khartoum","لندن","london","باريس","paris","نيويورك","new york","واشنطن","washington","موسكو","moscow","بكين","beijing","طوكيو","tokyo","برلين","berlin","روما","rome","مدريد","madrid","القاهرة","cairo","اسطنبول","istanbul","طهران","tehran"]);
 
 // Publisher location keywords
+
+// ---------- STOP/IGNORE WORDS & PHRASES (AR/EN) ----------
+const IGNORE_WORDS = new Set([
+  // Arabic function words + meta request words
+  "ابحث","أبحث","بحث","استعلام","طلب","أريد","اريد","عايز","رجاء","من فضلك",
+  "عن","حول","متعلق","يتعلق","خصيصاً","خاص",
+  "كتب","كتاب","الكتب","العناوين","عنوان",
+  "المؤلف","للمؤلف","للمؤلفة","لـ","للـ","بقلم",
+  // English function words
+  "find","search","look","looking","for","please",
+  "books","book","title","titles","by","about","on","related",
+  "author","authored","written","write"
+]);
+
+// Structured patterns to extract title/author/topic
+const PATTERNS = [
+  // "book <title> by <author>" / "كتاب <title> للمؤلف <author>"
+  { re: /(?:كتاب|book)\s+(.+?)\s+(?:للمؤلف|لـ|بقلم|by)\s+(.+)$/i, groups: ["title","author"] },
+  // "books by <author>" / "كتب للمؤلف <author>"
+  { re: /(?:كتب|books)\s+(?:لـ|للمؤلف|بقلم|by)\s+(.+)$/i, groups: ["author"] },
+  // "author <name> book <title>"
+  { re: /(?:المؤلف|author)\s+(.+?)\s+(?:كتاب|title)\s+(.+)$/i, groups: ["author","title"] },
+  // "<title> بقلم <author>"
+  { re: /^(.+?)\s+(?:للمؤلف|بقلم|by)\s+(.+)$/i, groups: ["title","author"] },
+  // "عن <topic> بقلم <author>" / "about <topic> by <author>"
+  { re: /(?:عن|about|on)\s+(.+?)\s+(?:بقلم|by)\s+(.+)$/i, groups: ["topic","author"] }
+];
+
+// Ignore question words at the beginning
+const QUESTION_WORDS = /\b(what|how|why|when|where|who|which|هل|ما|ماذا|كيف|أين|متى|لماذا)\b/i;
+
 const PUBLISHER_KEYWORDS=new Set(["دار","دار نشر","publisher","published in","مطبعة","مطبوع في","نشر في","مركز","صدر في","صادر عن"]);
 
 function looksLikeYear(q){return/^\d{4}$/.test(q.trim())}
@@ -359,6 +418,21 @@ function searchField(field,q){
         if(totalMatch >= tokens.length * 0.5){sc = 30 + totalMatch * 8;hit=true}
       }
 
+    
+    } else if (field === "title_author_combo") {
+      // Title-first retrieval, author enforced via rerank
+      if(r.nTitle.includes(nq)){sc=110;hit=true}
+      else if(r.nSubject.includes(nq)){sc=80;hit=true}
+      else if(r.nSummary.includes(nq)){sc=60;hit=true}
+      else {
+        const titleMatch = tokens.filter(tok=>r.nTitle.includes(tok)).length;
+        const subjectMatch = tokens.filter(tok=>r.nSubject.includes(tok)).length;
+        const summaryMatch = tokens.filter(tok=>r.nSummary.includes(tok)).length;
+        const totalMatch = Math.max(titleMatch, subjectMatch, summaryMatch);
+        if(totalMatch >= Math.max(1, Math.floor(tokens.length*0.5))){
+          sc = 30 + totalMatch * 8; hit = true;
+        }
+      }
     } else if (field === "famous_person") {
       // *** Famous people: Search in CONTENT and SUMMARY (books ABOUT them) ***
       if(r.nSummary.includes(nq)){sc=100;hit=true}
@@ -844,12 +918,48 @@ async function run(){
     await ensureLoaded();
     const raw=q.value.trim();if(!raw){setBusy(false);return}
     
-    // Use AI-powered smart field chooser
-    const field = await chooseFieldSmart(raw);
     
+    // NEW: parse & sanitize before choosing field
+    const intent = parseStructuredQuery(raw);
+    const cleaned = intent.cleaned;
+
+    // Decide field
+    const field = intent.author && intent.title
+      ? "title_author_combo"
+      : (intent.author && !intent.title ? "author" : await chooseFieldSmart(cleaned));
+
     setBusy(true,"Searching…");
-    const results=searchField(field,raw);
-    await renderAll(results,field,raw)
+    let results = searchField(field, cleaned);
+
+    // Author constraint: rerank with existing matchers
+    if (intent.author) {
+      const tok = tokenizeName(intent.author);
+      results = results.map(r => {
+        let bonus = 0;
+        if (exactAuthorMatch(tok, r.raw.author)) bonus = 120;
+        else if (exactAuthorMatch(tok, r.raw.other_author)) bonus = 112;
+        else if (exactAuthorMatch(tok, r.raw.corporate_name)) bonus = 105;
+        else {
+          const candidates = [
+            flexibleAuthorMatch(tok, r.raw.author),
+            flexibleAuthorMatch(tok, r.raw.other_author),
+            flexibleAuthorMatch(tok, r.raw.corporate_name)
+          ];
+          const best = candidates.reduce((a,b)=> (a && a.score || 0) > (b && b.score || 0) ? a : b, {score:0});
+          bonus = best.score || 0;
+        }
+        return { ...r, sc: r.sc + (bonus||0) };
+      }).sort((a,b)=>b.sc-a.sc);
+    }
+
+    // Title proximity: soft boost
+    if (intent.title) {
+      const nt = norm(intent.title);
+      results = results.map(r => r.nTitle.includes(nt) ? ({...r, sc: r.sc + 140}) : r)
+                       .sort((a,b)=>b.sc-a.sc);
+    }
+
+    await renderAll(results, field, raw)
   }finally{setBusy(false)}
 }
 go.onclick=run;
