@@ -66,6 +66,14 @@ function parseUserQuery(q='') {
   return { intent: 'auto', core, original };
 }
 
+// === Helper: fetch with timeout (HEAD/GET) ===
+function fetchWithTimeout(url, opts = {}, ms = 5000) {
+  const ac = new AbortController();
+  const id = setTimeout(() => ac.abort(), ms);
+  return fetch(url, { ...opts, signal: ac.signal })
+    .finally(() => clearTimeout(id));
+}
+
 // === UAE-only domain helpers (STRICT) ===
 const UAE_SUFFIX = '.ae';
 function isUaeDomain(urlStr) {
