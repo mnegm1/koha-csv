@@ -116,8 +116,10 @@ function norm(s){
 }
 
 // Return structured intent parsed from raw user query (AR/EN)
+
 function parseStructuredQuery(raw) {
   const original = String(raw||"").trim();
+
   // 1) Try explicit patterns first
   for (const { re, groups } of PATTERNS) {
     const m = original.match(re);
@@ -130,17 +132,20 @@ function parseStructuredQuery(raw) {
       return out;
     }
   }
-  // 2) Remove ignorable words (keep semantic core)
-  const words = original.split(/\s+/);
-  const kept = words.filter(w => !IGNORE_WORDS.has(norm(w)));
-  let cleaned = kept.join(" ").trim();
-  if (!cleaned) cleaned = original; // fallback if too aggressive
 
-  // 3) Strip leading question word
+  // 2) Strip leading ignore words only (keep internal words)
+  const words = original.split(/\s+/);
+  let i = 0;
+  while (i < words.length && IGNORE_WORDS.has(norm(words[i]))) i++;
+  let cleaned = words.slice(i).join(" ").trim();
+  if (!cleaned) cleaned = original; // fallback if we stripped too much
+
+  // 3) Remove a leading question word (once)
   cleaned = cleaned.replace(QUESTION_WORDS, "").trim();
 
   return { cleaned, author:"", title:"", topic:"", hadStructure:false };
 }
+
 
 function isArabic(s){return/[\u0600-\u06FF]/.test(s||"")}
 // Famous people (search in content/summary - books ABOUT them)
@@ -404,7 +409,16 @@ async function ensureLoaded(){
 // ---------- SEARCH ----------
 function searchField(field,q){
   const nq=norm(q),tokens=nq.split(/\s+/).filter(t=>t.length>=2),out=[];
-  for(const r of INDEX){
+  
+  const tokensExpanded = [];
+  for (const t of tokens){
+    tokensExpanded.push(t);
+    // Arabic 'و' conjunction handling (e.g., "والغربة" vs "و الغربة")
+    if (t.length>2 && (t.startsWith("و"))){
+      tokensExpanded.push(t.slice(1));
+    }
+  }
+for(const r of INDEX){
     let sc=0,hit=false;
     if(field==="default"){
       if(r.nTitle.includes(nq)){sc=100;hit=true}
@@ -539,6 +553,24 @@ function searchField(field,q){
 
   out.sort((a,b)=>b.sc-a.sc);
   return out
+  // Relaxed fallback: if no hits and query has 2+ tokens, try partial with tokensExpanded (>=1 token match)
+  if(out.length===0 && tokens.length>=2){
+    for(const r of INDEX){
+      let sc=0,hit=false;
+      const titleMatch = tokensExpanded.filter(tok=>r.nTitle.includes(tok)).length;
+      const subjectMatch = tokensExpanded.filter(tok=>r.nSubject.includes(tok)).length;
+      const authorMatch = tokensExpanded.filter(tok=>r.nAuthorAll.includes(tok)).length;
+      const summaryMatch = tokensExpanded.filter(tok=>r.nSummary.includes(tok)).length;
+      const contentMatch = tokensExpanded.filter(tok=>r.nContent.includes(tok)).length;
+      const totalMatch = Math.max(titleMatch,subjectMatch,authorMatch,summaryMatch,contentMatch);
+      if(totalMatch >= 1){
+        sc = 20 + totalMatch * 6; hit = true;
+      }
+      if(hit) out.push({id:r.id,raw:r.raw,sc,field});
+    }
+    out.sort((a,b)=>b.sc-a.sc);
+  }
+
 }
 
 // ---------- TRANSLATION + AI SUMMARY ----------
