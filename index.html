@@ -262,6 +262,11 @@ async function chooseFieldSmart(q){
       MATCH_NOTE = `AI: Author name → Author, Co-author, Corporate author`;
       return 'author';
     } 
+    // For TITLE queries - ENFORCE TITLE-ONLY SEARCH
+    else if (queryType === 'title' || (searchFields.includes('title') && searchFields.length === 1)) {
+      MATCH_NOTE = `AI: Book title → Title (ALL keywords required)`;
+      return 'title';  // This now has an explicit handler that requires all tokens
+    } 
     // For PLACE queries → distinguish between subject and publisher location
     else if (queryType === 'place') {
       if (searchFields.includes('publisher_location')) {
@@ -271,11 +276,6 @@ async function chooseFieldSmart(q){
         MATCH_NOTE = `AI: Location as subject → Subject, Title`;
         return 'location_subject';
       }
-    } 
-    // For TITLE queries
-    else if (queryType === 'title' || (searchFields.includes('title') && searchFields.length === 1)) {
-      MATCH_NOTE = `AI: Book title → Title`;
-      return 'title';
     } 
     // For SUBJECT/TOPIC queries
     else if (searchFields.includes('subject')) {
@@ -316,7 +316,34 @@ function chooseField(q){
     if(a>3 && a>s){MATCH_NOTE="Found in authors → Author";return "author"}
   }
   const words=raw.split(/\s+/).filter(Boolean);
-  if(words.length>=2 && words.length<=3 && isArabic(raw) && !/[a-zA-Z]/.test(raw)){MATCH_NOTE="2-3 Arabic words → Author";return "author"}
+  
+  // 6. Check if it looks like an AUTHOR NAME (2-3 words, all Arabic)
+  // But EXCLUDE common title/subject words to prevent misidentification
+  if(words.length>=2 && words.length<=3 && isArabic(raw) && !/[a-zA-Z]/.test(raw)){
+    // Common words that appear in titles/subjects, not author names
+    const commonTitleWords = new Set([
+      'الفكر', 'فكر', 'الفكري', 'فكري', 
+      'السياسي', 'سياسي', 'السياسة', 'سياسة',
+      'الإيراني', 'إيراني', 'الفلسطيني', 'فلسطيني',
+      'الوطني', 'وطني', 'الوطنية', 'وطنية',
+      'الاجتماعي', 'اجتماعي', 'الاقتصادي', 'اقتصادي',
+      'التاريخ', 'تاريخ', 'الثقافة', 'ثقافة',
+      'الديني', 'ديني', 'الدين', 'دين',
+      'الإسلامي', 'إسلامي', 'الحديث', 'حديث',
+      'القديم', 'قديم', 'الحكومة', 'حكومة',
+      'الإدارة', 'إدارة', 'النظام', 'نظام',
+      'الكتاب', 'كتاب', 'العلم', 'علم'
+    ]);
+    
+    const hasCommonTitleWord = words.some(w => commonTitleWords.has(norm(w)));
+    
+    if(!hasCommonTitleWord){
+      // Only treat as author name if no common title/subject words present
+      MATCH_NOTE="2-3 Arabic words → Author";
+      return "author";
+    }
+    // If it has title words, let it fall through to AI analysis or default behavior
+  }
   MATCH_NOTE="Default → Title+Subject+Author";return "default"
 }
 
@@ -426,7 +453,23 @@ function searchField(field,q){
         if (hit) MATCH_NOTE = "Author: surname + distinct name (if present)";
       }
 
-
+    } else if(field==="title"){
+      // *** TITLE FIELD - EXACT TITLE MATCHING (ALL KEYWORDS REQUIRED) ***
+      // First, try exact full phrase match (highest priority)
+      if(r.nTitle.includes(nq)){
+        sc=100;
+        hit=true;
+      }
+      // Then try partial matches but REQUIRE ALL tokens to be present
+      else {
+        const titleMatch = tokens.filter(tok=>r.nTitle.includes(tok)).length;
+        // ALL tokens must be present in title (100% match requirement, not 50%)
+        if(titleMatch === tokens.length && titleMatch > 0){
+          sc = 90;  // Slightly lower than exact phrase match
+          hit=true;
+        }
+      }
+      if(hit) MATCH_NOTE = "Title: Exact phrase or all keywords present";
 
     } else if(field==="subject"){
       if(r.nSubject.includes(nq)){sc=100;hit=true}
